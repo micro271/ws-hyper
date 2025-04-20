@@ -19,7 +19,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let url = std::env::var("DATABASE_URL").expect("Database url is invalid");
 
-    let repository = Arc::new(Repository::new(&url).await?);
+    let repository = Arc::new(
+        Repository::new(
+            url,
+            "admin".to_string(),
+            "pass".to_string(),
+            "db".to_string(),
+        )
+        .await?,
+    );
 
     tracing::info!("Listening: {:?}", &socket);
     loop {

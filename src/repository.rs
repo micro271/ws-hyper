@@ -1,25 +1,25 @@
-use sqlx::{
-    FromRow,
-    postgres::{PgPool, PgPoolOptions, PgRow},
+use mongodb::{
+    Client,
+    options::{ClientOptions, Credential},
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub struct Repository {
-    inner: PgPool,
+    inner: Client,
 }
 
 impl Repository {
-    pub async fn new(url: &str) -> Result<Self, DbError> {
-        Ok(Self {
-            inner: PgPoolOptions::new().max_connections(5).connect(url).await?,
-        })
-    }
+    pub async fn new(url: String, user: String, pass: String, db: String) -> Result<Self, DbError> {
+        let cred = Credential::builder().username(user).password(pass).build();
+        let mut opt = ClientOptions::parse(url).await?;
+        opt.max_connecting = Some(5);
+        opt.default_database = Some(db);
+        opt.credential = Some(cred);
 
-    pub async fn insert<'a, T>(&self, new: T)
-    where
-        T: FromRow<'a, PgRow> + Table,
-    {
+        Ok(Self {
+            inner: Client::with_options(opt).unwrap(),
+        })
     }
 }
 
@@ -42,78 +42,8 @@ impl std::fmt::Display for DbError {
 
 impl std::error::Error for DbError {}
 
-impl From<sqlx::Error> for DbError {
-    fn from(value: sqlx::Error) -> Self {
-        match value {
-            sqlx::Error::ColumnNotFound(e) => Self::ColumnNotFound(e),
-            sqlx::Error::RowNotFound => Self::RowNotFound,
-            e => Self::Sqlx(e.to_string()),
-        }
-    }
-}
-
-pub trait Table {
-    fn name() -> &'static str;
-
-    fn query_select(&self) -> String {
-        format!("SELECT * FROM {}", Self::name())
-    }
-
-    fn query_update(&self) -> String {
-        format!("UPDATE {}", Self::name())
-    }
-    fn query_insert() -> String {
-        let columns = Self::columns_name();
-        let len = columns.len();
-
-        format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            Self::name(),
-            columns.len(),
-            (1..=len)
-                .map(|x| format!("${x}"))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-    }
-
-    fn columnds_value(self) -> Vec<Types>;
-    fn columns_name() -> Vec<&'static str>;
-}
-pub enum Types {
-    I32(i32),
-    String(String),
-    UtcWithOffset(time::OffsetDateTime),
-    OptionUsize(Option<usize>),
-    Uuid(Uuid),
-}
-
-impl From<i32> for Types {
-    fn from(value: i32) -> Self {
-        Self::I32(value)
-    }
-}
-
-impl From<String> for Types {
-    fn from(value: String) -> Self {
-        Self::String(value)
-    }
-}
-
-impl From<OffsetDateTime> for Types {
-    fn from(value: OffsetDateTime) -> Self {
-        Self::UtcWithOffset(value)
-    }
-}
-
-impl From<Option<usize>> for Types {
-    fn from(value: Option<usize>) -> Self {
-        Self::OptionUsize(value)
-    }
-}
-
-impl From<Uuid> for Types {
-    fn from(value: Uuid) -> Self {
-        Self::Uuid(value)
+impl From<mongodb::error::Error> for DbError {
+    fn from(value: mongodb::error::Error) -> Self {
+        Self::Sqlx(value.to_string())
     }
 }

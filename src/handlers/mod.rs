@@ -32,7 +32,7 @@ pub async fn entry(
         .headers()
         .get(&user_agent)
         .and_then(|x| x.to_str().map(ToString::to_string).ok())
-        .unwrap_or(String::new());
+        .unwrap_or_default();
     let user_agent = user_agent.to_string();
 
     let path = req.uri().path().to_string();

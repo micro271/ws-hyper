@@ -14,6 +14,7 @@ use http::{HeaderMap, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, BodyStream, Full};
 use hyper::body::Incoming;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use mongodb::bson::oid::ObjectId;
 use multer::Multipart;
 use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
@@ -147,7 +148,7 @@ pub async fn upload(
                         Some(usize::try_from(duration.elapsed().as_secs()).unwrap_or_default());
 
                     let new = Files {
-                        id: Uuid::new_v4(),
+                        _id: ObjectId::new(),
                         create_at: time,
                         elapsed_upload: duration,
                         extension,
