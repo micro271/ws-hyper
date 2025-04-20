@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::repository::{Table, Types};
 
-
 #[derive(Debug, FromRow, Deserialize)]
 pub struct Files {
     pub id: Uuid,
@@ -13,6 +12,7 @@ pub struct Files {
     pub extension: String,
     pub elapsed_upload: Option<usize>,
     pub id_tvshow: Uuid,
+    pub size: i64,
 }
 
 impl Table for Files {

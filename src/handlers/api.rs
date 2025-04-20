@@ -32,7 +32,7 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
         let path = path
             .split("/upload/")
             .nth(1)
-            .map(|x| x.split("/").collect::<Vec<&str>>());
+            .map(|x| x.split('/').collect::<Vec<&str>>());
 
         match path {
             Some(mut e) if e.len() == 2 => {
@@ -69,68 +69,113 @@ pub async fn upload(
         let aux = BodyStream::new(req.body_mut())
             .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
         let mut multipart = Multipart::new(aux, boundary);
-        let mut time;
-        let mut duration;
 
-        while let Ok(Some(mut field)) = multipart.next_field().await {
-            let tmp = field.name().unwrap();
-            println!("field.name: {:?}", tmp);
+        loop {
+            match multipart.next_field().await {
+                Ok(Some(mut field)) => {
+                    let tmp = field.name().unwrap();
+                    tracing::debug!("field.name: {tmp:?}");
 
-            let mut tmp = field
-                .file_name()
-                .map(|x| x.split(".").collect::<Vec<&str>>())
-                .filter(|x| x.len() >= 2)
-                .ok_or(ResponseError::new(
-                    StatusCode::BAD_REQUEST,
-                    "File name error, we have't identified the stem and extension".to_string(),
-                ))?;
+                    let mut tmp = field
+                        .file_name()
+                        .map(|x| x.split('.').collect::<Vec<&str>>())
+                        .filter(|x| x.len() >= 2)
+                        .ok_or(ResponseError::new(
+                            StatusCode::BAD_REQUEST,
+                            "File name error, we have't identified the stem and extension"
+                                .to_string(),
+                        ))?;
 
-            let extension = tmp.pop().unwrap().to_string();
+                    let extension = tmp.pop().unwrap().to_string();
 
-            let stem = if tmp.len() > 1 {
-                tmp.join(".")
-            } else {
-                tmp.pop().unwrap().to_string()
-            };
+                    let stem = if tmp.len() > 1 {
+                        tmp.join(".")
+                    } else {
+                        tmp.pop().unwrap().to_string()
+                    };
 
-            let file_name = field.file_name().unwrap();
+                    let file_name = field.file_name().unwrap();
 
-            println!("file name: {:?}", file_name);
+                    tracing::debug!("file name: {file_name:?}");
 
-            if let Some(e) = field.content_type() {
-                println!("{:?}", e);
+                    if let Some(e) = field.content_type() {
+                        tracing::debug!("{e:?}");
+                    }
+
+                    let time = time::OffsetDateTime::now_utc()
+                        .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap());
+                    let mut file = File::create(file_name).await.unwrap();
+                    let mut size: i64 = 0;
+
+                    let duration = std::time::Instant::now();
+
+                    loop {
+                        match field.chunk().await {
+                            Ok(Some(e)) => {
+                                size += match i64::try_from(e.len()) {
+                                    Ok(e) => e,
+                                    Err(err) => {
+                                        tracing::error!(
+                                            "Error parsing from bytes' length to i64 - Erro: {}",
+                                            err.to_string()
+                                        );
+                                        Default::default()
+                                    }
+                                };
+                                if let Err(e) = file.write_all(&e).await {
+                                    tracing::error!("Error to write from bytes to file {e}");
+                                    return Err(ResponseError::new(
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        "File write".to_string(),
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Read chunk error - Error: {e}");
+                                return Err(ResponseError::new(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "Read bytes fail".to_string(),
+                                ));
+                            }
+                            Ok(None) => break,
+                        }
+                    }
+
+                    tracing::warn!("File Size: {}", size);
+
+                    let duration =
+                        Some(usize::try_from(duration.elapsed().as_secs()).unwrap_or_default());
+
+                    let new = Files {
+                        id: Uuid::new_v4(),
+                        create_at: time,
+                        elapsed_upload: duration,
+                        extension,
+                        id_tvshow: Uuid::new_v4(),
+                        stem,
+                        size,
+                    };
+                }
+                Err(e) => {
+                    tracing::error!("Read field of the multiart error: {e}");
+                    break Err(ResponseError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Error to read field in multipart".to_string(),
+                    ));
+                }
+                Ok(None) => {
+                    break Err(ResponseError::new(
+                        StatusCode::OK,
+                        "Anithing field read".to_string(),
+                    ));
+                }
             }
-
-            time =
-                time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap());
-            let mut file = File::create(file_name).await.unwrap();
-
-            let elapsed = std::time::Instant::now();
-
-            let mut size: usize = 0;
-
-            while let Ok(Some(e)) = field.chunk().await {
-                size += e.len();
-                file.write_all(&e).await.unwrap();
-            }
-
-            tracing::warn!("File Size: {}", size);
-
-            duration = Some(usize::try_from(elapsed.elapsed().as_secs()).unwrap_or_default());
-
-            let new = Files {
-                id: Uuid::new_v4(),
-                create_at: time,
-                elapsed_upload: duration,
-                extension,
-                id_tvshow: Uuid::new_v4(),
-                stem,
-            };
         }
-
-        Ok(Response::new(Full::new(Bytes::from(""))))
     } else {
-        Ok(Response::new(Full::new(Bytes::from(""))))
+        Err(ResponseError::new(
+            StatusCode::BAD_REQUEST,
+            "Content-type not present".to_string(),
+        ))
     }
 }
 
@@ -144,6 +189,7 @@ pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     match check_user {
         Ok(Ok(e)) => {
             if verify(e.password, "prueba").unwrap_or(false) {
+                tracing::info!("Login succesful: [username: {}]", e.username);
                 Ok(Response::builder()
                     .status(StatusCode::OK)
                     .header(header::SET_COOKIE, "algo")
@@ -151,6 +197,7 @@ pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
                     .body(Full::new(Bytes::new()))
                     .unwrap_or_default())
             } else {
+                tracing::error!("Login failure: [username: {}]", e.username);
                 Err(ResponseError {
                     status: StatusCode::UNAUTHORIZED,
                     detail: "Username or password error".to_string(),
@@ -165,23 +212,23 @@ pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
             })
         }
         Err(e) => {
-            tracing::info!("UserEntry is not present");
+            tracing::info!("UserEntry is not present - Error: {}", e);
             Err(ResponseError {
                 status: StatusCode::BAD_REQUEST,
-                detail: "UserEntry is not present".to_string(),
+                detail: "User's values is not present".to_string(),
             })
         }
     }
 }
 
-pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Result<(), ResponseError> {
-    let token = headers
+pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Result<Claims, ResponseError> {
+    headers
         .get(http::header::COOKIE)
         .and_then(|x| x.to_str().ok())
         .and_then(|x| {
-            x.split(";")
+            x.split(';')
                 .find(|x| x.starts_with(JWT_IDENTIFIED))
-                .and_then(|x| x.split("=").nth(1))
+                .and_then(|x| x.split('=').nth(1))
         })
         .and_then(|x| {
             decode::<Claims>(
@@ -190,13 +237,10 @@ pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Result<(), Respons
                 &Validation::new(Algorithm::ES256),
             )
             .ok()
-        });
-
-    match token {
-        Some(_) => Ok(()),
-        _ => Err(ResponseError {
+            .map(|x| x.claims)
+        })
+        .ok_or(ResponseError {
             status: StatusCode::UNAUTHORIZED,
             detail: "Token is not present".to_string(),
-        }),
-    }
+        })
 }

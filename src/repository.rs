@@ -71,7 +71,7 @@ pub trait Table {
             Self::name(),
             columns.len(),
             (1..=len)
-                .map(|x| format!("${}", x))
+                .map(|x| format!("${x}"))
                 .collect::<Vec<_>>()
                 .join(",")
         )
