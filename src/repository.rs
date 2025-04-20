@@ -1,5 +1,5 @@
 use sqlx::{
-    FromRow, Type,
+    FromRow,
     postgres::{PgPool, PgPoolOptions, PgRow},
 };
 use time::OffsetDateTime;
@@ -12,10 +12,7 @@ pub struct Repository {
 impl Repository {
     pub async fn new(url: &str) -> Result<Self, DbError> {
         Ok(Self {
-            inner: PgPoolOptions::new()
-                .max_connections(5)
-                .connect(&url)
-                .await?,
+            inner: PgPoolOptions::new().max_connections(5).connect(url).await?,
         })
     }
 
@@ -74,7 +71,6 @@ pub trait Table {
             Self::name(),
             columns.len(),
             (1..=len)
-                .into_iter()
                 .map(|x| format!("${}", x))
                 .collect::<Vec<_>>()
                 .join(",")

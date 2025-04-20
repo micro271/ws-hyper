@@ -7,7 +7,6 @@ use http::{Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use std::{
-    convert::Infallible,
     net::SocketAddr,
     sync::{Arc, LazyLock},
 };
@@ -16,13 +15,13 @@ use tokio::sync::Mutex;
 
 use crate::repository::Repository;
 
-type ResponsesHttp = Result<Response<Full<Bytes>>, Infallible>;
 type ResponseWithError = Result<Response<Full<Bytes>>, ResponseError>;
+type ResponsesHttp = ResponseWithError;
 
 static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
 
-pub async fn middlewares(
+pub async fn entry(
     req: Request<Incoming>,
     peer: Option<SocketAddr>,
     repository: Arc<Repository>,
@@ -70,17 +69,24 @@ pub async fn middlewares(
 }
 
 pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> ResponseWithError {
+    let protected = ["/", "/api/v1"];
     match req.uri().path() {
-        "/" => Ok(great().await.unwrap()),
-        "/login" => Ok(login().await.unwrap()),
-        e if e.starts_with("/api/v1/") => {
-            api::verifi_token_from_cookie(req, repository, api::api).await
+        e if protected.iter().any(|x| e.starts_with(x)) => {
+            if api::verifi_token_from_cookie(req.headers()).await.is_err() {
+                return login().await;
+            }
+
+            match e {
+                "/" => great().await,
+                "/api/v1" => api::api(req, repository).await,
+                _ => fallback().await,
+            }
         }
-        _ => Ok(fallback().await.unwrap()),
+        _ => Ok(login().await.unwrap()),
     }
 }
 
-pub async fn fallback() -> ResponsesHttp {
+async fn fallback() -> ResponsesHttp {
     let tera = HTTP
         .lock()
         .await
@@ -92,7 +98,7 @@ pub async fn fallback() -> ResponsesHttp {
         .unwrap_or_default())
 }
 
-pub async fn great() -> ResponsesHttp {
+async fn great() -> ResponsesHttp {
     let tera = HTTP
         .lock()
         .await
@@ -104,7 +110,7 @@ pub async fn great() -> ResponsesHttp {
         .unwrap_or_default())
 }
 
-pub async fn login() -> ResponsesHttp {
+async fn login() -> ResponsesHttp {
     let tera = HTTP
         .lock()
         .await

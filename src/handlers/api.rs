@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
 use crate::{
-    models::{file::Files, user::Claims},
+    models::{
+        file::Files,
+        user::{Claims, UserEntry},
+    },
     repository::Repository,
 };
+use bcrypt::verify;
 use bytes::Bytes;
 use futures::StreamExt;
-use http::{Method, Request, Response, StatusCode, header};
-use http_body_util::{BodyStream, Full};
+use http::{HeaderMap, Method, Request, Response, StatusCode, header};
+use http_body_util::{BodyExt, BodyStream, Full};
 use hyper::body::Incoming;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use multer::Multipart;
@@ -17,12 +21,11 @@ use uuid::Uuid;
 
 use super::error::ResponseError;
 
+type Res = Result<Response<Full<Bytes>>, ResponseError>;
+
 const JWT_IDENTIFIED: &str = "JWT";
 
-pub async fn api(
-    req: Request<Incoming>,
-    repository: Arc<Repository>,
-) -> Result<Response<Full<Bytes>>, ResponseError> {
+pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/upload") && req.method() == Method::POST {
@@ -131,17 +134,48 @@ pub async fn upload(
     }
 }
 
-pub async fn verifi_token_from_cookie<F, Res>(
-    req: Request<Incoming>,
-    repository: Arc<Repository>,
-    next: F,
-) -> Result<Response<Full<Bytes>>, ResponseError>
-where
-    F: Fn(Request<Incoming>, Arc<Repository>) -> Res,
-    Res: Future<Output = Result<Response<Full<Bytes>>, ResponseError>>,
-{
-    let token = req
-        .headers()
+pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
+    let body = req.into_body();
+    let check_user = body
+        .collect()
+        .await
+        .map(|x| serde_json::from_slice::<'_, UserEntry>(&x.to_bytes()));
+
+    match check_user {
+        Ok(Ok(e)) => {
+            if verify(e.password, "prueba").unwrap_or(false) {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::SET_COOKIE, "algo")
+                    .header(header::LOCATION, "/")
+                    .body(Full::new(Bytes::new()))
+                    .unwrap_or_default())
+            } else {
+                Err(ResponseError {
+                    status: StatusCode::UNAUTHORIZED,
+                    detail: "Username or password error".to_string(),
+                })
+            }
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Bcrypt Err: {e}");
+            Err(ResponseError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                detail: e.to_string(),
+            })
+        }
+        Err(e) => {
+            tracing::info!("UserEntry is not present");
+            Err(ResponseError {
+                status: StatusCode::BAD_REQUEST,
+                detail: "UserEntry is not present".to_string(),
+            })
+        }
+    }
+}
+
+pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Result<(), ResponseError> {
+    let token = headers
         .get(http::header::COOKIE)
         .and_then(|x| x.to_str().ok())
         .and_then(|x| {
@@ -159,7 +193,7 @@ where
         });
 
     match token {
-        Some(_) => next(req, repository).await,
+        Some(_) => Ok(()),
         _ => Err(ResponseError {
             status: StatusCode::UNAUTHORIZED,
             detail: "Token is not present".to_string(),
