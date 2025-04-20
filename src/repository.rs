@@ -1,7 +1,9 @@
-use sqlx::{postgres::{PgPool, PgPoolOptions, PgRow}, FromRow, Type};
+use sqlx::{
+    FromRow, Type,
+    postgres::{PgPool, PgPoolOptions, PgRow},
+};
 use time::OffsetDateTime;
 use uuid::Uuid;
-
 
 pub struct Repository {
     inner: PgPool,
@@ -9,14 +11,18 @@ pub struct Repository {
 
 impl Repository {
     pub async fn new(url: &str) -> Result<Self, DbError> {
-        Ok(Self { inner: PgPoolOptions::new().max_connections(5).connect(&url).await?, })
+        Ok(Self {
+            inner: PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&url)
+                .await?,
+        })
     }
 
-    pub async fn insert<'a, T>(&self, new: T) 
-        where
-            T: FromRow<'a, PgRow> + Table,
+    pub async fn insert<'a, T>(&self, new: T)
+    where
+        T: FromRow<'a, PgRow> + Table,
     {
-        
     }
 }
 
@@ -44,7 +50,7 @@ impl From<sqlx::Error> for DbError {
         match value {
             sqlx::Error::ColumnNotFound(e) => Self::ColumnNotFound(e),
             sqlx::Error::RowNotFound => Self::RowNotFound,
-            e => Self::Sqlx(e.to_string())
+            e => Self::Sqlx(e.to_string()),
         }
     }
 }
@@ -60,16 +66,16 @@ pub trait Table {
         format!("UPDATE {}", Self::name())
     }
     fn query_insert() -> String {
-
         let columns = Self::columns_name();
         let len = columns.len();
 
-        format!("INSERT INTO {} ({}) VALUES ({})",
+        format!(
+            "INSERT INTO {} ({}) VALUES ({})",
             Self::name(),
             columns.len(),
             (1..=len)
                 .into_iter()
-                .map(|x| format!("${}",x))
+                .map(|x| format!("${}", x))
                 .collect::<Vec<_>>()
                 .join(",")
         )
