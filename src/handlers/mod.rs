@@ -1,12 +1,15 @@
 pub mod api;
 pub mod error;
+pub mod file;
+pub mod user;
 
 use bytes::Bytes;
-use error::ResponseError;
+use error::{Redirect, ResponseError};
 use http::{Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use std::{
+    convert::Infallible,
     net::SocketAddr,
     sync::{Arc, LazyLock},
 };
@@ -16,7 +19,7 @@ use tokio::sync::Mutex;
 use crate::repository::Repository;
 
 type ResponseWithError = Result<Response<Full<Bytes>>, ResponseError>;
-type ResponsesHttp = ResponseWithError;
+type ResponsesHttp = Result<Response<Full<Bytes>>, Infallible>;
 
 static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
@@ -34,13 +37,9 @@ pub async fn entry(
         .and_then(|x| x.to_str().map(ToString::to_string).ok())
         .unwrap_or_default();
     let user_agent = user_agent.to_string();
-
     let path = req.uri().path().to_string();
-
     let tmp = hello(req, repository).await;
-
     let duration = duration.elapsed().as_millis();
-
     match tmp {
         Ok(e) => {
             tracing::info!(
@@ -72,14 +71,14 @@ pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> Respo
     let protected = ["/", "/api/v1"];
     match req.uri().path() {
         e if protected.iter().any(|x| e.starts_with(x)) => {
-            if api::verifi_token_from_cookie(req.headers()).await.is_err() {
-                return login().await;
-            }
+            let Some(_claims) = api::verifi_token_from_cookie(req.headers()).await else {
+                return Ok(Redirect::to("/login").into());
+            };
 
             match e {
-                "/" => great().await,
+                "/" => Ok(great().await.unwrap()),
                 "/api/v1" => api::api(req, repository).await,
-                _ => fallback().await,
+                _ => Ok(fallback().await.unwrap()),
             }
         }
         _ => Ok(login().await.unwrap()),
@@ -93,9 +92,7 @@ async fn fallback() -> ResponsesHttp {
         .render("fallback.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST)
-        .await
-        .unwrap_or_default())
+    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
 }
 
 async fn great() -> ResponsesHttp {
@@ -105,9 +102,7 @@ async fn great() -> ResponsesHttp {
         .render("index.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST)
-        .await
-        .unwrap_or_default())
+    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
 }
 
 async fn login() -> ResponsesHttp {
@@ -117,15 +112,10 @@ async fn login() -> ResponsesHttp {
         .render("login.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST)
-        .await
-        .unwrap_or_default())
+    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
 }
 
-async fn html_basic(
-    body: String,
-    status: StatusCode,
-) -> Result<Response<Full<Bytes>>, http::Error> {
+fn html_basic(body: String, status: StatusCode) -> Result<Response<Full<Bytes>>, http::Error> {
     Response::builder()
         .header(header::CONTENT_TYPE, "text/html")
         .header(header::CONTENT_LENGTH, body.len())

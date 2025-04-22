@@ -2,8 +2,6 @@ use mongodb::{
     Client,
     options::{ClientOptions, Credential},
 };
-use time::OffsetDateTime;
-use uuid::Uuid;
 
 pub struct Repository {
     inner: Client,

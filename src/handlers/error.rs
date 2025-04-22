@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use http::{Response, StatusCode};
+use http::{HeaderValue, Response, StatusCode, header};
 use http_body_util::Full;
 
 use crate::repository::DbError;
@@ -14,6 +14,39 @@ impl ResponseError {
     pub fn new(status: StatusCode, detail: String) -> Self {
         Self { status, detail }
     }
+
+    pub fn parse_error(err: ParseError) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            detail: err.to_string(),
+        }
+    }
+
+    pub fn unimplemented() -> Self {
+        Self {
+            status: StatusCode::NOT_IMPLEMENTED,
+            detail: "This function is not implemented yet".to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    Path,
+    Param,
+    Json,
+    Query,
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::Path => write!(f, "Error parsing from entry valur to Path"),
+            ParseError::Param => write!(f, "Error parsing from entry valur to Param"),
+            ParseError::Json => write!(f, "Error parsing from entry valur to Json"),
+            ParseError::Query => write!(f, "Error parsing from entry valur to Query"),
+        }
+    }
 }
 
 impl std::fmt::Display for ResponseError {
@@ -22,30 +55,29 @@ impl std::fmt::Display for ResponseError {
     }
 }
 
-
 impl From<DbError> for ResponseError {
     fn from(value: DbError) -> Self {
         let (status, detail) = match value {
             DbError::Sqlx(e) => {
                 tracing::error!("{e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
-            },
-            e@ DbError::ColumnNotFound(_) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
+            }
+            e @ DbError::ColumnNotFound(_) => {
                 let err = e.to_string();
                 tracing::error!("{}", err);
                 (StatusCode::BAD_REQUEST, err)
-            },
+            }
             e @ DbError::RowNotFound => {
                 let err = e.to_string();
                 tracing::error!("{}", err);
                 (StatusCode::BAD_REQUEST, err)
-            },
+            }
         };
 
-        Self {
-            status,
-            detail
-        }
+        Self { status, detail }
     }
 }
 
@@ -54,7 +86,9 @@ impl From<ResponseError> for Response<Full<Bytes>> {
         let body = Full::new(Bytes::from(
             serde_json::json!({
                 "detail": value.detail
-            }).to_string()));
+            })
+            .to_string(),
+        ));
 
         Response::builder()
             .status(value.status)
@@ -64,3 +98,28 @@ impl From<ResponseError> for Response<Full<Bytes>> {
 }
 
 impl std::error::Error for ResponseError {}
+
+pub struct Redirect {
+    status_code: StatusCode,
+    location: HeaderValue,
+}
+
+impl Redirect {
+    pub fn to<T: AsRef<str>>(url: T) -> Self {
+        Self {
+            status_code: StatusCode::SEE_OTHER,
+            location: HeaderValue::try_from(url.as_ref())
+                .expect("Url is not a valid  header value"),
+        }
+    }
+}
+
+impl From<Redirect> for Response<Full<Bytes>> {
+    fn from(value: Redirect) -> Self {
+        Response::builder()
+            .status(value.status_code)
+            .header(header::LOCATION, value.location)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_default()
+    }
+}
