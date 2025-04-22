@@ -1,33 +1,31 @@
 use crate::{models::file::Files, repository::Repository};
-use bytes::Bytes;
 use futures::StreamExt;
-use http::{Method, Request, Response, StatusCode, header};
-use http_body_util::{BodyStream, Full};
-use hyper::body::Incoming;
+use http::Method;
+use http_body_util::BodyStream;
 use mongodb::bson::oid::ObjectId;
 use multer::Multipart;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::OnceLock,
 };
 use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
 use uuid::Uuid;
 
 use super::{
-    ResponseWithError,
-    error::{ParseError, ResponseError},
+    Arc, Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResponseWithError,
+    StatusCode, header,
 };
 
 static PATH_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-fn get_path_dir<'a>() -> PathBuf {
+fn get_path_dir() -> PathBuf {
     PATH_DIR
         .get_or_init(|| {
             let tmp = std::env::var("DIRECTORY").expect("the program's directory is not defined");
             Path::new(&tmp)
                 .canonicalize()
-                .expect(&format!("{tmp} Directory not exists"))
+                .unwrap_or_else(|_| panic!("{tmp} Directory not exists"))
         })
         .clone()
 }

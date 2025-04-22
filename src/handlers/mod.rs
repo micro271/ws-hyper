@@ -1,10 +1,10 @@
-pub mod api;
+pub mod api_v1;
 pub mod error;
-pub mod file;
-pub mod user;
+pub mod program;
 
+use super::{redirect::Redirect, repository::Repository};
 use bytes::Bytes;
-use error::{Redirect, ResponseError};
+use error::ResponseError;
 use http::{Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
@@ -15,8 +15,6 @@ use std::{
 };
 use tera::{Context, Tera};
 use tokio::sync::Mutex;
-
-use crate::repository::Repository;
 
 type ResponseWithError = Result<Response<Full<Bytes>>, ResponseError>;
 type ResponsesHttp = Result<Response<Full<Bytes>>, Infallible>;
@@ -71,13 +69,13 @@ pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> Respo
     let protected = ["/", "/api/v1"];
     match req.uri().path() {
         e if protected.iter().any(|x| e.starts_with(x)) => {
-            let Some(_claims) = api::verifi_token_from_cookie(req.headers()).await else {
+            let Some(_claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
                 return Ok(Redirect::to("/login").into());
             };
 
             match e {
                 "/" => Ok(great().await.unwrap()),
-                "/api/v1" => api::api(req, repository).await,
+                "/api/v1" => api_v1::api(req, repository).await,
                 _ => Ok(fallback().await.unwrap()),
             }
         }

@@ -1,3 +1,6 @@
+pub mod file;
+pub mod user;
+
 use std::sync::Arc;
 
 use crate::{
@@ -11,7 +14,10 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 
-use super::{error::ResponseError, file};
+use super::{
+    ResponseWithError,
+    error::{ParseError, ResponseError},
+};
 
 type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
@@ -25,7 +31,7 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     } else if path == "/login" {
         return login(req, repository).await;
     } else if path.starts_with("/user") {
-        return super::user::user(req, repository).await;
+        return user::user(req, repository).await;
     }
 
     Err(ResponseError::new(
@@ -34,7 +40,7 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     ))
 }
 
-pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
+pub async fn login(req: Request<Incoming>, _repository: Arc<Repository>) -> Res {
     let body = req.into_body();
     let check_user = body
         .collect()

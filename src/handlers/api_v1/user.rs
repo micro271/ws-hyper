@@ -1,8 +1,6 @@
-use super::{ResponseWithError, error::ResponseError};
+use super::{Arc, Incoming, Request, ResponseError, ResponseWithError, StatusCode};
 use crate::repository::Repository;
-use http::{Method, Request, StatusCode};
-use hyper::body::Incoming;
-use std::{fs::Metadata, sync::Arc};
+use http::Method;
 
 pub async fn user(req: Request<Incoming>, repository: Arc<Repository>) -> ResponseWithError {
     let path = req.uri().path().split("/user").collect::<Vec<_>>();

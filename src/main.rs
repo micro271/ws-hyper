@@ -1,5 +1,6 @@
 mod handlers;
 mod models;
+mod redirect;
 mod repository;
 
 use http::{Request, Response};
