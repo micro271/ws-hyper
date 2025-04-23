@@ -1,12 +1,10 @@
-use crate::{
-    models::file::Files,
-    repository::{self, Repository},
-};
+use crate::{models::file::Files, repository::Repository};
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
 use mongodb::bson::oid::ObjectId;
 use multer::Multipart;
+use serde_json::json;
 use std::{
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -109,7 +107,7 @@ pub async fn upload(
         let aux = BodyStream::new(req.body_mut())
             .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
         let mut multipart = Multipart::new(aux, boundary);
-
+        let mut oids = Vec::new();
         loop {
             match multipart.next_field().await {
                 Ok(Some(mut field)) => {
@@ -196,7 +194,8 @@ pub async fn upload(
                         size,
                     };
 
-                    _ = repository.insert(new).await;
+                    let oid = repository.insert(new).await.unwrap();
+                    oids.push(json!({"_oid": oid}));
                 }
                 Err(e) => {
                     tracing::error!("Read field of the multiart error: {e}");
@@ -206,10 +205,12 @@ pub async fn upload(
                     ));
                 }
                 Ok(None) => {
-                    break Err(ResponseError::new(
-                        StatusCode::OK,
-                        "Anithing field read".to_string(),
-                    ));
+                    break Ok(Response::builder()
+                        .status(StatusCode::CREATED)
+                        .body(Full::new(Bytes::from(
+                            json!({"resources": oids, "id_program": id_tvshow}).to_string(),
+                        )))
+                        .unwrap_or_default());
                 }
             }
         }

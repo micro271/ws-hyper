@@ -62,7 +62,7 @@ impl Repository {
         }
     }
 
-    pub async fn insert<T>(&self, new: T) -> Result<(), String>
+    pub async fn insert<T>(&self, new: T) -> Result<String, String>
     where
         T: Serialize + Send + Sync + GetCollection,
     {
@@ -74,7 +74,7 @@ impl Repository {
         db.collection::<T>(T::collection())
             .insert_one(new)
             .await
-            .map(|_| ())
+            .map(|x| x.inserted_id.to_string())
             .map_err(|e| e.to_string())
     }
 
