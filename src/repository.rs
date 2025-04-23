@@ -1,7 +1,10 @@
+use futures::StreamExt;
 use mongodb::{
     Client,
+    bson::{Document, doc},
     options::{ClientOptions, Credential},
 };
+use serde::{Serialize, de::DeserializeOwned};
 
 pub struct Repository {
     inner: Client,
@@ -19,6 +22,80 @@ impl Repository {
             inner: Client::with_options(opt).unwrap(),
         })
     }
+
+    pub async fn get_one<T>(&self, collection: &str, filter: Document) -> Option<T>
+    where
+        T: Send + Sync + DeserializeOwned,
+    {
+        self.inner
+            .default_database()?
+            .collection::<T>(collection)
+            .find_one(filter)
+            .await
+            .unwrap()
+    }
+
+    pub async fn get<T>(&self, collection: &str, filter: Document) -> Option<Vec<T>>
+    where
+        T: Send + Sync + DeserializeOwned,
+    {
+        let mut cursor = self
+            .inner
+            .default_database()?
+            .collection::<T>(collection)
+            .find(filter)
+            .await
+            .unwrap();
+        let mut resp = Vec::new();
+
+        loop {
+            match cursor.next().await {
+                Some(Ok(value)) => {
+                    resp.push(value);
+                }
+                Some(Err(e)) => {
+                    tracing::error!("Error to get the vlue from database - Error {e}");
+                    break None;
+                }
+                _ => break Some(resp),
+            }
+        }
+    }
+
+    pub async fn insert<T>(&self, new: T) -> Result<(), String>
+    where
+        T: Serialize + Send + Sync + GetCollection,
+    {
+        let db = self
+            .inner
+            .default_database()
+            .unwrap_or_else(|| panic!("Default database was not define"));
+
+        db.collection::<T>(T::collection())
+            .insert_one(new)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn update<T>(&self, new: T, filter: Document) -> Result<(), String>
+    where
+        T: Send + Sync + GetCollection,
+    {
+        let tmp = self
+            .inner
+            .default_database()
+            .unwrap()
+            .collection::<T>(T::collection())
+            .update_one(doc! {}, filter)
+            .await
+            .map_err(|x| x.to_string())?;
+        Ok(())
+    }
+}
+
+pub trait GetCollection {
+    fn collection() -> &'static str;
 }
 
 #[derive(Debug)]

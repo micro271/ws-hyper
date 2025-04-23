@@ -1,4 +1,7 @@
-use crate::{models::file::Files, repository::Repository};
+use crate::{
+    models::file::Files,
+    repository::{self, Repository},
+};
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
@@ -59,7 +62,7 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
         .and_then(|x| x.parse().map_err(|_| parse_error));
 
     if len == 2 && method == Method::POST {
-        return upload(req, id_user?, id_tvshow?).await;
+        return upload(req, repository, id_user?, id_tvshow?).await;
     } else if path.len() == 3 {
         let id_file = path
             .pop()
@@ -93,6 +96,7 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
 
 pub async fn upload(
     mut req: Request<Incoming>,
+    repository: Arc<Repository>,
     id_user: String,
     id_tvshow: String,
 ) -> Result<Response<Full<Bytes>>, ResponseError> {
@@ -191,6 +195,8 @@ pub async fn upload(
                         stem,
                         size,
                     };
+
+                    _ = repository.insert(new).await;
                 }
                 Err(e) => {
                     tracing::error!("Read field of the multiart error: {e}");
