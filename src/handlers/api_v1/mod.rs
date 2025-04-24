@@ -29,8 +29,6 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>, claim: Cla
 
     if path.starts_with("/file") {
         return file::file(req, repository).await;
-    } else if path == "/login" {
-        return login(req, repository).await;
     } else if path.starts_with("/user") {
         return user::user(req, repository).await;
     }

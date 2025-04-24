@@ -5,7 +5,7 @@ pub mod program;
 use super::{redirect::Redirect, repository::Repository};
 use bytes::Bytes;
 use error::ResponseError;
-use http::{Request, Response, StatusCode, header};
+use http::{Method, Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use std::{
@@ -67,19 +67,21 @@ pub async fn entry(
 
 pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> ResponseWithError {
     let protected = ["/", "/api/v1"];
-    match req.uri().path() {
-        e if protected.iter().any(|x| e.starts_with(x)) => {
+    match (req.uri().path(), req.method()) {
+        (_, &Method::OPTIONS) => Ok(cors()),
+        ("/login", &Method::POST) => Ok(login().await.unwrap()),
+        ("/login", &Method::GET) => api_v1::login(req, repository).await,
+        (path, _) if protected.iter().any(|x| path.starts_with(x)) => {
             let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
                 return Ok(Redirect::to("/login").into());
             };
 
-            match e {
+            match path {
                 "/" => Ok(great().await.unwrap()),
-                "/api/v1" => api_v1::api(req, repository, claims).await,
+                path if path.starts_with("/api/v1") => api_v1::api(req, repository, claims).await,
                 _ => Ok(fallback().await.unwrap()),
             }
         }
-        "/login" => Ok(login().await.unwrap()),
         _ => Ok(fallback().await.unwrap()),
     }
 }
@@ -120,4 +122,22 @@ fn html_basic(body: String, status: StatusCode) -> Result<Response<Full<Bytes>>,
         .header(header::CONTENT_LENGTH, body.len())
         .status(status)
         .body(Full::new(Bytes::from(body)))
+}
+
+pub fn cors() -> Response<Full<Bytes>> {
+    Response::builder()
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost")
+        .header(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            "GET, POST, PATCH, UPDATE, DELETE",
+        )
+        .header(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            "Content-Type, Authorization",
+        )
+        .header(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
+        .header(header::ACCESS_CONTROL_MAX_AGE, 3600)
+        .status(StatusCode::NO_CONTENT)
+        .body(Full::new(Bytes::new()))
+        .unwrap_or_default()
 }
