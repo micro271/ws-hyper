@@ -1,8 +1,14 @@
-use crate::{models::file::Files, repository::Repository};
+use crate::{
+    models::{
+        file::{FileLog, Owner},
+        user::{Ch, Program},
+    },
+    repository::Repository,
+};
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
-use mongodb::bson::oid::ObjectId;
+use mime::Mime;
 use multer::Multipart;
 use serde_json::json;
 use std::{
@@ -11,7 +17,6 @@ use std::{
 };
 use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
-use uuid::Uuid;
 
 use super::{
     Arc, Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResponseWithError,
@@ -114,35 +119,24 @@ pub async fn upload(
                     let tmp = field.name().unwrap();
                     tracing::debug!("field.name: {tmp:?}");
 
-                    let mut tmp = field
+                    let Some(file_name) = field
                         .file_name()
-                        .map(|x| x.split('.').collect::<Vec<&str>>())
-                        .filter(|x| x.len() >= 2)
-                        .ok_or(ResponseError::new(
+                        .filter(|x| x.ends_with(".mp4"))
+                        .map(ToString::to_string)
+                    else {
+                        tracing::error!("The file is not ended as .mp4");
+                        break Err(ResponseError::new(
                             StatusCode::BAD_REQUEST,
-                            "File name error, we have't identified the stem and extension"
-                                .to_string(),
-                        ))?;
-
-                    let extension = tmp.pop().unwrap().to_string();
-
-                    let stem = if tmp.len() > 1 {
-                        tmp.join(".")
-                    } else {
-                        tmp.pop().unwrap().to_string()
+                            "The file is not permited".to_string(),
+                        ));
                     };
-
-                    let file_name = field.file_name().unwrap();
 
                     tracing::debug!("file name: {file_name:?}");
 
-                    if let Some(e) = field.content_type() {
-                        tracing::debug!("{e:?}");
-                    }
-
                     let time = time::OffsetDateTime::now_utc()
                         .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap());
-                    let mut file = File::create(file_name).await.unwrap();
+
+                    let mut file = File::create(file_name.clone()).await.unwrap();
                     let mut size: i64 = 0;
 
                     let duration = std::time::Instant::now();
@@ -184,13 +178,16 @@ pub async fn upload(
                     let duration =
                         Some(usize::try_from(duration.elapsed().as_secs()).unwrap_or_default());
 
-                    let new = Files {
-                        _id: ObjectId::new(),
+                    let new = FileLog {
+                        _id: None,
                         create_at: time,
                         elapsed_upload: duration,
-                        extension,
-                        id_tvshow: Uuid::new_v4(),
-                        stem,
+                        name: file_name.to_string(),
+                        owner: Owner {
+                            username: "".to_string(),
+                            ip_src: "192.168.0.1".parse().unwrap(),
+                            email: String::new(),
+                        },
                         size,
                     };
 

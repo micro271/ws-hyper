@@ -69,17 +69,18 @@ pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> Respo
     let protected = ["/", "/api/v1"];
     match req.uri().path() {
         e if protected.iter().any(|x| e.starts_with(x)) => {
-            let Some(_claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
+            let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
                 return Ok(Redirect::to("/login").into());
             };
 
             match e {
                 "/" => Ok(great().await.unwrap()),
-                "/api/v1" => api_v1::api(req, repository).await,
+                "/api/v1" => api_v1::api(req, repository, claims).await,
                 _ => Ok(fallback().await.unwrap()),
             }
         }
-        _ => Ok(login().await.unwrap()),
+        "/login" => Ok(login().await.unwrap()),
+        _ => Ok(fallback().await.unwrap()),
     }
 }
 

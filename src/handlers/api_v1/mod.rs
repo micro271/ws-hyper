@@ -4,7 +4,7 @@ pub mod user;
 use std::sync::Arc;
 
 use crate::{
-    models::user::{Claims, UserEntry},
+    models::user::{Claims, User, UserEntry},
     repository::Repository,
 };
 use bcrypt::verify;
@@ -12,7 +12,8 @@ use bytes::Bytes;
 use http::{HeaderMap, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use mongodb::bson::doc;
 
 use super::{
     ResponseWithError,
@@ -23,7 +24,7 @@ type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
 
-pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
+pub async fn api(req: Request<Incoming>, repository: Arc<Repository>, claim: Claims) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/file") {
@@ -40,45 +41,80 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     ))
 }
 
-pub async fn login(req: Request<Incoming>, _repository: Arc<Repository>) -> Res {
+pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
     let body = req.into_body();
-    let check_user = body
-        .collect()
-        .await
-        .map(|x| serde_json::from_slice::<'_, UserEntry>(&x.to_bytes()));
+    let check_user = match body.collect().await {
+        Ok(e) => match serde_json::from_slice::<'_, UserEntry>(&e.to_bytes()) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!("Fail to deserialize the data entry - Err: {e}");
+                return Err(ResponseError::new(
+                    StatusCode::BAD_REQUEST,
+                    "Fail to deserialize the data entry".to_string(),
+                ));
+            }
+        },
+        Err(e) => {
+            tracing::error!("Error to obtain the UserEntry - Error: {e}");
+            return Err(ResponseError::new(
+                StatusCode::BAD_REQUEST,
+                "Credential is not present".to_string(),
+            ));
+        }
+    };
 
-    match check_user {
-        Ok(Ok(e)) => {
-            if verify(e.password, "prueba").unwrap_or(false) {
-                tracing::info!("Login succesful: [username: {}]", e.username);
+    let user = repository
+        .get_one::<User>(doc! {"username": check_user.username})
+        .await
+        .ok_or(ResponseError::new(
+            StatusCode::BAD_REQUEST,
+            "username not exists".to_string(),
+        ))?;
+
+    if verify(check_user.password, &user.password).unwrap_or(false) {
+        tracing::info!(
+            "Login succesful: [ _id: {}, username: {}, role: {} ]",
+            user._id.unwrap(),
+            user.username,
+            user.role,
+        );
+
+        match encode(
+            &Header::default(),
+            &Claims::from(user),
+            &EncodingKey::from_secret("SECRET".as_ref()),
+        ) {
+            Ok(token) => {
+                let age = time::Duration::hours(2).whole_hours();
+                let same_site = "Strict";
+                let cookie = format!(
+                    "jwt={token}; HttpOnly; Secure; SameSite={same_site}; Path=/; Max-Age={age}"
+                );
                 Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::SET_COOKIE, "algo")
+                    .status(StatusCode::SEE_OTHER)
+                    .header(header::SET_COOKIE, cookie)
                     .header(header::LOCATION, "/")
                     .body(Full::new(Bytes::new()))
                     .unwrap_or_default())
-            } else {
-                tracing::error!("Login failure: [username: {}]", e.username);
-                Err(ResponseError {
-                    status: StatusCode::UNAUTHORIZED,
-                    detail: "Username or password error".to_string(),
-                })
+            }
+            Err(e) => {
+                tracing::error!("Fail to create the token - Err: {e}");
+                Err(ResponseError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failt to create the token".to_string(),
+                ))
             }
         }
-        Ok(Err(e)) => {
-            tracing::error!("Bcrypt Err: {e}");
-            Err(ResponseError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                detail: e.to_string(),
-            })
-        }
-        Err(e) => {
-            tracing::info!("UserEntry is not present - Error: {}", e);
-            Err(ResponseError {
-                status: StatusCode::BAD_REQUEST,
-                detail: "User's values is not present".to_string(),
-            })
-        }
+    } else {
+        tracing::error!(
+            "Login failure: [ _id: {}, username: {} ]",
+            user._id.unwrap(),
+            user.username
+        );
+        Err(ResponseError {
+            status: StatusCode::UNAUTHORIZED,
+            detail: "Username or password error".to_string(),
+        })
     }
 }
 

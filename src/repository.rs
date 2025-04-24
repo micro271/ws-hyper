@@ -23,13 +23,13 @@ impl Repository {
         })
     }
 
-    pub async fn get_one<T>(&self, collection: &str, filter: Document) -> Option<T>
+    pub async fn get_one<T>(&self, filter: Document) -> Option<T>
     where
-        T: Send + Sync + DeserializeOwned,
+        T: Send + Sync + DeserializeOwned + GetCollection,
     {
         self.inner
             .default_database()?
-            .collection::<T>(collection)
+            .collection::<T>(T::collection())
             .find_one(filter)
             .await
             .unwrap()
