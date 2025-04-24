@@ -3,7 +3,7 @@ use crate::{
         file::{FileLog, Owner},
         user::{Ch, Program},
     },
-    repository::Repository,
+    repository::{self, Repository},
 };
 use futures::StreamExt;
 use http::Method;
@@ -36,7 +36,7 @@ fn get_path_dir() -> PathBuf {
         .clone()
 }
 
-pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> ResponseWithError {
+pub async fn file(req: Request<Incoming>) -> ResponseWithError {
     let mut path = req
         .uri()
         .path()
@@ -46,6 +46,7 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
         .unwrap();
     let len = path.len();
     let method = req.method();
+
     let parse_error = ResponseError::parse_error(ParseError::Path);
 
     let id_tvshow = path
@@ -65,7 +66,7 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
         .and_then(|x| x.parse().map_err(|_| parse_error));
 
     if len == 2 && method == Method::POST {
-        return upload(req, repository, id_user?, id_tvshow?).await;
+        return upload(req, id_user?, id_tvshow?).await;
     } else if path.len() == 3 {
         let id_file = path
             .pop()
@@ -80,15 +81,15 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
 
         match (method, id_tvshow, id_user) {
             (&Method::DELETE, Ok(id_tvshow), Ok(id_user)) => {
-                return delete_file(req, repository, id_user, id_tvshow, id_file?).await;
+                return delete_file(req, id_user, id_tvshow, id_file?).await;
             }
             (&Method::PATCH, Ok(id_tvshow), Ok(id_user)) => {
-                return update_file(req, repository, id_tvshow, id_user, id_file?).await;
+                return update_file(req, id_tvshow, id_user, id_file?).await;
             }
             (&Method::GET, id_tvshow, id_user) => {
                 let id_tvshow = id_tvshow.ok();
                 let id_user = id_user.ok();
-                return get_files(req, repository, id_user, id_tvshow).await;
+                return get_files(req, id_user, id_tvshow).await;
             }
             _ => {}
         }
@@ -99,7 +100,6 @@ pub async fn file(req: Request<Incoming>, repository: Arc<Repository>) -> Respon
 
 pub async fn upload(
     mut req: Request<Incoming>,
-    repository: Arc<Repository>,
     id_user: String,
     id_tvshow: String,
 ) -> Result<Response<Full<Bytes>>, ResponseError> {
@@ -108,8 +108,9 @@ pub async fn upload(
             tracing::error!("{}", e.to_string());
             ResponseError::new(StatusCode::BAD_REQUEST, "Parse Error".to_string())
         })?;
-
-        let aux = BodyStream::new(req.body_mut())
+        let (parts, body) = req.into_parts();
+        let repository = parts.extensions.get::<Arc<Repository>>().unwrap();
+        let aux = BodyStream::new(body)
             .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
         let mut multipart = Multipart::new(aux, boundary);
         let mut oids = Vec::new();
@@ -221,7 +222,6 @@ pub async fn upload(
 
 pub async fn delete_file(
     req: Request<Incoming>,
-    repository: Arc<Repository>,
     id_user: String,
     id_tvshow: String,
     id_file: String,
@@ -267,7 +267,6 @@ pub async fn delete_file(
 
 pub async fn update_file(
     req: Request<Incoming>,
-    repository: Arc<Repository>,
     id_tvshow: String,
     id_user: String,
     id_file: String,
@@ -277,7 +276,6 @@ pub async fn update_file(
 
 pub async fn get_files(
     req: Request<Incoming>,
-    repository: Arc<Repository>,
     id_user: Option<String>,
     id_tvshow: Option<String>,
 ) -> ResponseWithError {

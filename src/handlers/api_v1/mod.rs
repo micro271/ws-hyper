@@ -24,13 +24,13 @@ type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
 
-pub async fn api(req: Request<Incoming>, repository: Arc<Repository>, claim: Claims) -> Res {
+pub async fn api(req: Request<Incoming>, claim: Claims) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/file") {
-        return file::file(req, repository).await;
+        return file::file(req).await;
     } else if path.starts_with("/user") {
-        return user::user(req, repository).await;
+        return user::user(req).await;
     }
 
     Err(ResponseError::new(
@@ -39,8 +39,9 @@ pub async fn api(req: Request<Incoming>, repository: Arc<Repository>, claim: Cla
     ))
 }
 
-pub async fn login(req: Request<Incoming>, repository: Arc<Repository>) -> Res {
-    let body = req.into_body();
+pub async fn login(req: Request<Incoming>) -> Res {
+    let (parts, body) = req.into_parts();
+    let repository = parts.extensions.get::<Arc<Repository>>().unwrap();
     let check_user = match body.collect().await {
         Ok(e) => match serde_json::from_slice::<'_, UserEntry>(&e.to_bytes()) {
             Ok(e) => e,

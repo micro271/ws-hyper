@@ -40,7 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_with_state(repo, |req, repo| handlers::entry(req, peer, repo)),
+                    service_with_state(repo, |mut req, repo| {
+                        req.extensions_mut().insert(repo);
+                        handlers::entry(req, peer)
+                    }),
                 )
                 .await
             {

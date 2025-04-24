@@ -22,11 +22,7 @@ type ResponsesHttp = Result<Response<Full<Bytes>>, Infallible>;
 static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
 
-pub async fn entry(
-    req: Request<Incoming>,
-    peer: Option<SocketAddr>,
-    repository: Arc<Repository>,
-) -> ResponseWithError {
+pub async fn entry(req: Request<Incoming>, peer: Option<SocketAddr>) -> ResponseWithError {
     let duration = std::time::Instant::now();
     let user_agent = http::header::USER_AGENT;
     let user_agent_value = req
@@ -36,7 +32,7 @@ pub async fn entry(
         .unwrap_or_default();
     let user_agent = user_agent.to_string();
     let path = req.uri().path().to_string();
-    let tmp = hello(req, repository).await;
+    let tmp = hello(req).await;
     let duration = duration.elapsed().as_millis();
     match tmp {
         Ok(e) => {
@@ -65,12 +61,12 @@ pub async fn entry(
     }
 }
 
-pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> ResponseWithError {
+pub async fn hello(req: Request<Incoming>) -> ResponseWithError {
     let protected = ["/", "/api/v1"];
     match (req.uri().path(), req.method()) {
         (_, &Method::OPTIONS) => Ok(cors()),
         ("/login", &Method::POST) => Ok(login().await.unwrap()),
-        ("/login", &Method::GET) => api_v1::login(req, repository).await,
+        ("/login", &Method::GET) => api_v1::login(req).await,
         (path, _) if protected.iter().any(|x| path.starts_with(x)) => {
             let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
                 return Ok(Redirect::to("/login").into());
@@ -78,7 +74,7 @@ pub async fn hello(req: Request<Incoming>, repository: Arc<Repository>) -> Respo
 
             match path {
                 "/" => Ok(great().await.unwrap()),
-                path if path.starts_with("/api/v1") => api_v1::api(req, repository, claims).await,
+                path if path.starts_with("/api/v1") => api_v1::api(req, claims).await,
                 _ => Ok(fallback().await.unwrap()),
             }
         }
