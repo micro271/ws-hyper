@@ -1,6 +1,6 @@
+pub mod data_entry;
 pub mod file;
 pub mod user;
-
 use std::sync::Arc;
 
 use crate::{
@@ -24,7 +24,7 @@ type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
 
-pub async fn api(req: Request<Incoming>, claim: Claims) -> Res {
+pub async fn api(req: Request<Incoming>, claims: Claims) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/file") {
@@ -35,7 +35,7 @@ pub async fn api(req: Request<Incoming>, claim: Claims) -> Res {
 
     Err(ResponseError::new(
         StatusCode::NOT_FOUND,
-        format!("Entpoint {} not found", req.uri()),
+        Some(format!("Entpoint {} not found", req.uri())),
     ))
 }
 
@@ -49,7 +49,7 @@ pub async fn login(req: Request<Incoming>) -> Res {
                 tracing::error!("Fail to deserialize the data entry - Err: {e}");
                 return Err(ResponseError::new(
                     StatusCode::BAD_REQUEST,
-                    "Fail to deserialize the data entry".to_string(),
+                    Some("Fail to deserialize the data entry"),
                 ));
             }
         },
@@ -57,7 +57,7 @@ pub async fn login(req: Request<Incoming>) -> Res {
             tracing::error!("Error to obtain the UserEntry - Error: {e}");
             return Err(ResponseError::new(
                 StatusCode::BAD_REQUEST,
-                "Credential is not present".to_string(),
+                Some("Credential is not present"),
             ));
         }
     };
@@ -67,7 +67,7 @@ pub async fn login(req: Request<Incoming>) -> Res {
         .await
         .ok_or(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "username not exists".to_string(),
+            Some("username not exists"),
         ))?;
 
     if verify(check_user.password, &user.password).unwrap_or(false) {
@@ -100,7 +100,7 @@ pub async fn login(req: Request<Incoming>) -> Res {
                 tracing::error!("Fail to create the token - Err: {e}");
                 Err(ResponseError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failt to create the token".to_string(),
+                    Some("Failt to create the token"),
                 ))
             }
         }
@@ -110,10 +110,10 @@ pub async fn login(req: Request<Incoming>) -> Res {
             user._id.unwrap(),
             user.username
         );
-        Err(ResponseError {
-            status: StatusCode::UNAUTHORIZED,
-            detail: "Username or password error".to_string(),
-        })
+        Err(ResponseError::new(
+            StatusCode::UNAUTHORIZED,
+            Some("Username or password error"),
+        ))
     }
 }
 

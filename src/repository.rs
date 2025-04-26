@@ -62,7 +62,7 @@ impl Repository {
         }
     }
 
-    pub async fn insert<T>(&self, new: T) -> Result<String, String>
+    pub async fn insert<T>(&self, new: T) -> Result<String, DbError>
     where
         T: Serialize + Send + Sync + GetCollection,
     {
@@ -75,7 +75,7 @@ impl Repository {
             .insert_one(new)
             .await
             .map(|x| x.inserted_id.to_string())
-            .map_err(|e| e.to_string())
+            .map_err(|e| DbError::MongoDb(e.to_string()))
     }
 
     pub async fn update<T>(&self, new: T, filter: Document) -> Result<(), String>
@@ -100,7 +100,7 @@ pub trait GetCollection {
 
 #[derive(Debug)]
 pub enum DbError {
-    Sqlx(String),
+    MongoDb(String),
     ColumnNotFound(String),
     RowNotFound,
 }
@@ -108,7 +108,7 @@ pub enum DbError {
 impl std::fmt::Display for DbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DbError::Sqlx(e) => write!(f, "sqlx error: {e}"),
+            DbError::MongoDb(e) => write!(f, "Database Error: {e}"),
             DbError::ColumnNotFound(e) => write!(f, "Column {e} not found"),
             DbError::RowNotFound => write!(f, "Row not found"),
         }
@@ -119,6 +119,6 @@ impl std::error::Error for DbError {}
 
 impl From<mongodb::error::Error> for DbError {
     fn from(value: mongodb::error::Error) -> Self {
-        Self::Sqlx(value.to_string())
+        Self::MongoDb(value.to_string())
     }
 }

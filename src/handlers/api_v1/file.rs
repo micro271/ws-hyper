@@ -53,7 +53,7 @@ pub async fn file(req: Request<Incoming>) -> ResponseWithError {
         .pop()
         .ok_or(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "tv programs' id not present".to_string(),
+            "tv programs' id not present".into(),
         ))
         .and_then(|x| x.parse().map_err(|_| parse_error.clone()));
 
@@ -61,7 +61,7 @@ pub async fn file(req: Request<Incoming>) -> ResponseWithError {
         .pop()
         .ok_or(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "id's useris not present".to_string(),
+            "id's useris not present".into(),
         ))
         .and_then(|x| x.parse().map_err(|_| parse_error));
 
@@ -72,7 +72,7 @@ pub async fn file(req: Request<Incoming>) -> ResponseWithError {
             .pop()
             .ok_or(ResponseError::new(
                 StatusCode::BAD_REQUEST,
-                "File is not present in path".to_string(),
+                "File is not present in path".into(),
             ))
             .map(|x| {
                 x.parse()
@@ -106,7 +106,7 @@ pub async fn upload(
     if let Some(e) = req.headers().get(header::CONTENT_TYPE).cloned() {
         let boundary = multer::parse_boundary(e.to_str().unwrap()).map_err(|e| {
             tracing::error!("{}", e.to_string());
-            ResponseError::new(StatusCode::BAD_REQUEST, "Parse Error".to_string())
+            ResponseError::new(StatusCode::BAD_REQUEST, "Parse Error".into())
         })?;
         let (parts, body) = req.into_parts();
         let repository = parts.extensions.get::<Arc<Repository>>().unwrap();
@@ -128,7 +128,7 @@ pub async fn upload(
                         tracing::error!("The file is not ended as .mp4");
                         break Err(ResponseError::new(
                             StatusCode::BAD_REQUEST,
-                            "The file is not permited".to_string(),
+                            "The file is not permited".into(),
                         ));
                     };
 
@@ -159,7 +159,7 @@ pub async fn upload(
                                     tracing::error!("Error to write from bytes to file {e}");
                                     return Err(ResponseError::new(
                                         StatusCode::INTERNAL_SERVER_ERROR,
-                                        "File write".to_string(),
+                                        "File write".into(),
                                     ));
                                 }
                             }
@@ -167,7 +167,7 @@ pub async fn upload(
                                 tracing::error!("Read chunk error - Error: {e}");
                                 return Err(ResponseError::new(
                                     StatusCode::INTERNAL_SERVER_ERROR,
-                                    "Read bytes fail".to_string(),
+                                    "Read bytes fail".into(),
                                 ));
                             }
                             Ok(None) => break,
@@ -199,7 +199,7 @@ pub async fn upload(
                     tracing::error!("Read field of the multiart error: {e}");
                     break Err(ResponseError::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Error to read field in multipart".to_string(),
+                        "Error to read field in multipart".into(),
                     ));
                 }
                 Ok(None) => {
@@ -215,7 +215,7 @@ pub async fn upload(
     } else {
         Err(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "Content-type not present".to_string(),
+            "Content-type not present".into(),
         ))
     }
 }
@@ -238,7 +238,7 @@ pub async fn delete_file(
         if tmp.permissions().readonly() {
             return Err(ResponseError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Read only".to_string(),
+                "Read only".into(),
             ));
         } else {
             match tokio::fs::remove_file(path).await {
@@ -252,17 +252,14 @@ pub async fn delete_file(
                     tracing::warn!("Error to delete the file - Error: {}", e);
                     return Err(ResponseError::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Fail to delete the file".to_string(),
+                        "Fail to delete the file".into(),
                     ));
                 }
             }
         }
     }
 
-    Err(ResponseError {
-        status: StatusCode::BAD_REQUEST,
-        detail: "".to_string(),
-    })
+    Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None))
 }
 
 pub async fn update_file(

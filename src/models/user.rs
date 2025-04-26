@@ -10,7 +10,7 @@ pub struct Claims {
     role: Role,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct UserEntry {
     pub username: String,
     pub password: String,
