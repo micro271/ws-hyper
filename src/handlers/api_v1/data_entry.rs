@@ -7,27 +7,8 @@ pub struct NewUser {
     pub username: String,
     pub password: String,
     pub role: Role,
-    pub email: String,
-    pub phone: String,
-}
-
-impl NewUser {
-    pub fn encrypt(&mut self) -> Result<(), &'static str> {
-        match bcrypt::hash(self.password.as_bytes(), bcrypt::DEFAULT_COST) {
-            Ok(e) => {
-                self.password = e;
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Error to pass from password simple to hash - user: {} - Err: {}",
-                    self.username,
-                    e
-                );
-                Err("Error to create the user")
-            }
-        }
-    }
+    pub email: Option<String>,
+    pub phone: Option<String>,
 }
 
 impl From<NewUser> for User {

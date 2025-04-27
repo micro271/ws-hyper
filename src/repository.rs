@@ -1,3 +1,5 @@
+use std::fmt::write;
+
 use futures::TryStreamExt;
 use mongodb::{
     Client, Database, IndexModel,
@@ -5,6 +7,8 @@ use mongodb::{
     options::{ClientOptions, Credential},
 };
 use serde::{Serialize, de::DeserializeOwned};
+
+use crate::models::user::{Encrypt, User};
 
 pub struct Repository {
     inner: Client,
@@ -23,9 +27,26 @@ impl Repository {
         opt.default_database = Some(db);
         opt.credential = Some(cred);
 
-        Ok(Self {
+        let tmp = Self {
             inner: Client::with_options(opt)?,
-        })
+        };
+
+        if let Err(e) = tmp
+            .insert(User {
+                id: None,
+                username: "admin".to_string(),
+                password: "prueba".to_string().encrypt().unwrap(),
+                email: None,
+                phone: None,
+                role: crate::models::user::Role::Admin,
+                ch: None,
+            })
+            .await
+        {
+            tracing::error!("{e}")
+        }
+
+        Ok(tmp)
     }
 
     pub async fn create_index<T>(&self) -> Result<(), RepositoryError>
@@ -115,14 +136,14 @@ impl Repository {
         }
     }
 
-    pub async fn update<T>(&self, new: T, filter: Document) -> Result<u64, RepositoryError>
+    pub async fn update<T>(&self, new: Bson, filter: Document) -> Result<u64, RepositoryError>
     where
         T: Send + Sync + GetCollection,
     {
         match self
             .get_db()?
             .collection::<T>(T::collection())
-            .update_one(doc! {}, filter)
+            .update_one(doc! {"$set": new}, filter)
             .await
         {
             Ok(e) => Ok(e.modified_count),

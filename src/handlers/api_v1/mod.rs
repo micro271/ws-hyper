@@ -23,6 +23,7 @@ use super::{
 type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
+const ALGORITHM: Algorithm = Algorithm::HS256;
 
 pub async fn api(req: Request<Incoming>) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
@@ -74,7 +75,7 @@ pub async fn login(req: Request<Incoming>) -> Res {
             user.role,
         );
         let claims = Claims::from(user);
-        let header = Header::new(Algorithm::HS256);
+        let header = Header::new(ALGORITHM);
         tracing::debug!("{claims:?}");
         match encode(
             &header,
@@ -135,7 +136,7 @@ pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Option<Claims> {
             match decode::<Claims>(
                 token,
                 &DecodingKey::from_secret("SECRET".as_ref()),
-                &Validation::new(Algorithm::HS256),
+                &Validation::new(ALGORITHM),
             ) {
                 Ok(e) => {
                     tracing::debug!("Claims obtains: {:?}", e.claims);

@@ -1,5 +1,11 @@
-use crate::handlers::{State, from_incoming_to};
-use crate::models::user::User;
+use crate::models::user::{Encrypt, User};
+use crate::{
+    handlers::{
+        State,
+        utils::{from_incoming_to, get_extention},
+    },
+    models::user::UpdateUser,
+};
 
 use super::data_entry::NewUser;
 use super::{Incoming, Request, ResponseError, ResponseWithError, StatusCode};
@@ -23,85 +29,61 @@ pub async fn user(req: Request<Incoming>) -> ResponseWithError {
 
 pub async fn insert(req: Request<Incoming>) -> ResponseWithError {
     let (parts, body) = req.into_parts();
-    let mut body = from_incoming_to::<NewUser>(body).await?;
-    if let Err(e) = body.encrypt() {
-        tracing::error!("Encryption error - {e}");
-        return Err(ResponseError::new::<&str>(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            None,
-        ));
-    }
-    match parts.extensions.get::<State>() {
-        Some(state) => {
-            let resp = state.insert::<User>(body.into()).await?;
-            Ok(Response::builder()
-                .status(StatusCode::CREATED)
-                .body(Full::new(Bytes::from(
-                    serde_json::json!({"new_element": resp}).to_string(),
-                )))
-                .unwrap_or_default())
-        }
-        None => {
-            tracing::error!("State is not present in extensios");
-            Err(ResponseError::new::<&str>(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                None,
-            ))
-        }
-    }
+    let mut user = from_incoming_to::<NewUser>(body).await?;
+    user.password = user.password.encrypt()?;
+
+    let state = get_extention::<State>(&parts.extensions).await?;
+
+    let resp = state.insert::<User>(user.into()).await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::CREATED)
+        .body(Full::new(Bytes::from(
+            serde_json::json!({"new_element": resp}).to_string(),
+        )))
+        .unwrap_or_default())
 }
 
 pub async fn update(req: Request<Incoming>) -> ResponseWithError {
-    Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None))
+    let (parts, body) = req.into_parts();
+    let state = get_extention::<State>(&parts.extensions).await?; //todo create UpdateUser
+    let new_user = from_incoming_to::<UpdateUser>(body).await?;
+    state.update::<User>(new_user.try_into()?, doc! {}).await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(Full::new(Bytes::new()))
+        .unwrap_or_default())
 }
 
 pub async fn delete(req: Request<Incoming>) -> ResponseWithError {
-    match req.extensions().get::<State>() {
-        Some(state) => {
-            let len = state.delete::<User>(doc! {}).await?;
-            Ok(Response::builder()
-                .header(header::CONTENT_TYPE, "application/json")
-                .status(StatusCode::OK)
-                .body(Full::new(Bytes::from(
-                    json!({
-                        "document_affects": len
-                    })
-                    .to_string(),
-                )))
-                .unwrap_or_default())
-        }
-        _ => {
-            tracing::error!("State not defined");
-            Err(ResponseError::new::<&str>(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                None,
-            ))
-        }
-    }
+    let state = get_extention::<State>(req.extensions()).await?;
+    let len = state.delete::<User>(doc! {}).await?;
+
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .status(StatusCode::OK)
+        .body(Full::new(Bytes::from(
+            json!({
+                "document_affects": len
+            })
+            .to_string(),
+        )))
+        .unwrap_or_default())
 }
 
 pub async fn get(req: Request<Incoming>) -> ResponseWithError {
-    match req.extensions().get::<State>() {
-        Some(state) => {
-            let user = state.get_one::<User>(doc! {}).await?;
-            Ok(Response::builder()
-                .header(header::CONTENT_TYPE, "application/json")
-                .status(StatusCode::OK)
-                .body(Full::new(Bytes::from(
-                    json!({
-                        "data": user,
-                        "length": 1,
-                    })
-                    .to_string(),
-                )))
-                .unwrap_or_default())
-        }
-        _ => {
-            tracing::error!("State not defined");
-            Err(ResponseError::new::<&str>(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                None,
-            ))
-        }
-    }
+    let state = get_extention::<State>(req.extensions()).await?;
+    let user = state.get_one::<User>(doc! {}).await?;
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .status(StatusCode::OK)
+        .body(Full::new(Bytes::from(
+            json!({
+                "data": user,
+                "length": 1,
+            })
+            .to_string(),
+        )))
+        .unwrap_or_default())
 }

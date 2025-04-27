@@ -1,6 +1,7 @@
 pub mod api_v1;
 pub mod error;
 pub mod program;
+pub mod utils;
 
 use super::{redirect::Redirect, repository::Repository};
 use bytes::Bytes;
@@ -143,26 +144,4 @@ pub fn cors() -> Response<Full<Bytes>> {
         .status(StatusCode::NO_CONTENT)
         .body(Full::new(Bytes::new()))
         .unwrap_or_default()
-}
-
-pub async fn from_incoming_to<T>(body: Incoming) -> Result<T, ResponseError>
-where
-    T: DeserializeOwned,
-{
-    match body.collect().await {
-        Ok(e) => match serde_json::from_slice::<'_, T>(&e.to_bytes()) {
-            Ok(e) => Ok(e),
-            _ => Err(ResponseError::new(
-                StatusCode::BAD_REQUEST,
-                Some("Parsing data entry error"),
-            )),
-        },
-        Err(e) => {
-            tracing::error!("Error to deserialize the body - {e}");
-            Err(ResponseError::new(
-                StatusCode::BAD_REQUEST,
-                Some("Data entry error"),
-            ))
-        }
-    }
 }

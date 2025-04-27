@@ -1,7 +1,6 @@
 use crate::{
     handlers::State,
     models::file::{FileLog, Owner},
-    repository::Repository,
 };
 use futures::StreamExt;
 use http::Method;
@@ -16,7 +15,7 @@ use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
 
 use super::{
-    Arc, Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResponseWithError,
+    Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResponseWithError,
     StatusCode, header,
 };
 

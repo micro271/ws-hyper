@@ -1,15 +1,24 @@
+use crate::{
+    handlers::error::ResponseError,
+    repository::{GetCollection, IndexDB},
+};
+use http::StatusCode;
 use mongodb::{
     IndexModel,
-    bson::{doc, oid::ObjectId},
+    bson::{Bson, doc, oid::ObjectId},
     options::IndexOptions,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::repository::{GetCollection, IndexDB};
+pub trait Encrypt {
+    type Error;
+    type Response;
+    fn encrypt(&self) -> Result<Self::Response, Self::Error>;
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Claims {
-    sub: ObjectId,
+    sub: String,
     exp: i64,
     role: Role,
 }
@@ -23,7 +32,7 @@ pub struct UserEntry {
 impl From<User> for Claims {
     fn from(value: User) -> Self {
         Self {
-            sub: value.id.unwrap(),
+            sub: value.id.unwrap().to_string(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(2)).unix_timestamp(),
             role: value.role,
         }
@@ -48,8 +57,8 @@ pub struct User {
 
     pub username: String,
     pub password: String,
-    pub email: String,
-    pub phone: String,
+    pub email: Option<String>,
+    pub phone: Option<String>,
     pub role: Role,
     pub ch: Option<Ch>,
 }
@@ -88,5 +97,55 @@ pub struct Ch {
 impl GetCollection for User {
     fn collection() -> &'static str {
         "users"
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUser {
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+impl TryFrom<UpdateUser> for Bson {
+    type Error = ResponseError;
+
+    fn try_from(value: UpdateUser) -> Result<Self, Self::Error> {
+        let mut doc = doc! {};
+        if let Some(pass) = value.password {
+            doc.insert(
+                "password",
+                pass.encrypt().map_err(|_| {
+                    ResponseError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Some("error to hashing the password"),
+                    )
+                })?,
+            );
+        }
+        if let Some(username) = value.username {
+            doc.insert("username", username);
+        }
+
+        Ok(Bson::from(doc))
+    }
+}
+
+impl Encrypt for String {
+    type Error = ResponseError;
+    type Response = String;
+    fn encrypt(&self) -> Result<Self::Response, Self::Error> {
+        match bcrypt::hash(self.as_bytes(), bcrypt::DEFAULT_COST) {
+            Ok(e) => Ok(e),
+            Err(e) => {
+                tracing::error!(
+                    "Error to pass from password in text plain to hash Err: {}",
+                    e
+                );
+                Err(ResponseError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Some("Error to hashing the value"),
+                ))
+            }
+        }
     }
 }
