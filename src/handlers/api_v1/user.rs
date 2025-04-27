@@ -122,15 +122,23 @@ pub async fn get(req: Request<Incoming>) -> ResponseWithError {
         doc! {"_id": ObjectId::from_str(claims.sub.as_str()).unwrap()}
     };
 
-    let user = state.get_one::<User>(filter).await?;
+    let mut user = state.get::<User>(filter).await?;
+
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/json")
         .status(StatusCode::OK)
         .body(Full::new(Bytes::from(
-            json!({
-                "data": user,
-                "length": 1,
-            })
+            if user.len() == 1 {
+                json!({
+                    "data": user.pop(),
+                    "length": 1,
+                })
+            } else {
+                json!({
+                    "data": user,
+                    "length": user.len(),
+                })
+            }
             .to_string(),
         )))
         .unwrap_or_default())
