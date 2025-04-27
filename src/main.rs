@@ -5,6 +5,7 @@ mod repository;
 
 use http::{Request, Response};
 use hyper::{body::Body, service::Service};
+use models::user::User;
 use repository::Repository;
 use std::{marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::net::TcpListener;
@@ -15,20 +16,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
 
     let socket = SocketAddr::new("0.0.0.0".parse().unwrap(), 4000);
-
     let listen = TcpListener::bind(socket).await?;
 
-    let url = std::env::var("DATABASE_URL").expect("Database url is invalid");
+    let db_host = std::env::var("DB_HOST").expect("Database url is not defined");
+    let db_port = std::env::var("DB_PORT").expect("Port is not defined");
+    let db_user = std::env::var("DB_USERNAME").expect("Database's user is not defined");
+    let db_passwd = std::env::var("DB_PASSWD").expect("Database's password is not defined");
+    let db_name = std::env::var("DB_NAME").expect("Database's name is not defined");
 
     let repository = Arc::new(
         Repository::new(
-            url,
-            "admin".to_string(),
-            "pass".to_string(),
-            "db".to_string(),
+            format!("mongodb://{}:{}", db_host, db_port),
+            db_user,
+            db_passwd,
+            db_name,
         )
         .await?,
     );
+
+    repository.create_index::<User>().await?;
 
     tracing::info!("Listening: {:?}", &socket);
     loop {

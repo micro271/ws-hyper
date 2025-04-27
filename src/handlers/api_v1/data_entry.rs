@@ -33,7 +33,7 @@ impl NewUser {
 impl From<NewUser> for User {
     fn from(value: NewUser) -> Self {
         Self {
-            _id: None,
+            id: None,
             username: value.username,
             password: value.password,
             email: value.email,

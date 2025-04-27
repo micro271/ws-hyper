@@ -24,19 +24,19 @@ type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
 
-pub async fn api(req: Request<Incoming>, claims: Claims) -> Res {
+pub async fn api(req: Request<Incoming>) -> Res {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/file") {
-        return file::file(req).await;
+        file::file(req).await
     } else if path.starts_with("/user") {
-        return user::user(req).await;
+        user::user(req).await
+    } else {
+        Err(ResponseError::new(
+            StatusCode::NOT_FOUND,
+            Some(format!("Entpoint {} not found", req.uri())),
+        ))
     }
-
-    Err(ResponseError::new(
-        StatusCode::NOT_FOUND,
-        Some(format!("Entpoint {} not found", req.uri())),
-    ))
 }
 
 pub async fn login(req: Request<Incoming>) -> Res {
@@ -64,30 +64,28 @@ pub async fn login(req: Request<Incoming>) -> Res {
 
     let user = repository
         .get_one::<User>(doc! {"username": check_user.username})
-        .await
-        .ok_or(ResponseError::new(
-            StatusCode::BAD_REQUEST,
-            Some("username not exists"),
-        ))?;
+        .await?;
 
     if verify(check_user.password, &user.password).unwrap_or(false) {
         tracing::info!(
             "Login succesful: [ _id: {}, username: {}, role: {} ]",
-            user._id.unwrap(),
+            user.id.unwrap(),
             user.username,
             user.role,
         );
-
+        let claims = Claims::from(user);
+        let header = Header::new(Algorithm::HS256);
+        tracing::debug!("{claims:?}");
         match encode(
-            &Header::default(),
-            &Claims::from(user),
+            &header,
+            &claims,
             &EncodingKey::from_secret("SECRET".as_ref()),
         ) {
             Ok(token) => {
-                let age = time::Duration::hours(2).whole_hours();
+                let age = time::Duration::hours(2).whole_seconds();
                 let same_site = "Strict";
                 let cookie = format!(
-                    "jwt={token}; HttpOnly; Secure; SameSite={same_site}; Path=/; Max-Age={age}"
+                    "{JWT_IDENTIFIED}={token}; HttpOnly; Secure; SameSite={same_site}; Path=/; Max-Age={age}"
                 );
                 Ok(Response::builder()
                     .status(StatusCode::SEE_OTHER)
@@ -100,14 +98,14 @@ pub async fn login(req: Request<Incoming>) -> Res {
                 tracing::error!("Fail to create the token - Err: {e}");
                 Err(ResponseError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Some("Failt to create the token"),
+                    Some(e.to_string()),
                 ))
             }
         }
     } else {
         tracing::error!(
             "Login failure: [ _id: {}, username: {} ]",
-            user._id.unwrap(),
+            user.id.unwrap(),
             user.username
         );
         Err(ResponseError::new(
@@ -118,21 +116,44 @@ pub async fn login(req: Request<Incoming>) -> Res {
 }
 
 pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Option<Claims> {
-    headers
-        .get(http::header::COOKIE)
-        .and_then(|x| x.to_str().ok())
-        .and_then(|x| {
-            x.split(';')
-                .find(|x| x.starts_with(JWT_IDENTIFIED))
-                .and_then(|x| x.split('=').nth(1))
-        })
-        .and_then(|x| {
-            decode::<Claims>(
-                x,
+    match headers.get(http::header::COOKIE).map(|x| x.to_str()) {
+        Some(Ok(pair)) => {
+            let Some(token_pair) = pair.split(';').find(|x| x.starts_with(JWT_IDENTIFIED)) else {
+                tracing::error!("Cookie key {} not found", JWT_IDENTIFIED);
+                return None;
+            };
+
+            let Some(token) = token_pair.split('=').nth(1) else {
+                tracing::error!(
+                    "Cookie key {} present but it have not value",
+                    JWT_IDENTIFIED
+                );
+                return None;
+            };
+            tracing::debug!("{token}");
+
+            match decode::<Claims>(
+                token,
                 &DecodingKey::from_secret("SECRET".as_ref()),
-                &Validation::new(Algorithm::ES256),
-            )
-            .ok()
-            .map(|x| x.claims)
-        })
+                &Validation::new(Algorithm::HS256),
+            ) {
+                Ok(e) => {
+                    tracing::debug!("Claims obtains: {:?}", e.claims);
+                    Some(e.claims)
+                }
+                Err(e) => {
+                    tracing::error!("Fail authentication: {e}");
+                    None
+                }
+            }
+        }
+        Some(Err(e)) => {
+            tracing::error!("Error to pasing to str - Err: {}", e);
+            None
+        }
+        None => {
+            tracing::error!("Header COOKIE is not present");
+            None
+        }
+    }
 }

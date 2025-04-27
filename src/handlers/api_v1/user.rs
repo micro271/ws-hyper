@@ -4,30 +4,28 @@ use crate::models::user::User;
 use super::data_entry::NewUser;
 use super::{Incoming, Request, ResponseError, ResponseWithError, StatusCode};
 use bytes::Bytes;
-use http::{Method, Response};
+use http::{Method, Response, header};
 use http_body_util::Full;
+use mongodb::bson::doc;
+use serde_json::json;
 
 pub async fn user(req: Request<Incoming>) -> ResponseWithError {
-    let path = req.uri().path().split("/user").collect::<Vec<_>>();
     let method = req.method();
 
-    if path.is_empty() {
-        match *method {
-            Method::POST => return insert(req).await,
-            Method::PATCH => return update(req).await,
-            Method::DELETE => return delete(req).await,
-            Method::GET => return get(req).await,
-            _ => {}
-        }
+    match *method {
+        Method::POST => insert(req).await,
+        Method::PATCH => update(req).await,
+        Method::DELETE => delete(req).await,
+        Method::GET => get(req).await,
+        _ => Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None)),
     }
-
-    Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None))
 }
 
 pub async fn insert(req: Request<Incoming>) -> ResponseWithError {
     let (parts, body) = req.into_parts();
     let mut body = from_incoming_to::<NewUser>(body).await?;
-    if body.encrypt().is_err() {
+    if let Err(e) = body.encrypt() {
+        tracing::error!("Encryption error - {e}");
         return Err(ResponseError::new::<&str>(
             StatusCode::INTERNAL_SERVER_ERROR,
             None,
@@ -58,9 +56,52 @@ pub async fn update(req: Request<Incoming>) -> ResponseWithError {
 }
 
 pub async fn delete(req: Request<Incoming>) -> ResponseWithError {
-    Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None))
+    match req.extensions().get::<State>() {
+        Some(state) => {
+            let len = state.delete::<User>(doc! {}).await?;
+            Ok(Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .status(StatusCode::OK)
+                .body(Full::new(Bytes::from(
+                    json!({
+                        "document_affects": len
+                    })
+                    .to_string(),
+                )))
+                .unwrap_or_default())
+        }
+        _ => {
+            tracing::error!("State not defined");
+            Err(ResponseError::new::<&str>(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+            ))
+        }
+    }
 }
 
 pub async fn get(req: Request<Incoming>) -> ResponseWithError {
-    Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None))
+    match req.extensions().get::<State>() {
+        Some(state) => {
+            let user = state.get_one::<User>(doc! {}).await?;
+            Ok(Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .status(StatusCode::OK)
+                .body(Full::new(Bytes::from(
+                    json!({
+                        "data": user,
+                        "length": 1,
+                    })
+                    .to_string(),
+                )))
+                .unwrap_or_default())
+        }
+        _ => {
+            tracing::error!("State not defined");
+            Err(ResponseError::new::<&str>(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+            ))
+        }
+    }
 }

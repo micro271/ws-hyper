@@ -1,4 +1,4 @@
-use crate::repository::DbError;
+use crate::repository::RepositoryError;
 use bytes::Bytes;
 use http::{Response, StatusCode, header};
 use http_body_util::Full;
@@ -72,29 +72,20 @@ impl std::fmt::Display for ResponseError {
     }
 }
 
-impl From<DbError> for ResponseError {
-    fn from(value: DbError) -> Self {
-        let (status, detail) = match value {
-            DbError::MongoDb(e) => {
-                tracing::error!("{e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Database error".to_string(),
-                )
+impl From<RepositoryError> for ResponseError {
+    fn from(value: RepositoryError) -> Self {
+        let mut flag_not_detail = true;
+        let status = match value {
+            RepositoryError::MongoDb(_) => {
+                flag_not_detail = false;
+                StatusCode::INTERNAL_SERVER_ERROR
             }
-            e @ DbError::ColumnNotFound(_) => {
-                let err = e.to_string();
-                tracing::error!("{}", err);
-                (StatusCode::BAD_REQUEST, err)
-            }
-            e @ DbError::RowNotFound => {
-                let err = e.to_string();
-                tracing::error!("{}", err);
-                (StatusCode::BAD_REQUEST, err)
-            }
+            RepositoryError::DocumentNotFound => StatusCode::BAD_REQUEST,
+            RepositoryError::DatabaseDefault => StatusCode::INTERNAL_SERVER_ERROR,
+            RepositoryError::CollectionNotFound => StatusCode::BAD_REQUEST,
         };
 
-        Self::new(status, detail.into())
+        Self::new(status, (flag_not_detail).then_some(value.to_string()))
     }
 }
 

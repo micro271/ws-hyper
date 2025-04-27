@@ -25,7 +25,10 @@ pub type State = Arc<Repository>;
 static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
 
-pub async fn entry(req: Request<Incoming>, peer: Option<SocketAddr>) -> ResponseWithError {
+pub async fn entry(
+    req: Request<Incoming>,
+    peer: Option<SocketAddr>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
     let duration = std::time::Instant::now();
     let user_agent = http::header::USER_AGENT;
     let user_agent_value = req
@@ -59,25 +62,26 @@ pub async fn entry(req: Request<Incoming>, peer: Option<SocketAddr>) -> Response
                 user_agent,
                 user_agent_value
             );
-            Err(e)
+            Ok(e.into())
         }
     }
 }
 
-pub async fn hello(req: Request<Incoming>) -> ResponseWithError {
+pub async fn hello(mut req: Request<Incoming>) -> ResponseWithError {
     let protected = ["/", "/api/v1"];
     match (req.uri().path(), req.method()) {
         (_, &Method::OPTIONS) => Ok(cors()),
-        ("/login", &Method::POST) => Ok(login().await.unwrap()),
-        ("/login", &Method::GET) => api_v1::login(req).await,
+        ("/login", &Method::GET) => Ok(login().await.unwrap()),
+        ("/login", &Method::POST) => api_v1::login(req).await,
         (path, _) if protected.iter().any(|x| path.starts_with(x)) => {
             let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
                 return Ok(Redirect::to("/login").into());
             };
+            req.extensions_mut().insert(claims);
 
-            match path {
+            match req.uri().path() {
                 "/" => Ok(great().await.unwrap()),
-                path if path.starts_with("/api/v1") => api_v1::api(req, claims).await,
+                path if path.starts_with("/api/v1") => api_v1::api(req).await,
                 _ => Ok(fallback().await.unwrap()),
             }
         }

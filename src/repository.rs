@@ -1,7 +1,7 @@
-use futures::StreamExt;
+use futures::TryStreamExt;
 use mongodb::{
-    Client,
-    bson::{Document, doc},
+    Client, Database, IndexModel,
+    bson::{Bson, Document, doc},
     options::{ClientOptions, Credential},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -11,7 +11,12 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(url: String, user: String, pass: String, db: String) -> Result<Self, DbError> {
+    pub async fn new(
+        url: String,
+        user: String,
+        pass: String,
+        db: String,
+    ) -> Result<Self, RepositoryError> {
         let cred = Credential::builder().username(user).password(pass).build();
         let mut opt = ClientOptions::parse(url).await?;
         opt.max_connecting = Some(5);
@@ -19,78 +24,141 @@ impl Repository {
         opt.credential = Some(cred);
 
         Ok(Self {
-            inner: Client::with_options(opt).unwrap(),
+            inner: Client::with_options(opt)?,
         })
     }
 
-    pub async fn get_one<T>(&self, filter: Document) -> Option<T>
+    pub async fn create_index<T>(&self) -> Result<(), RepositoryError>
+    where
+        T: IndexDB + GetCollection + Send + Sync,
+    {
+        let collection = T::collection();
+
+        let db = self.get_db()?;
+
+        for index in T::get_unique_index() {
+            if let Err(e) = db.collection::<T>(collection).create_index(index).await {
+                tracing::error!("{e:?}");
+                continue;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_one<T>(&self, filter: Document) -> Result<T, RepositoryError>
     where
         T: Send + Sync + DeserializeOwned + GetCollection,
     {
-        self.inner
-            .default_database()?
-            .collection::<T>(T::collection())
-            .find_one(filter)
-            .await
-            .unwrap()
-    }
-
-    pub async fn get<T>(&self, collection: &str, filter: Document) -> Option<Vec<T>>
-    where
-        T: Send + Sync + DeserializeOwned,
-    {
-        let mut cursor = self
-            .inner
-            .default_database()?
-            .collection::<T>(collection)
-            .find(filter)
-            .await
-            .unwrap();
-        let mut resp = Vec::new();
-
-        loop {
-            match cursor.next().await {
-                Some(Ok(value)) => {
-                    resp.push(value);
+        match self.inner.default_database() {
+            Some(db) => match db.collection::<T>(T::collection()).find_one(filter).await {
+                Ok(e) => e.ok_or(RepositoryError::DocumentNotFound),
+                Err(e) => {
+                    tracing::debug!("Error to obtainer one element - Err: {}", e);
+                    Err(e.into())
                 }
-                Some(Err(e)) => {
-                    tracing::error!("Error to get the vlue from database - Error {e}");
-                    break None;
-                }
-                _ => break Some(resp),
+            },
+            None => {
+                tracing::error!("database not found");
+                Err(RepositoryError::DatabaseDefault)
             }
         }
     }
 
-    pub async fn insert<T>(&self, new: T) -> Result<String, DbError>
+    pub async fn get<T>(&self, filter: Document) -> Result<Vec<T>, RepositoryError>
+    where
+        T: Send + Sync + DeserializeOwned + GetCollection,
+    {
+        let collection = T::collection();
+        match self
+            .get_db()?
+            .collection::<T>(collection)
+            .find(filter)
+            .await
+        {
+            Ok(e) => match e.try_collect::<Vec<T>>().await {
+                Ok(e) => {
+                    if e.is_empty() {
+                        tracing::debug!("Have not documents in the collection {collection}");
+                        Err(RepositoryError::DocumentNotFound)
+                    } else {
+                        Ok(e)
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("error to create the vector - Err: {e}");
+                    Err(e.into())
+                }
+            },
+            Err(e) => {
+                tracing::error!("Error to obtaine the cursor - Err: {e}");
+                Err(e.into())
+            }
+        }
+    }
+
+    pub async fn insert<T>(&self, new: T) -> Result<Bson, RepositoryError>
     where
         T: Serialize + Send + Sync + GetCollection,
     {
-        let db = self
-            .inner
-            .default_database()
-            .unwrap_or_else(|| panic!("Default database was not define"));
-
-        db.collection::<T>(T::collection())
+        match self
+            .get_db()?
+            .collection::<T>(T::collection())
             .insert_one(new)
             .await
-            .map(|x| x.inserted_id.to_string())
-            .map_err(|e| DbError::MongoDb(e.to_string()))
+        {
+            Ok(e) => Ok(e.inserted_id),
+            Err(e) => {
+                tracing::error!("Insert new element fail - Error: {e}");
+                Err(e.into())
+            }
+        }
     }
 
-    pub async fn update<T>(&self, new: T, filter: Document) -> Result<(), String>
+    pub async fn update<T>(&self, new: T, filter: Document) -> Result<u64, RepositoryError>
     where
         T: Send + Sync + GetCollection,
     {
-        let tmp = self
-            .inner
-            .default_database()
-            .unwrap()
+        match self
+            .get_db()?
             .collection::<T>(T::collection())
             .update_one(doc! {}, filter)
             .await
-            .map_err(|x| x.to_string())?;
-        Ok(())
+        {
+            Ok(e) => Ok(e.modified_count),
+            Err(e) => {
+                tracing::error!("Error to update one document");
+                Err(e.into())
+            }
+        }
+    }
+
+    pub async fn delete<T>(&self, query: Document) -> Result<u64, RepositoryError>
+    where
+        T: Send + Sync + GetCollection,
+    {
+        match self
+            .get_db()?
+            .collection::<T>(T::collection())
+            .delete_one(query)
+            .await
+        {
+            Ok(e) => Ok(e.deleted_count),
+            Err(e) => {
+                tracing::error!("Error to update one document");
+                Err(e.into())
+            }
+        }
+    }
+
+    fn get_db(&self) -> Result<Database, RepositoryError> {
+        match self.inner.default_database() {
+            Some(e) => Ok(e),
+            None => {
+                tracing::error!("Default database not found");
+                Err(RepositoryError::DatabaseDefault)
+            }
+        }
     }
 }
 
@@ -99,26 +167,34 @@ pub trait GetCollection {
 }
 
 #[derive(Debug)]
-pub enum DbError {
+pub enum RepositoryError {
     MongoDb(String),
-    ColumnNotFound(String),
-    RowNotFound,
+    DocumentNotFound,
+    DatabaseDefault,
+    CollectionNotFound,
 }
 
-impl std::fmt::Display for DbError {
+impl std::fmt::Display for RepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DbError::MongoDb(e) => write!(f, "Database Error: {e}"),
-            DbError::ColumnNotFound(e) => write!(f, "Column {e} not found"),
-            DbError::RowNotFound => write!(f, "Row not found"),
+            RepositoryError::MongoDb(e) => write!(f, "Database Error: {e}"),
+            RepositoryError::DocumentNotFound => write!(f, "Document not found"),
+            RepositoryError::DatabaseDefault => write!(f, "Database default not defined"),
+            RepositoryError::CollectionNotFound => write!(f, "Collection not found"),
         }
     }
 }
 
-impl std::error::Error for DbError {}
+impl std::error::Error for RepositoryError {}
 
-impl From<mongodb::error::Error> for DbError {
+impl From<mongodb::error::Error> for RepositoryError {
     fn from(value: mongodb::error::Error) -> Self {
         Self::MongoDb(value.to_string())
     }
+}
+
+pub trait IndexDB: std::fmt::Debug + GetCollection {
+    fn get_unique_index() -> Vec<IndexModel>
+    where
+        Self: Sized;
 }

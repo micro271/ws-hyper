@@ -1,7 +1,11 @@
-use mongodb::bson::oid::ObjectId;
+use mongodb::{
+    IndexModel,
+    bson::{doc, oid::ObjectId},
+    options::IndexOptions,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::repository::GetCollection;
+use crate::repository::{GetCollection, IndexDB};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Claims {
@@ -19,16 +23,29 @@ pub struct UserEntry {
 impl From<User> for Claims {
     fn from(value: User) -> Self {
         Self {
-            sub: value._id.unwrap(),
+            sub: value.id.unwrap(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(2)).unix_timestamp(),
             role: value.role,
         }
     }
 }
 
+impl IndexDB for User {
+    fn get_unique_index() -> Vec<IndexModel> {
+        vec![
+            IndexModel::builder()
+                .keys(doc! {"username": 1})
+                .options(IndexOptions::builder().unique(true).build())
+                .build(),
+        ]
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct User {
-    pub _id: Option<ObjectId>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
+    pub id: Option<ObjectId>,
+
     pub username: String,
     pub password: String,
     pub email: String,

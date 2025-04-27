@@ -1,14 +1,11 @@
 use crate::{
-    models::{
-        file::{FileLog, Owner},
-        user::{Ch, Program},
-    },
-    repository::{self, Repository},
+    handlers::State,
+    models::file::{FileLog, Owner},
+    repository::Repository,
 };
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
-use mime::Mime;
 use multer::Multipart;
 use serde_json::json;
 use std::{
@@ -109,7 +106,7 @@ pub async fn upload(
             ResponseError::new(StatusCode::BAD_REQUEST, "Parse Error".into())
         })?;
         let (parts, body) = req.into_parts();
-        let repository = parts.extensions.get::<Arc<Repository>>().unwrap();
+        let repository = parts.extensions.get::<State>().unwrap();
         let aux = BodyStream::new(body)
             .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
         let mut multipart = Multipart::new(aux, boundary);
