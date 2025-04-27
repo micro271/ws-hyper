@@ -1,5 +1,3 @@
-use std::fmt::write;
-
 use futures::TryStreamExt;
 use mongodb::{
     Client, Database, IndexModel,

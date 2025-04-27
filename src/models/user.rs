@@ -18,9 +18,9 @@ pub trait Encrypt {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Claims {
-    sub: String,
-    exp: i64,
-    role: Role,
+    pub sub: String,
+    pub exp: i64,
+    pub role: Role,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -63,7 +63,7 @@ pub struct User {
     pub ch: Option<Ch>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum Role {
     Admin,
     Productor,
