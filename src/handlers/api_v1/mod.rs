@@ -16,16 +16,14 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, deco
 use mongodb::bson::doc;
 
 use super::{
-    ResponseWithError,
+    ResultResponse,
     error::{ParseError, ResponseError},
 };
-
-type Res = Result<Response<Full<Bytes>>, ResponseError>;
 
 const JWT_IDENTIFIED: &str = "JWT";
 const ALGORITHM: Algorithm = Algorithm::HS256;
 
-pub async fn api(req: Request<Incoming>) -> Res {
+pub async fn api(req: Request<Incoming>) -> ResultResponse {
     let path = req.uri().path().split("/api/v1").nth(1).unwrap_or_default();
 
     if path.starts_with("/file") {
@@ -40,7 +38,7 @@ pub async fn api(req: Request<Incoming>) -> Res {
     }
 }
 
-pub async fn login(req: Request<Incoming>) -> Res {
+pub async fn login(req: Request<Incoming>) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let repository = parts.extensions.get::<Arc<Repository>>().unwrap();
     let check_user = match body.collect().await {

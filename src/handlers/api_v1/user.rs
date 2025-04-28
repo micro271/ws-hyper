@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::data_entry::NewUser;
-use super::{Incoming, Request, ResponseError, ResponseWithError, StatusCode};
+use super::{Incoming, Request, ResponseError, ResultResponse, StatusCode};
 use bytes::Bytes;
 use http::{Method, Response, header};
 use http_body_util::Full;
@@ -18,7 +18,7 @@ use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use serde_json::json;
 
-pub async fn user(req: Request<Incoming>) -> ResponseWithError {
+pub async fn user(req: Request<Incoming>) -> ResultResponse {
     let method = req.method();
 
     match *method {
@@ -30,7 +30,7 @@ pub async fn user(req: Request<Incoming>) -> ResponseWithError {
     }
 }
 
-pub async fn insert(req: Request<Incoming>) -> ResponseWithError {
+pub async fn insert(req: Request<Incoming>) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let claims = get_extention::<Claims>(&parts.extensions).await.unwrap();
 
@@ -56,7 +56,7 @@ pub async fn insert(req: Request<Incoming>) -> ResponseWithError {
         .unwrap_or_default())
 }
 
-pub async fn update(req: Request<Incoming>) -> ResponseWithError {
+pub async fn update(req: Request<Incoming>) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let state = get_extention::<State>(&parts.extensions).await?; //todo create UpdateUser
     let new_user = from_incoming_to::<UpdateUser>(body).await?;
@@ -87,7 +87,7 @@ pub async fn update(req: Request<Incoming>) -> ResponseWithError {
     }
 }
 
-pub async fn delete(req: Request<Incoming>) -> ResponseWithError {
+pub async fn delete(req: Request<Incoming>) -> ResultResponse {
     let claims = get_extention::<Claims>(req.extensions()).await?;
 
     if claims.role != Role::Admin {
@@ -112,7 +112,7 @@ pub async fn delete(req: Request<Incoming>) -> ResponseWithError {
         .unwrap_or_default())
 }
 
-pub async fn get(req: Request<Incoming>) -> ResponseWithError {
+pub async fn get(req: Request<Incoming>) -> ResultResponse {
     let state = get_extention::<State>(req.extensions()).await?;
     let claims = get_extention::<Claims>(req.extensions()).await.unwrap();
 

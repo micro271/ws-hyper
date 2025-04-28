@@ -18,8 +18,8 @@ use std::{
 use tera::{Context, Tera};
 use tokio::sync::Mutex;
 
-type ResponseWithError = Result<Response<Full<Bytes>>, ResponseError>;
-type ResponsesHttp = Result<Response<Full<Bytes>>, Infallible>;
+type ResultResponse = Result<Response<Full<Bytes>>, ResponseError>;
+type ResponsesHttp = Response<Full<Bytes>>;
 
 pub type State = Arc<Repository>;
 
@@ -68,11 +68,11 @@ pub async fn entry(
     }
 }
 
-pub async fn hello(mut req: Request<Incoming>) -> ResponseWithError {
+pub async fn hello(mut req: Request<Incoming>) -> ResultResponse {
     let protected = ["/", "/api/v1"];
     match (req.uri().path(), req.method()) {
         (_, &Method::OPTIONS) => Ok(cors()),
-        ("/login", &Method::GET) => Ok(login().await.unwrap()),
+        ("/login", &Method::GET) => Ok(login().await),
         ("/login", &Method::POST) => api_v1::login(req).await,
         (path, _) if protected.iter().any(|x| path.starts_with(x)) => {
             let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
@@ -81,12 +81,12 @@ pub async fn hello(mut req: Request<Incoming>) -> ResponseWithError {
             req.extensions_mut().insert(claims);
 
             match req.uri().path() {
-                "/" => Ok(great().await.unwrap()),
+                "/" => Ok(great().await),
                 path if path.starts_with("/api/v1") => api_v1::api(req).await,
-                _ => Ok(fallback().await.unwrap()),
+                _ => Ok(fallback().await),
             }
         }
-        _ => Ok(fallback().await.unwrap()),
+        _ => Ok(fallback().await),
     }
 }
 
@@ -97,7 +97,7 @@ async fn fallback() -> ResponsesHttp {
         .render("fallback.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
+    html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default()
 }
 
 async fn great() -> ResponsesHttp {
@@ -107,7 +107,7 @@ async fn great() -> ResponsesHttp {
         .render("index.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
+    html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default()
 }
 
 async fn login() -> ResponsesHttp {
@@ -117,7 +117,7 @@ async fn login() -> ResponsesHttp {
         .render("login.html", &Context::new())
         .unwrap();
 
-    Ok(html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default())
+    html_basic(tera, StatusCode::BAD_REQUEST).unwrap_or_default()
 }
 
 fn html_basic(body: String, status: StatusCode) -> Result<Response<Full<Bytes>>, http::Error> {

@@ -1,3 +1,7 @@
+use super::{
+    Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResultResponse,
+    StatusCode, header,
+};
 use crate::{
     handlers::State,
     models::file::{FileLog, Owner},
@@ -14,11 +18,6 @@ use std::{
 use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
 
-use super::{
-    Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResponseWithError,
-    StatusCode, header,
-};
-
 static PATH_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn get_path_dir() -> PathBuf {
@@ -32,7 +31,7 @@ fn get_path_dir() -> PathBuf {
         .clone()
 }
 
-pub async fn file(req: Request<Incoming>) -> ResponseWithError {
+pub async fn file(req: Request<Incoming>) -> ResultResponse {
     let mut path = req
         .uri()
         .path()
@@ -98,7 +97,7 @@ pub async fn upload(
     mut req: Request<Incoming>,
     id_user: String,
     id_tvshow: String,
-) -> Result<Response<Full<Bytes>>, ResponseError> {
+) -> ResultResponse {
     if let Some(e) = req.headers().get(header::CONTENT_TYPE).cloned() {
         let boundary = multer::parse_boundary(e.to_str().unwrap()).map_err(|e| {
             tracing::error!("{}", e.to_string());
@@ -221,7 +220,7 @@ pub async fn delete_file(
     id_user: String,
     id_tvshow: String,
     id_file: String,
-) -> ResponseWithError {
+) -> ResultResponse {
     let mut path = get_path_dir(); /* TODO: The real path shound be in the repository */
 
     path.push(format!(
@@ -263,7 +262,7 @@ pub async fn update_file(
     id_tvshow: String,
     id_user: String,
     id_file: String,
-) -> ResponseWithError {
+) -> ResultResponse {
     Err(ResponseError::unimplemented())
 }
 
@@ -271,6 +270,10 @@ pub async fn get_files(
     req: Request<Incoming>,
     id_user: Option<String>,
     id_tvshow: Option<String>,
-) -> ResponseWithError {
+) -> ResultResponse {
     Err(ResponseError::unimplemented())
+}
+
+pub async fn download(req: Request<Incoming>) -> Response<BodyStream<&'static str>> {
+    Response::builder().body(BodyStream::new("")).unwrap()
 }
