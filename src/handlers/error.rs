@@ -80,13 +80,11 @@ impl From<RepositoryError> for ResponseError {
     fn from(value: RepositoryError) -> Self {
         let mut flag_not_detail = true;
         let status = match value {
-            RepositoryError::MongoDb(_) => {
+            RepositoryError::MongoDb(_) | RepositoryError::DatabaseDefault => {
                 flag_not_detail = false;
                 StatusCode::INTERNAL_SERVER_ERROR
             }
-            RepositoryError::DocumentNotFound => StatusCode::BAD_REQUEST,
-            RepositoryError::DatabaseDefault => StatusCode::INTERNAL_SERVER_ERROR,
-            RepositoryError::CollectionNotFound => StatusCode::BAD_REQUEST,
+            _ => StatusCode::BAD_REQUEST,
         };
 
         Self::new(status, (flag_not_detail).then_some(value.to_string()))

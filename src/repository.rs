@@ -29,10 +29,12 @@ impl Repository {
             inner: Client::with_options(opt)?,
         };
 
-        if let Err(e) = tmp
+        let username = "admin".to_string();
+
+        match tmp
             .insert(User {
                 id: None,
-                username: "admin".to_string(),
+                username: username.clone(),
                 password: "prueba".to_string().encrypt().unwrap(),
                 email: None,
                 phone: None,
@@ -41,7 +43,11 @@ impl Repository {
             })
             .await
         {
-            tracing::error!("{e}")
+            Err(RepositoryError::DuplicateKey) => {
+                tracing::warn!("The default username: \"{username}\" already exists")
+            }
+            Ok(id) => tracing::info!("created default user, _id: {id}"),
+            Err(err) => tracing::error!("Unexpected error: {err}"),
         }
 
         Ok(tmp)
@@ -191,6 +197,7 @@ pub enum RepositoryError {
     DocumentNotFound,
     DatabaseDefault,
     CollectionNotFound,
+    DuplicateKey,
 }
 
 impl std::fmt::Display for RepositoryError {
@@ -200,6 +207,7 @@ impl std::fmt::Display for RepositoryError {
             RepositoryError::DocumentNotFound => write!(f, "Document not found"),
             RepositoryError::DatabaseDefault => write!(f, "Database default not defined"),
             RepositoryError::CollectionNotFound => write!(f, "Collection not found"),
+            RepositoryError::DuplicateKey => write!(f, "Duplicate key"),
         }
     }
 }
@@ -208,7 +216,14 @@ impl std::error::Error for RepositoryError {}
 
 impl From<mongodb::error::Error> for RepositoryError {
     fn from(value: mongodb::error::Error) -> Self {
-        Self::MongoDb(value.to_string())
+        match *value.kind {
+            mongodb::error::ErrorKind::Write(mongodb::error::WriteFailure::WriteError(err))
+                if err.code == 11000 =>
+            {
+                Self::DuplicateKey
+            }
+            err => Self::MongoDb(err.to_string()),
+        }
     }
 }
 

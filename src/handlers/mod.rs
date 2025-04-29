@@ -41,6 +41,7 @@ pub async fn entry(
     let duration = std::time::Instant::now();
     let path = req.uri().path().to_string();
     let response = hello(req).await;
+    let peer = peer.map(|x| x.to_string()).unwrap_or("Unknown".to_string());
     let duration = duration.elapsed().as_millis();
     match response {
         Ok(r) => {
@@ -55,7 +56,7 @@ pub async fn entry(
         }
         Err(e) => {
             tracing::error!(
-                "Response {{ Status: {}, Path={}, error: {:?}, duration: {}ms, Peer: {:?} }}",
+                "Response {{ Status: {}, Path={}, duration: {}ms, Peer: {}, error: {:?} }}",
                 e.status(),
                 path,
                 e,

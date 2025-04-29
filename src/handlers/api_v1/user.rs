@@ -27,7 +27,7 @@ pub async fn user(req: Request<Incoming>) -> ResultResponse {
         .and_then(|x| x.parse().ok());
 
     match (method, user) {
-        (&Method::POST, _) => insert(req).await,
+        (&Method::POST, None) => insert(req).await,
         (&Method::PATCH, Some(user)) => update(req, user).await,
         (&Method::DELETE, Some(user)) => delete(req, user).await,
         (&Method::GET, user) => get(req, user).await,
@@ -73,7 +73,7 @@ pub async fn update(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
     let current_user = get_user_oid(claims)?;
 
     if claims.role == Role::Admin {
-        if new_user.role.is_some_and(|x| x != Role::Admin) && current_user == user {
+        if current_user == user && new_user.role.is_some_and(|x| x != Role::Admin) {
             return Err(ResponseError::new(
                 StatusCode::FORBIDDEN,
                 Some("You cannot change the role of the admin user"),

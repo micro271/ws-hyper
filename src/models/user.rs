@@ -50,7 +50,7 @@ impl IndexDB for User {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
     #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
     pub id: Option<ObjectId>,
@@ -78,14 +78,14 @@ impl std::fmt::Display for Role {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Program {
     pub name: String,
     pub path: String,
     pub icon_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Ch {
     pub name: String,
     pub number: i8,
