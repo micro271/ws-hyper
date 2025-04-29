@@ -11,6 +11,10 @@ pub struct ResponseError {
 }
 
 impl ResponseError {
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
+
     pub fn new<T>(status: StatusCode, detail: Option<T>) -> Self
     where
         T: AsRef<str>,

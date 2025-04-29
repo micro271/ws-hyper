@@ -30,38 +30,37 @@ pub async fn entry(
     req: Request<Incoming>,
     peer: Option<SocketAddr>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
+    tracing::debug!(
+        "Request:  {{ Method: {}, Uri: {}, Version: {:#?}, Headers: {:#?} }}",
+        req.method(),
+        req.uri(),
+        req.version(),
+        req.headers()
+    );
+
     let duration = std::time::Instant::now();
-    let user_agent = http::header::USER_AGENT;
-    let user_agent_value = req
-        .headers()
-        .get(&user_agent)
-        .and_then(|x| x.to_str().map(ToString::to_string).ok())
-        .unwrap_or_default();
-    let user_agent = user_agent.to_string();
     let path = req.uri().path().to_string();
-    let tmp = hello(req).await;
+    let response = hello(req).await;
     let duration = duration.elapsed().as_millis();
-    match tmp {
-        Ok(e) => {
+    match response {
+        Ok(r) => {
             tracing::info!(
-                "Request [ Path={}, duration: {}ms, Peer: {:?}, {}: {} ]",
+                "Response {{ Status: {}, Path={}, duration: {}ms, Peer: {:?} }}",
+                r.status(),
                 path,
                 duration,
                 peer,
-                user_agent,
-                user_agent_value
             );
-            Ok(e)
+            Ok(r)
         }
         Err(e) => {
             tracing::error!(
-                "Request [ Path={}, error: {:?}, duration: {}ms, Peer: {:?}, {}: {}]",
+                "Response {{ Status: {}, Path={}, error: {:?}, duration: {}ms, Peer: {:?} }}",
+                e.status(),
                 path,
                 e,
                 duration,
                 peer,
-                user_agent,
-                user_agent_value
             );
             Ok(e.into())
         }

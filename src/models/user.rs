@@ -63,7 +63,7 @@ pub struct User {
     pub ch: Option<Ch>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum Role {
     Admin,
     Productor,
@@ -104,6 +104,7 @@ impl GetCollection for User {
 pub struct UpdateUser {
     pub username: Option<String>,
     pub password: Option<String>,
+    pub role: Option<Role>,
 }
 
 impl TryFrom<UpdateUser> for Bson {

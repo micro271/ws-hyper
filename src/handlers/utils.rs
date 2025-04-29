@@ -1,4 +1,7 @@
 use http::Extensions;
+use mongodb::bson::oid::ObjectId;
+
+use crate::models::user::Claims;
 
 use super::{BodyExt, DeserializeOwned, Incoming, ResponseError, StatusCode};
 
@@ -35,6 +38,19 @@ where
             Err(ResponseError::new::<&str>(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 None,
+            ))
+        }
+    }
+}
+
+pub fn get_user_oid(claims: &Claims) -> Result<ObjectId, ResponseError> {
+    match claims.sub.parse::<ObjectId>() {
+        Ok(oid) => Ok(oid),
+        Err(e) => {
+            tracing::error!("Error to parsing from string to objectid - Err: {e}");
+            Err(ResponseError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Some("we cannot obtain your username"),
             ))
         }
     }
