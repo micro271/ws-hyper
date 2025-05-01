@@ -18,8 +18,10 @@ use crate::{
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
+use mime::Mime;
 use multer::Multipart;
 use serde_json::json;
+use time::{OffsetDateTime, format_description};
 use tokio::{fs::File, io::AsyncWriteExt};
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
@@ -120,8 +122,6 @@ pub async fn upload(
     loop {
         match multipart.next_field().await {
             Ok(Some(mut field)) => {
-                tracing::debug!("field.name: {:?}", field.name().unwrap_or_default());
-
                 let file_name = field
                     .file_name()
                     .ok_or(ResponseError::new(
@@ -130,52 +130,8 @@ pub async fn upload(
                     ))?
                     .to_string();
 
-                let (path, file_name) = match field.content_type().map(|x| x.type_()) {
-                    Some(mime::VIDEO) => {
-                        let mut path = get_dir_programs();
-
-                        path.push(&channel);
-                        path.push(&program_tv);
-
-                        if !path.exists() {
-                            if let Err(e) = tokio::fs::create_dir_all(&path).await {
-                                tracing::error!("Error to create dirs - Err: {}", e);
-                                return Err(ResponseError::new(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    Some("there is no location to store the file"),
-                                ));
-                            }
-                        }
-
-                        path.push(&file_name);
-
-                        (path, file_name)
-                    }
-                    Some(mime::IMAGE) => {
-                        let mut path = get_dir_icons();
-                        let file_name = format!(
-                            "{}_{}.{}",
-                            channel,
-                            program_tv,
-                            file_name.split('.').last().ok_or(ResponseError::new(
-                                StatusCode::BAD_REQUEST,
-                                Some("File have not extension")
-                            ))?
-                        );
-                        path.push(&file_name);
-                        (path, file_name)
-                    }
-                    _ => {
-                        return Err(ResponseError::new(
-                            StatusCode::BAD_REQUEST,
-                            Some("The file is not a video"),
-                        ));
-                    }
-                };
-
-                tracing::debug!("file name: {file_name:?}");
-
-                let time = time::OffsetDateTime::now_local().unwrap();
+                let (path, file_name) =
+                    process_mime(field.content_type(), &channel, &program_tv, &file_name).await?;
 
                 let mut file = File::create(&path).await.unwrap();
                 let mut size: usize = 0;
@@ -204,14 +160,11 @@ pub async fn upload(
                     }
                 }
 
-                let duration =
-                    Some(usize::try_from(duration.elapsed().as_secs()).unwrap_or_default());
-
                 let new = FileLog {
                     _id: None,
-                    create_at: time,
-                    elapsed_upload: duration,
-                    file_name: file_name.clone(),
+                    create_at: time::OffsetDateTime::now_local().unwrap(),
+                    elapsed_upload: Some(duration.elapsed().as_secs()),
+                    file_name,
                     channel: channel.clone(),
                     program_tv: program_tv.clone(),
                     owner: Owner {
@@ -221,8 +174,6 @@ pub async fn upload(
                     },
                     size,
                 };
-
-                tracing::debug!("FileLog: {:#?}", new);
 
                 let oid = repository.insert(new).await.unwrap();
                 oids.push(json!({"_oid": oid}));
@@ -260,4 +211,75 @@ pub fn get_dir_icons() -> PathBuf {
     PATH_ICONS
         .get_or_init(|| std::env::var("DIR_ICONS").unwrap_or(".".to_string()).into())
         .clone()
+}
+
+async fn process_mime(
+    mime: Option<&Mime>,
+    channel: &str,
+    program_tv: &str,
+    file_name: &str,
+) -> Result<(PathBuf, String), ResponseError> {
+    match mime.map(|x| x.type_()) {
+        Some(mime::VIDEO) => {
+            let mut path = get_dir_programs();
+            path.push(channel);
+            path.push(program_tv);
+
+            if !path.exists() {
+                if let Err(e) = tokio::fs::create_dir_all(&path).await {
+                    tracing::error!("Error to create dirs - Err: {}", e);
+                    return Err(ResponseError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Some("there is no location to store the file"),
+                    ));
+                }
+            }
+
+            let time = OffsetDateTime::now_local().unwrap();
+            let time = time
+                .format(
+                    &format_description::parse("[year]-[month]-[day]_[hour]-[minute]").map_err(
+                        |_| {
+                            ResponseError::new(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Some("failt to create the format description"),
+                            )
+                        },
+                    )?,
+                )
+                .map_err(|_| {
+                    ResponseError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Some("Failed to formatting the time"),
+                    )
+                })?;
+
+            let file_name = format!("{time}__{file_name}");
+            path.push(&file_name);
+
+            Ok((path, file_name))
+        }
+        Some(mime::IMAGE) => {
+            let mut path = get_dir_icons();
+            let file_name = format!(
+                "{}_{}.{}",
+                channel,
+                program_tv,
+                file_name.split('.').last().ok_or(ResponseError::new(
+                    StatusCode::BAD_REQUEST,
+                    Some("File have not extension")
+                ))?
+            );
+            path.push(&file_name);
+
+            Ok((path, file_name))
+        }
+        mime => {
+            tracing::error!("The mime {{ {:?} }} is not permit ", mime);
+            Err(ResponseError::new(
+                StatusCode::BAD_REQUEST,
+                Some("Thie file's type is not permit"),
+            ))
+        }
+    }
 }
