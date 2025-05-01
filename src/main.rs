@@ -1,11 +1,13 @@
 mod handlers;
 mod models;
+mod peer;
 mod redirect;
 mod repository;
 
 use http::{Request, Response};
 use hyper::{body::Body, service::Service};
 use models::user::User;
+use peer::Peer;
 use repository::Repository;
 use std::{marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::net::TcpListener;
@@ -47,8 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .serve_connection(
                     io,
                     service_with_state(repo, |mut req, repo| {
-                        req.extensions_mut().insert(repo);
-                        handlers::entry(req, peer)
+                        let ext = req.extensions_mut();
+                        ext.insert(repo);
+                        ext.insert(Peer::new(peer));
+                        handlers::entry(req)
                     }),
                 )
                 .await

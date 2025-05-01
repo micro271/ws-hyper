@@ -27,7 +27,7 @@ where
     }
 }
 
-pub async fn get_extention<T>(ext: &Extensions) -> Result<&T, ResponseError>
+pub fn get_extention<T>(ext: &Extensions) -> Result<&T, ResponseError>
 where
     T: Sync + Send + 'static,
 {

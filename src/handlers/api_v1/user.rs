@@ -40,7 +40,7 @@ pub async fn user(req: Request<Incoming>) -> ResultResponse {
 
 pub async fn insert(req: Request<Incoming>) -> ResultResponse {
     let (parts, body) = req.into_parts();
-    let claims = get_extention::<Claims>(&parts.extensions).await.unwrap();
+    let claims = get_extention::<Claims>(&parts.extensions).unwrap();
 
     if claims.role != Role::Admin {
         return Err(ResponseError::new(
@@ -52,7 +52,7 @@ pub async fn insert(req: Request<Incoming>) -> ResultResponse {
     let mut user = from_incoming_to::<NewUser>(body).await?;
     user.password = user.password.encrypt()?;
 
-    let state = get_extention::<State>(&parts.extensions).await?;
+    let state = get_extention::<State>(&parts.extensions)?;
 
     let resp = state.insert::<User>(user.into()).await?;
 
@@ -66,10 +66,10 @@ pub async fn insert(req: Request<Incoming>) -> ResultResponse {
 
 pub async fn update(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
     let (parts, body) = req.into_parts();
-    let state = get_extention::<State>(&parts.extensions).await?; //todo create UpdateUser
+    let state = get_extention::<State>(&parts.extensions)?; //todo create UpdateUser
     let new_user = from_incoming_to::<UpdateUser>(body).await?;
 
-    let claims = get_extention::<Claims>(&parts.extensions).await.unwrap();
+    let claims = get_extention::<Claims>(&parts.extensions).unwrap();
     let current_user = get_user_oid(claims)?;
 
     if claims.role == Role::Admin {
@@ -104,7 +104,7 @@ pub async fn update(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
 }
 
 pub async fn delete(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
-    let claims = get_extention::<Claims>(req.extensions()).await?;
+    let claims = get_extention::<Claims>(req.extensions())?;
 
     if claims.role != Role::Admin {
         return Err(ResponseError::new(
@@ -113,7 +113,7 @@ pub async fn delete(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
         ));
     }
 
-    let state = get_extention::<State>(req.extensions()).await?;
+    let state = get_extention::<State>(req.extensions())?;
     let len = state.delete::<User>(doc! {"_id": user}).await?;
 
     Ok(Response::builder()
@@ -129,8 +129,8 @@ pub async fn delete(req: Request<Incoming>, user: ObjectId) -> ResultResponse {
 }
 
 pub async fn get(req: Request<Incoming>, get_user: Option<ObjectId>) -> ResultResponse {
-    let state = get_extention::<State>(req.extensions()).await?;
-    let claims = get_extention::<Claims>(req.extensions()).await.unwrap();
+    let state = get_extention::<State>(req.extensions())?;
+    let claims = get_extention::<Claims>(req.extensions()).unwrap();
     let current_user = get_user_oid(claims)?;
 
     let filter = if claims.role == Role::Admin {

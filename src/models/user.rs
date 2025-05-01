@@ -91,7 +91,7 @@ pub struct Ch {
     pub number: i8,
     pub icon_path: Option<String>,
     pub description: Option<String>,
-    pub program: Program,
+    pub program: Vec<Program>,
 }
 
 impl GetCollection for User {

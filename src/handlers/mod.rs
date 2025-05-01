@@ -3,6 +3,8 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
+use crate::peer::Peer;
+
 use super::{redirect::Redirect, repository::Repository};
 use bytes::Bytes;
 use error::ResponseError;
@@ -12,11 +14,11 @@ use hyper::body::Incoming;
 use serde::de::DeserializeOwned;
 use std::{
     convert::Infallible,
-    net::SocketAddr,
     sync::{Arc, LazyLock},
 };
 use tera::{Context, Tera};
 use tokio::sync::Mutex;
+use utils::get_extention;
 
 type ResultResponse = Result<Response<Full<Bytes>>, ResponseError>;
 type ResponsesHttp = Response<Full<Bytes>>;
@@ -26,10 +28,7 @@ pub type State = Arc<Repository>;
 static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
 
-pub async fn entry(
-    req: Request<Incoming>,
-    peer: Option<SocketAddr>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     tracing::debug!(
         "Request:  {{ Method: {}, Uri: {}, Version: {:#?}, Headers: {:#?} }}",
         req.method(),
@@ -40,8 +39,12 @@ pub async fn entry(
 
     let duration = std::time::Instant::now();
     let path = req.uri().path().to_string();
+
+    let peer = get_extention::<Peer>(req.extensions())
+        .map(|x| x.get_socket_or_unknown())
+        .unwrap_or_default();
+
     let response = hello(req).await;
-    let peer = peer.map(|x| x.to_string()).unwrap_or("Unknown".to_string());
     let duration = duration.elapsed().as_millis();
     match response {
         Ok(r) => {
