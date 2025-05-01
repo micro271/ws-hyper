@@ -38,6 +38,9 @@ impl ResponseError {
             "This function is not implemented yet".into(),
         )
     }
+    pub fn detail(&self) -> &Full<Bytes> {
+        &self.body
+    }
 }
 
 #[derive(Debug)]

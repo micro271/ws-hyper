@@ -81,15 +81,14 @@ impl std::fmt::Display for Role {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Program {
     pub name: String,
-    pub path: String,
-    pub icon_path: Option<String>,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Ch {
     pub name: String,
     pub number: i8,
-    pub icon_path: Option<String>,
+    pub icon: Option<String>,
     pub description: Option<String>,
     pub program: Vec<Program>,
 }

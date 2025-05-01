@@ -9,14 +9,10 @@ impl Peer {
     }
 
     pub fn get_socket_or_unknown(&self) -> String {
-        self.0
-            .map(|x| x.to_string())
-            .unwrap_or("Unknown".to_string())
+        self.0.map_or("Unknown".to_string(), |x| x.to_string())
     }
 
     pub fn get_ip_or_unknown(&self) -> String {
-        self.0
-            .map(|x| x.ip().to_string())
-            .unwrap_or("Unknown".to_string())
+        self.0.map_or("Unknown".to_string(), |x| x.ip().to_string())
     }
 }

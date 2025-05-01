@@ -44,7 +44,7 @@ impl Repository {
             .await
         {
             Err(RepositoryError::DuplicateKey) => {
-                tracing::warn!("The default username: \"{username}\" already exists")
+                tracing::warn!("The default username: \"{username}\" already exists");
             }
             Ok(id) => tracing::info!("created default user, _id: {id}"),
             Err(err) => tracing::error!("Unexpected error: {err}"),
@@ -75,17 +75,23 @@ impl Repository {
     where
         T: Send + Sync + DeserializeOwned + GetCollection,
     {
-        match self.inner.default_database() {
-            Some(db) => match db.collection::<T>(T::collection()).find_one(filter).await {
-                Ok(e) => e.ok_or(RepositoryError::DocumentNotFound),
-                Err(e) => {
-                    tracing::debug!("Error to obtainer one element - Err: {}", e);
-                    Err(e.into())
+        match self
+            .get_db()?
+            .collection::<T>(T::collection())
+            .find_one(filter)
+            .await
+        {
+            Ok(e) => {
+                if let Some(e) = e {
+                    Ok(e)
+                } else {
+                    tracing::error!("Document not found");
+                    Err(RepositoryError::CollectionNotFound)
                 }
-            },
-            None => {
-                tracing::error!("database not found");
-                Err(RepositoryError::DatabaseDefault)
+            }
+            Err(e) => {
+                tracing::error!("error to obtain the data - Err: {e}");
+                Err(RepositoryError::from(e))
             }
         }
     }
@@ -177,12 +183,11 @@ impl Repository {
     }
 
     fn get_db(&self) -> Result<Database, RepositoryError> {
-        match self.inner.default_database() {
-            Some(e) => Ok(e),
-            None => {
-                tracing::error!("Default database not found");
-                Err(RepositoryError::DatabaseDefault)
-            }
+        if let Some(e) = self.inner.default_database() {
+            Ok(e)
+        } else {
+            tracing::error!("Default database not found");
+            Err(RepositoryError::DatabaseDefault)
         }
     }
 }

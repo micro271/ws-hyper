@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repository = Arc::new(
         Repository::new(
-            format!("mongodb://{}:{}", db_host, db_port),
+            format!("mongodb://{db_host}:{db_port}"),
             db_user,
             db_passwd,
             db_name,

@@ -29,10 +29,16 @@ static HTTP: LazyLock<Mutex<Tera>> =
     LazyLock::new(|| Mutex::new(Tera::new("www/**/*").expect("Dir error")));
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+    let method = req.method().clone();
+    let peer = get_extention::<Peer>(req.extensions())
+        .map(Peer::get_socket_or_unknown)
+        .unwrap_or_default();
+
     tracing::debug!(
-        "Request:  {{ Method: {}, Uri: {}, Version: {:#?}, Headers: {:#?} }}",
-        req.method(),
+        "Request:  {{ Method: {}, Uri: {}, Src: {}, Version: {:#?}, Headers: {:#?} }}",
+        method,
         req.uri(),
+        peer,
         req.version(),
         req.headers()
     );
@@ -40,16 +46,13 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let duration = std::time::Instant::now();
     let path = req.uri().path().to_string();
 
-    let peer = get_extention::<Peer>(req.extensions())
-        .map(|x| x.get_socket_or_unknown())
-        .unwrap_or_default();
-
     let response = hello(req).await;
     let duration = duration.elapsed().as_millis();
     match response {
         Ok(r) => {
             tracing::info!(
-                "Response {{ Status: {}, Path={}, duration: {}ms, Peer: {:?} }}",
+                "Response {{ Method: {}, Status: {}, Path={}, duration: {}ms, Src_req: {} }}",
+                method,
                 r.status(),
                 path,
                 duration,
@@ -59,12 +62,13 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
         }
         Err(e) => {
             tracing::error!(
-                "Response {{ Status: {}, Path={}, duration: {}ms, Peer: {}, error: {:?} }}",
+                "Response {{ Method: {}, Status: {}, Path={}, duration: {}ms, Src_req: {}, error: {:?} }}",
+                method,
                 e.status(),
                 path,
-                e,
                 duration,
                 peer,
+                e.detail(),
             );
             Ok(e.into())
         }
@@ -78,7 +82,7 @@ pub async fn hello(mut req: Request<Incoming>) -> ResultResponse {
         ("/login", &Method::GET) => Ok(login().await),
         ("/login", &Method::POST) => api_v1::login(req).await,
         (path, _) if protected.iter().any(|x| path.starts_with(x)) => {
-            let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()).await else {
+            let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()) else {
                 return Ok(Redirect::to("/login").into());
             };
             req.extensions_mut().insert(claims);

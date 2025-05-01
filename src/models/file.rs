@@ -2,6 +2,8 @@ use crate::repository::GetCollection;
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
+use super::user::Role;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileLog {
     pub _id: Option<ObjectId>,
@@ -18,6 +20,7 @@ pub struct FileLog {
 pub struct Owner {
     pub username: String,
     pub ip_src: String,
+    pub role: Role,
 }
 
 impl GetCollection for FileLog {

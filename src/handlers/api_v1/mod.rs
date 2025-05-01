@@ -114,7 +114,7 @@ pub async fn login(req: Request<Incoming>) -> ResultResponse {
     }
 }
 
-pub async fn verifi_token_from_cookie(headers: &HeaderMap) -> Option<Claims> {
+pub fn verifi_token_from_cookie(headers: &HeaderMap) -> Option<Claims> {
     match headers.get(http::header::COOKIE).map(|x| x.to_str()) {
         Some(Ok(pair)) => {
             let Some(token_pair) = pair.split(';').find(|x| x.starts_with(JWT_IDENTIFIED)) else {

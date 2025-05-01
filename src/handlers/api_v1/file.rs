@@ -1,3 +1,5 @@
+use std::{path::PathBuf, sync::OnceLock};
+
 use super::{
     Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResultResponse,
     StatusCode, doc, header,
@@ -9,7 +11,7 @@ use crate::{
     },
     models::{
         file::{FileLog, Owner},
-        user::{Ch, Claims, User},
+        user::{Claims, Role, User},
     },
     peer::Peer,
 };
@@ -18,25 +20,10 @@ use http::Method;
 use http_body_util::BodyStream;
 use multer::Multipart;
 use serde_json::json;
-use std::{
-    path::{Path, PathBuf},
-    sync::OnceLock,
-};
-use time::UtcOffset;
 use tokio::{fs::File, io::AsyncWriteExt};
 
-static PATH_DIR: OnceLock<PathBuf> = OnceLock::new();
-
-fn get_path_dir() -> PathBuf {
-    PATH_DIR
-        .get_or_init(|| {
-            let tmp = std::env::var("DIRECTORY").expect("the program's directory is not defined");
-            Path::new(&tmp)
-                .canonicalize()
-                .unwrap_or_else(|_| panic!("{tmp} Directory not exists"))
-        })
-        .clone()
-}
+static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
+static PATH_ICONS: OnceLock<PathBuf> = OnceLock::new();
 
 pub async fn file(req: Request<Incoming>) -> ResultResponse {
     let mut path = req
@@ -53,7 +40,7 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
         .pop()
         .ok_or(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "tv programs' id not present".into(),
+            "Program tv is not present".into(),
         ))
         .and_then(|x| x.parse().map_err(|_| parse_error.clone()))?;
 
@@ -61,7 +48,7 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
         .pop()
         .ok_or(ResponseError::new(
             StatusCode::BAD_REQUEST,
-            "id's useris not present".into(),
+            "Channel is not present".into(),
         ))
         .and_then(|x| x.parse().map_err(|_| parse_error))?;
 
@@ -89,18 +76,23 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
             tracing::error!("{}", e.to_string());
             ResponseError::new(StatusCode::BAD_REQUEST, "Boundary is not present".into())
         })?;
+
         let claims = get_extention::<Claims>(req.extensions())?;
         let repository = get_extention::<State>(req.extensions())?;
-        let oid = get_user_oid(claims)?;
-        let user = repository.get_one::<User>(doc! {"_id": oid}).await?;
-        if !matches!(user.ch, Some(ch) if ch.name == channel && ch.program.iter().any(|x| x.name == program_tv))
+        let user = repository
+            .get_one::<User>(doc! {"_id": get_user_oid(claims)?})
+            .await?;
+
+        if !matches!(user.ch.as_ref(), Some(ch) if ch.name == channel && ch.program.iter().any(|x| x.name == program_tv))
+            && claims.role != Role::Admin
         {
             return Err(ResponseError::new(
                 StatusCode::BAD_REQUEST,
                 Some("Channel name or program name is not belong to the user"),
             ));
         }
-        upload(req, boundary, channel, program_tv, user.username).await
+
+        upload(req, boundary, channel, program_tv, user).await
     } else {
         Err(ResponseError::new(
             StatusCode::NOT_IMPLEMENTED,
@@ -114,7 +106,7 @@ pub async fn upload(
     boundary: String,
     channel: String,
     program_tv: String,
-    username: String,
+    user: User,
 ) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let repository = get_extention::<State>(&parts.extensions)?;
@@ -124,20 +116,12 @@ pub async fn upload(
 
     let mut multipart = Multipart::new(stream, boundary);
     let mut oids = Vec::new();
+
     loop {
         match multipart.next_field().await {
             Ok(Some(mut field)) => {
                 tracing::debug!("field.name: {:?}", field.name().unwrap_or_default());
 
-                if field
-                    .content_type()
-                    .is_none_or(|x| x.type_() != mime::VIDEO)
-                {
-                    return Err(ResponseError::new(
-                        StatusCode::BAD_REQUEST,
-                        Some("The file is not a video"),
-                    ));
-                }
                 let file_name = field
                     .file_name()
                     .ok_or(ResponseError::new(
@@ -146,16 +130,55 @@ pub async fn upload(
                     ))?
                     .to_string();
 
+                let (path, file_name) = match field.content_type().map(|x| x.type_()) {
+                    Some(mime::VIDEO) => {
+                        let mut path = get_dir_programs();
+
+                        path.push(&channel);
+                        path.push(&program_tv);
+
+                        if !path.exists() {
+                            if let Err(e) = tokio::fs::create_dir_all(&path).await {
+                                tracing::error!("Error to create dirs - Err: {}", e);
+                                return Err(ResponseError::new(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Some("there is no location to store the file"),
+                                ));
+                            }
+                        }
+
+                        path.push(&file_name);
+
+                        (path, file_name)
+                    }
+                    Some(mime::IMAGE) => {
+                        let mut path = get_dir_icons();
+                        let file_name = format!(
+                            "{}_{}.{}",
+                            channel,
+                            program_tv,
+                            file_name.split('.').last().ok_or(ResponseError::new(
+                                StatusCode::BAD_REQUEST,
+                                Some("File have not extension")
+                            ))?
+                        );
+                        path.push(&file_name);
+                        (path, file_name)
+                    }
+                    _ => {
+                        return Err(ResponseError::new(
+                            StatusCode::BAD_REQUEST,
+                            Some("The file is not a video"),
+                        ));
+                    }
+                };
+
                 tracing::debug!("file name: {file_name:?}");
 
-                let time = time::OffsetDateTime::now_utc()
-                    .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap());
+                let time = time::OffsetDateTime::now_local().unwrap();
 
-                // we've appended the file name to the directory that contains all the all programs and channels
-
-                let mut file = File::create(&file_name).await.unwrap();
+                let mut file = File::create(&path).await.unwrap();
                 let mut size: usize = 0;
-
                 let duration = std::time::Instant::now();
 
                 loop {
@@ -192,8 +215,9 @@ pub async fn upload(
                     channel: channel.clone(),
                     program_tv: program_tv.clone(),
                     owner: Owner {
-                        username: username.clone(),
+                        username: user.username.clone(),
                         ip_src: ip_src.get_ip_or_unknown(),
+                        role: user.role,
                     },
                     size,
                 };
@@ -220,4 +244,20 @@ pub async fn upload(
             }
         }
     }
+}
+
+pub fn get_dir_programs() -> PathBuf {
+    PATH_PROGRAMS
+        .get_or_init(|| {
+            std::env::var("DIR_PROGRAMS")
+                .unwrap_or(".".to_string())
+                .into()
+        })
+        .clone()
+}
+
+pub fn get_dir_icons() -> PathBuf {
+    PATH_ICONS
+        .get_or_init(|| std::env::var("DIR_ICONS").unwrap_or(".".to_string()).into())
+        .clone()
 }
