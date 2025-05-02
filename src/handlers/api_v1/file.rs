@@ -22,10 +22,14 @@ use mime::Mime;
 use multer::Multipart;
 use serde_json::json;
 use time::{OffsetDateTime, format_description};
-use tokio::{fs::File, io::AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{AsyncWriteExt, BufWriter},
+};
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
 static PATH_ICONS: OnceLock<PathBuf> = OnceLock::new();
+const BUFFER_WRITER: usize = 1024 * 64;
 
 pub async fn file(req: Request<Incoming>) -> ResultResponse {
     let mut path = req
@@ -133,15 +137,17 @@ pub async fn upload(
                 let (path, file_name) =
                     process_mime(field.content_type(), &channel, &program_tv, &file_name).await?;
 
-                let mut file = File::create(&path).await.unwrap();
+                let file = File::create(&path).await.unwrap();
                 let mut size: usize = 0;
                 let duration = std::time::Instant::now();
+                let mut writer = BufWriter::with_capacity(BUFFER_WRITER, file);
 
+                tracing::info!("{:?}", writer.buffer());
                 loop {
                     match field.chunk().await {
                         Ok(Some(e)) => {
                             size += e.len();
-                            if let Err(e) = file.write_all(&e).await {
+                            if let Err(e) = writer.write_all(&e).await {
                                 tracing::error!("Error to write from bytes to file {e}");
                                 return Err(ResponseError::new(
                                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -156,7 +162,10 @@ pub async fn upload(
                                 "Read bytes fail".into(),
                             ));
                         }
-                        Ok(None) => break,
+                        Ok(None) => {
+                            writer.flush().await.unwrap();
+                            break;
+                        }
                     }
                 }
 
@@ -235,7 +244,10 @@ async fn process_mime(
                 }
             }
 
-            let time = OffsetDateTime::now_local().unwrap();
+            let time = OffsetDateTime::now_local().map_err(|x| {
+                ResponseError::new(StatusCode::INTERNAL_SERVER_ERROR, Some(x.to_string()))
+            })?;
+
             let time = time
                 .format(
                     &format_description::parse("[year]-[month]-[day]_[hour]-[minute]").map_err(
