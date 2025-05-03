@@ -14,6 +14,7 @@ use crate::{
         user::{Claims, Role, User},
     },
     peer::Peer,
+    stream_upload::StreamUpload,
 };
 use futures::StreamExt;
 use http::Method;
@@ -121,90 +122,17 @@ pub async fn upload(
         .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
 
     let mut multipart = Multipart::new(stream, boundary);
-    let mut oids = Vec::new();
+    // let mut oids = Vec::new();
+    let mut path = get_dir_programs();
+    path.push("name_to_file.mp4");
+    let file = File::create(path).await.unwrap();
+    let mut tmp = StreamUpload::new(multipart, file, Vec::new());
 
-    loop {
-        match multipart.next_field().await {
-            Ok(Some(mut field)) => {
-                let file_name = field
-                    .file_name()
-                    .ok_or(ResponseError::new(
-                        StatusCode::BAD_REQUEST,
-                        Some("The file have not an name"),
-                    ))?
-                    .to_string();
-
-                let (path, file_name) =
-                    process_mime(field.content_type(), &channel, &program_tv, &file_name).await?;
-
-                let file = File::create(&path).await.unwrap();
-                let mut size: usize = 0;
-                let duration = std::time::Instant::now();
-                let mut writer = BufWriter::with_capacity(BUFFER_WRITER, file);
-
-                loop {
-                    match field.chunk().await {
-                        Ok(Some(e)) => {
-                            size += e.len();
-                            if let Err(e) = writer.write_all(&e).await {
-                                tracing::error!("Error to write from bytes to file {e}");
-                                return Err(ResponseError::new(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    "File write".into(),
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Read chunk error - Error: {e}");
-                            return Err(ResponseError::new(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "Read bytes fail".into(),
-                            ));
-                        }
-                        Ok(None) => {
-                            writer.flush().await.unwrap();
-                            break;
-                        }
-                    }
-                }
-
-                let new = Logs {
-                    id: None,
-                    at: time::OffsetDateTime::now_local().unwrap(),
-                    operation: Operation::Upload(UploadLog {
-                        elapsed_upload: Some(duration.elapsed().as_secs()),
-                        file_name,
-                        channel: channel.clone(),
-                        program_tv: program_tv.clone(),
-                        size,
-                    }),
-                    owner: Owner {
-                        username: user.username.clone(),
-                        src: ip_src.get_ip_or_unknown(),
-                        role: user.role,
-                    },
-                };
-
-                let oid = repository.insert(new).await.unwrap();
-                oids.push(json!({"_oid": oid}));
-            }
-            Err(e) => {
-                tracing::error!("Read field of the multiart error: {e}");
-                break Err(ResponseError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error to read field in multipart".into(),
-                ));
-            }
-            Ok(None) => {
-                break Ok(Response::builder()
-                    .status(StatusCode::CREATED)
-                    .body(Full::new(Bytes::from(
-                        json!({"added_in": program_tv}).to_string(),
-                    )))
-                    .unwrap_or_default());
-            }
-        }
+    for i in tmp.next().await {
+        tracing::warn!("{i:?}");
     }
+
+    Err(ResponseError::unimplemented())
 }
 
 pub fn get_dir_programs() -> PathBuf {
