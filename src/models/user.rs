@@ -29,8 +29,8 @@ pub struct UserEntry {
     pub password: String,
 }
 
-impl From<User> for Claims {
-    fn from(value: User) -> Self {
+impl From<&User> for Claims {
+    fn from(value: &User) -> Self {
         Self {
             sub: value.id.unwrap().to_string(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(2)).unix_timestamp(),

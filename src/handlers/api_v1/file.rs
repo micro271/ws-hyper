@@ -10,7 +10,7 @@ use crate::{
         utils::{get_extention, get_user_oid},
     },
     models::{
-        file::{FileLog, Owner},
+        logs::{Logs, Operation, Owner, upload::UploadLog},
         user::{Claims, Role, User},
     },
     peer::Peer,
@@ -142,7 +142,6 @@ pub async fn upload(
                 let duration = std::time::Instant::now();
                 let mut writer = BufWriter::with_capacity(BUFFER_WRITER, file);
 
-                tracing::info!("{:?}", writer.buffer());
                 loop {
                     match field.chunk().await {
                         Ok(Some(e)) => {
@@ -169,19 +168,21 @@ pub async fn upload(
                     }
                 }
 
-                let new = FileLog {
-                    _id: None,
-                    create_at: time::OffsetDateTime::now_local().unwrap(),
-                    elapsed_upload: Some(duration.elapsed().as_secs()),
-                    file_name,
-                    channel: channel.clone(),
-                    program_tv: program_tv.clone(),
+                let new = Logs {
+                    id: None,
+                    at: time::OffsetDateTime::now_local().unwrap(),
+                    operation: Operation::Upload(UploadLog {
+                        elapsed_upload: Some(duration.elapsed().as_secs()),
+                        file_name,
+                        channel: channel.clone(),
+                        program_tv: program_tv.clone(),
+                        size,
+                    }),
                     owner: Owner {
                         username: user.username.clone(),
-                        ip_src: ip_src.get_ip_or_unknown(),
+                        src: ip_src.get_ip_or_unknown(),
                         role: user.role,
                     },
-                    size,
                 };
 
                 let oid = repository.insert(new).await.unwrap();

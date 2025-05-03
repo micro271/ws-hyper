@@ -4,7 +4,12 @@ pub mod user;
 use std::sync::Arc;
 
 use crate::{
-    models::user::{Claims, User, UserEntry},
+    handlers::utils::get_extention,
+    models::{
+        logs::{Logs, Operation},
+        user::{Claims, User, UserEntry},
+    },
+    peer::Peer,
     repository::Repository,
 };
 use bcrypt::verify;
@@ -72,7 +77,8 @@ pub async fn login(req: Request<Incoming>) -> ResultResponse {
             user.username,
             user.role,
         );
-        let claims = Claims::from(user);
+
+        let claims = Claims::from(&user);
         let header = Header::new(ALGORITHM);
         tracing::debug!("{claims:?}");
         match encode(
@@ -86,6 +92,11 @@ pub async fn login(req: Request<Incoming>) -> ResultResponse {
                 let cookie = format!(
                     "{JWT_IDENTIFIED}={token}; HttpOnly; Secure; SameSite={same_site}; Path=/; Max-Age={age}"
                 );
+
+                let peer = get_extention::<Peer>(&parts.extensions)?;
+                let log = Logs::new_from_user(&user, peer, Operation::Login);
+                repository.insert(log).await?;
+
                 Ok(Response::builder()
                     .status(StatusCode::SEE_OTHER)
                     .header(header::SET_COOKIE, cookie)

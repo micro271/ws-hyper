@@ -1,2 +1,2 @@
-pub mod file;
+pub mod logs;
 pub mod user;
