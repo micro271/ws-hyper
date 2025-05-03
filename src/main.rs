@@ -3,6 +3,7 @@ mod models;
 mod peer;
 mod redirect;
 mod repository;
+mod stream_upload;
 
 use http::{Request, Response};
 use hyper::{body::Body, service::Service};
