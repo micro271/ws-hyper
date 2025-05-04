@@ -1,32 +1,24 @@
 use std::{path::PathBuf, sync::OnceLock};
 
 use super::{
-    Bytes, Full, Incoming, ParseError, Request, Response, ResponseError, ResultResponse,
-    StatusCode, doc, header,
+    Incoming, ParseError, Request, ResponseError, ResultResponse, StatusCode, doc, header,
 };
 use crate::{
     handlers::{
         State,
         utils::{get_extention, get_user_oid},
     },
-    models::{
-        logs::{Logs, Operation, Owner, upload::UploadLog},
-        user::{Claims, Role, User},
-    },
+    models::user::{Claims, Role, User},
     peer::Peer,
-    stream_upload::StreamUpload,
+    stream_upload::{StreamUpload, Upload},
 };
 use futures::StreamExt;
 use http::Method;
 use http_body_util::BodyStream;
 use mime::Mime;
 use multer::Multipart;
-use serde_json::json;
 use time::{OffsetDateTime, format_description};
-use tokio::{
-    fs::File,
-    io::{AsyncWriteExt, BufWriter},
-};
+use tokio::fs::File;
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
 static PATH_ICONS: OnceLock<PathBuf> = OnceLock::new();
@@ -126,11 +118,10 @@ pub async fn upload(
     let mut path = get_dir_programs();
     path.push("name_to_file.mp4");
     let file = File::create(path).await.unwrap();
-    let mut tmp = StreamUpload::new(multipart, file, Vec::new());
+    let tmp = StreamUpload::new(multipart, Vec::new());
+    let mut tmp = Upload::new(file, tmp);
 
-    for i in tmp.next().await {
-        tracing::warn!("{i:?}");
-    }
+    tmp.next().await;
 
     Err(ResponseError::unimplemented())
 }
