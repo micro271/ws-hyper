@@ -113,14 +113,12 @@ pub async fn upload(
     let stream = BodyStream::new(body)
         .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
 
-    let mut multipart = Multipart::new(stream, boundary);
-    // let mut oids = Vec::new();
-    let mut path = get_dir_programs();
+    let tmp = StreamUpload::new(Multipart::new(stream, boundary), Vec::new());
+    let mut tmp = Upload::new(get_dir_programs(), tmp);
 
-    let tmp = StreamUpload::new(multipart, Vec::new());
-    let mut tmp = Upload::new(path, tmp);
-
-    tmp.next().await;
+    while let Some(e) = tmp.next().await {
+        tracing::warn!("{e:?}");
+    }
 
     Err(ResponseError::unimplemented())
 }

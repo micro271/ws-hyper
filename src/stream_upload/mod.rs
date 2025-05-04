@@ -1,4 +1,4 @@
-use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll};
+use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll, time::Instant};
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{FutureExt, Stream, StreamExt, ready};
@@ -13,6 +13,9 @@ pub struct Upload<'a> {
     path: PathBuf,
     buffer: Option<Buffer>,
     state: StateUpload,
+    written: usize,
+    elapsed: Option<Instant>,
+    file_name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -53,7 +56,7 @@ impl<'a> StreamUpload<'a> {
     }
 }
 
-impl<'a> Stream for StreamUpload<'a> {
+impl Stream for StreamUpload<'_> {
     type Item = Result<ResultStream, StreamUploadError>;
 
     fn poll_next(
@@ -102,6 +105,7 @@ impl<'a> Stream for StreamUpload<'a> {
 pub struct UploadResult {
     size: usize,
     elapsed: u64,
+    file_name: String,
 }
 
 #[derive(Debug)]
@@ -211,11 +215,14 @@ impl<'a> Upload<'a> {
             path,
             buffer: None,
             state: StateUpload::Reading,
+            written: 0,
+            elapsed: None,
+            file_name: None,
         }
     }
 }
 
-impl<'a> Stream for Upload<'a> {
+impl Stream for Upload<'_> {
     type Item = Result<UploadResult, StreamUploadError>;
 
     fn poll_next(
@@ -236,10 +243,12 @@ impl<'a> Stream for Upload<'a> {
                     match ready!(writer.poll_write(cx, buf)) {
                         Ok(n) => {
                             if n < buf.len() {
-                                panic!("Write {n} but, the number of byte is {}", buf.len());
+                                this.state =
+                                    StateUpload::Writting(Bytes::copy_from_slice(&buf[n..]));
+                            } else {
+                                this.state = StateUpload::Reading;
                             }
-
-                            this.state = StateUpload::Reading;
+                            this.written += n;
                         }
                         Err(_e) => {
                             this.state = StateUpload::Done;
@@ -252,11 +261,12 @@ impl<'a> Stream for Upload<'a> {
                     match ready!(stream.poll_next(cx)) {
                         Some(Ok(ResultStream::New(name))) => {
                             let mut path = this.path.clone();
-                            path.push(name);
-                            this.state = StateUpload::Create(File::create(path).boxed())
+                            path.push(&name);
+                            this.file_name = Some(name);
+                            this.state = StateUpload::Create(File::create(path).boxed());
+                            this.elapsed = Some(Instant::now());
                         }
                         Some(Ok(ResultStream::Bytes(bytes))) => {
-                            println!("escribimos");
                             this.state = StateUpload::Writting(bytes);
                         }
                         Some(Ok(ResultStream::Eof)) => {
@@ -272,28 +282,34 @@ impl<'a> Stream for Upload<'a> {
                         }
                     }
                 }
-                StateUpload::Create(name) => {
-                    println!("Creando file");
-                    match ready!(name.poll_unpin(cx)) {
-                        Ok(file) => {
-                            println!("file creado");
-                            this.buffer = Some(Buffer::new(file));
-                            this.state = StateUpload::Reading;
-                        }
-                        Err(_e) => {
-                            this.state = StateUpload::Done;
-                            break Poll::Ready(Some(Err(StreamUploadError)));
-                        }
+                StateUpload::Create(new_file) => match ready!(new_file.poll_unpin(cx)) {
+                    Ok(file) => {
+                        this.buffer = Some(Buffer::new(file));
+                        this.state = StateUpload::Reading;
                     }
-                }
+                    Err(_e) => {
+                        this.state = StateUpload::Done;
+                        break Poll::Ready(Some(Err(StreamUploadError)));
+                    }
+                },
                 StateUpload::Flush => {
                     let writer = unsafe { Pin::new_unchecked(this.buffer.as_mut().unwrap()) };
                     match ready!(writer.poll_flush(cx)) {
                         Ok(()) => {
                             this.state = StateUpload::Reading;
+                            let size = this.written;
+                            this.written = 0;
+
+                            let elapsed = this
+                                .elapsed
+                                .take()
+                                .map(|x| x.elapsed().as_secs())
+                                .unwrap_or_default();
+
                             break Poll::Ready(Some(Ok(UploadResult {
-                                size: 0,
-                                elapsed: 0,
+                                size,
+                                elapsed,
+                                file_name: this.file_name.take().unwrap(),
                             })));
                         }
                         Err(_e) => {
