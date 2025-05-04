@@ -116,10 +116,9 @@ pub async fn upload(
     let mut multipart = Multipart::new(stream, boundary);
     // let mut oids = Vec::new();
     let mut path = get_dir_programs();
-    path.push("name_to_file.mp4");
-    let file = File::create(path).await.unwrap();
+
     let tmp = StreamUpload::new(multipart, Vec::new());
-    let mut tmp = Upload::new(file, tmp);
+    let mut tmp = Upload::new(path, tmp);
 
     tmp.next().await;
 

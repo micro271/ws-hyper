@@ -1,17 +1,17 @@
-use std::{pin::Pin, task::Poll, time::Duration};
+use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll};
 
 use bytes::{Buf, Bytes, BytesMut};
-use futures::{Stream, StreamExt, ready};
+use futures::{FutureExt, Stream, StreamExt, ready};
 use mime::Mime;
 use multer::{Field, Multipart};
-use tokio::io::AsyncWrite;
+use tokio::{fs::File, io::AsyncWrite};
 
-const DEFAULT_BUFFER: usize = 64 * 1024;
+const DEFAULT_BUFFER: usize = 8 * 1024;
 
-#[derive(Debug)]
-pub struct Upload<'a, T> {
+pub struct Upload<'a> {
     stream: StreamUpload<'a>,
-    buffer: Buffer<T>,
+    path: PathBuf,
+    buffer: Option<Buffer>,
     state: StateUpload,
 }
 
@@ -29,17 +29,18 @@ pub enum State<'a> {
     Done,
 }
 
-#[derive(Debug)]
 pub enum StateUpload {
     Writting(Bytes),
     Reading,
     Flush,
+    Create(Pin<Box<dyn Future<Output = tokio::io::Result<File>> + Send>>),
     Done,
 }
 
 pub enum ResultStream {
     Bytes(Bytes),
-    EOF,
+    New(String),
+    Eof,
 }
 
 impl<'a> StreamUpload<'a> {
@@ -60,37 +61,39 @@ impl<'a> Stream for StreamUpload<'a> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         let this = unsafe { self.get_unchecked_mut() };
-        let change = false;
 
-        loop {
-            match &mut this.state {
-                State::WaitingField => match ready!(this.multipart.poll_next_field(cx)) {
-                    Ok(Some(field)) => {
-                        println!("Obtenemos un field");
-                        this.state = State::ReadingField(field);
-                    }
-                    Ok(None) => {
-                        this.state = State::Done;
-                        break Poll::Ready(None);
-                    }
-                    Err(_e) => {
-                        this.state = State::Done;
-                        break Poll::Ready(Some(Err(StreamUploadError)));
-                    }
-                },
-                State::ReadingField(field) => match ready!(field.poll_next_unpin(cx)) {
-                    Some(Ok(bytes)) => break Poll::Ready(Some(Ok(ResultStream::Bytes(bytes)))),
-                    Some(Err(_e)) => {
-                        this.state = State::Done;
-                        break Poll::Ready(Some(Err(StreamUploadError)));
-                    }
-                    None => {
-                        this.state = State::WaitingField;
-                        break Poll::Ready(Some(Ok(ResultStream::EOF)));
-                    }
-                },
-                State::Done => break Poll::Ready(None),
-            }
+        match &mut this.state {
+            State::WaitingField => match ready!(this.multipart.poll_next_field(cx)) {
+                Ok(Some(field)) => {
+                    let Some(name) = field.file_name().map(ToString::to_string) else {
+                        return Poll::Ready(Some(Err(StreamUploadError)));
+                    };
+
+                    this.state = State::ReadingField(field);
+
+                    Poll::Ready(Some(Ok(ResultStream::New(name))))
+                }
+                Ok(None) => {
+                    this.state = State::Done;
+                    Poll::Ready(None)
+                }
+                Err(_e) => {
+                    this.state = State::Done;
+                    Poll::Ready(Some(Err(StreamUploadError)))
+                }
+            },
+            State::ReadingField(field) => match ready!(field.poll_next_unpin(cx)) {
+                Some(Ok(bytes)) => Poll::Ready(Some(Ok(ResultStream::Bytes(bytes)))),
+                Some(Err(_e)) => {
+                    this.state = State::Done;
+                    Poll::Ready(Some(Err(StreamUploadError)))
+                }
+                None => {
+                    this.state = State::WaitingField;
+                    Poll::Ready(Some(Ok(ResultStream::Eof)))
+                }
+            },
+            State::Done => Poll::Ready(None),
         }
     }
 }
@@ -105,17 +108,14 @@ pub struct UploadResult {
 pub struct StreamUploadError;
 
 #[derive(Debug)]
-pub struct Buffer<T> {
-    inner: T,
+pub struct Buffer {
+    inner: tokio::fs::File,
     bytes: BytesMut,
     capacity: usize,
 }
 
-impl<T> Buffer<T>
-where
-    T: AsyncWrite,
-{
-    pub fn new(writer: T) -> Self {
+impl Buffer {
+    pub fn new(writer: tokio::fs::File) -> Self {
         Buffer {
             inner: writer,
             bytes: BytesMut::new(),
@@ -124,7 +124,7 @@ where
     }
 }
 
-impl<T: AsyncWrite> Buffer<T> {
+impl Buffer {
     pub fn write_flush(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -158,7 +158,7 @@ impl<T: AsyncWrite> Buffer<T> {
     }
 }
 
-impl<T: AsyncWrite> AsyncWrite for Buffer<T> {
+impl AsyncWrite for Buffer {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -204,23 +204,18 @@ impl<T: AsyncWrite> AsyncWrite for Buffer<T> {
 
 pub struct WriterError;
 
-impl<'a, T> Upload<'a, T>
-where
-    T: AsyncWrite,
-{
-    pub fn new(file: T, stream: StreamUpload<'a>) -> Self {
+impl<'a> Upload<'a> {
+    pub fn new(path: PathBuf, stream: StreamUpload<'a>) -> Self {
         Self {
             stream,
-            buffer: Buffer::new(file),
+            path,
+            buffer: None,
             state: StateUpload::Reading,
         }
     }
 }
 
-impl<'a, T> Stream for Upload<'a, T>
-where
-    T: AsyncWrite,
-{
+impl<'a> Stream for Upload<'a> {
     type Item = Result<UploadResult, StreamUploadError>;
 
     fn poll_next(
@@ -230,10 +225,15 @@ where
         let this = unsafe { self.get_unchecked_mut() };
 
         loop {
-            match &this.state {
+            match &mut this.state {
                 StateUpload::Writting(buf) => {
-                    let mut writer = unsafe { Pin::new_unchecked(&mut this.buffer) };
-                    match ready!(writer.as_mut().poll_write(cx, buf)) {
+                    let writer = if let Some(e) = this.buffer.as_mut() {
+                        unsafe { Pin::new_unchecked(e) }
+                    } else {
+                        panic!("aaa");
+                    };
+
+                    match ready!(writer.poll_write(cx, buf)) {
                         Ok(n) => {
                             if n < buf.len() {
                                 panic!("Write {n} but, the number of byte is {}", buf.len());
@@ -250,10 +250,16 @@ where
                 StateUpload::Reading => {
                     let stream = unsafe { Pin::new_unchecked(&mut this.stream) };
                     match ready!(stream.poll_next(cx)) {
+                        Some(Ok(ResultStream::New(name))) => {
+                            let mut path = this.path.clone();
+                            path.push(name);
+                            this.state = StateUpload::Create(File::create(path).boxed())
+                        }
                         Some(Ok(ResultStream::Bytes(bytes))) => {
+                            println!("escribimos");
                             this.state = StateUpload::Writting(bytes);
                         }
-                        Some(Ok(ResultStream::EOF)) => {
+                        Some(Ok(ResultStream::Eof)) => {
                             this.state = StateUpload::Flush;
                         }
                         Some(Err(e)) => {
@@ -266,8 +272,22 @@ where
                         }
                     }
                 }
+                StateUpload::Create(name) => {
+                    println!("Creando file");
+                    match ready!(name.poll_unpin(cx)) {
+                        Ok(file) => {
+                            println!("file creado");
+                            this.buffer = Some(Buffer::new(file));
+                            this.state = StateUpload::Reading;
+                        }
+                        Err(_e) => {
+                            this.state = StateUpload::Done;
+                            break Poll::Ready(Some(Err(StreamUploadError)));
+                        }
+                    }
+                }
                 StateUpload::Flush => {
-                    let writer = unsafe { Pin::new_unchecked(&mut this.buffer) };
+                    let writer = unsafe { Pin::new_unchecked(this.buffer.as_mut().unwrap()) };
                     match ready!(writer.poll_flush(cx)) {
                         Ok(()) => {
                             this.state = StateUpload::Reading;
