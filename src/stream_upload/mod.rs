@@ -2,7 +2,7 @@ use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll, time::Instant};
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{FutureExt, Stream, StreamExt, ready};
-use mime::Mime;
+use mime::{Mime, Name};
 use multer::{Field, Multipart};
 use tokio::{fs::File, io::AsyncWrite};
 
@@ -21,8 +21,16 @@ pub struct Upload<'a> {
 #[derive(Debug)]
 pub struct StreamUpload<'a> {
     multipart: Multipart<'a>,
-    allowed: Vec<Mime>,
+    allowed: Vec<MimeAllowed>,
     state: State<'a>,
+}
+
+#[derive(Debug)]
+pub enum MimeAllowed {
+    Any,
+    Mime(Mime),
+    MediaType(Name<'static>),
+    SubType(Name<'static>),
 }
 
 #[derive(Debug)]
@@ -47,7 +55,7 @@ pub enum ResultStream {
 }
 
 impl<'a> StreamUpload<'a> {
-    pub fn new(multipart: Multipart<'a>, allowed: Vec<Mime>) -> Self {
+    pub fn new(multipart: Multipart<'a>, allowed: Vec<MimeAllowed>) -> Self {
         Self {
             multipart,
             allowed,
@@ -69,27 +77,44 @@ impl Stream for StreamUpload<'_> {
             State::WaitingField => match ready!(this.multipart.poll_next_field(cx)) {
                 Ok(Some(field)) => {
                     let Some(name) = field.file_name().map(ToString::to_string) else {
-                        return Poll::Ready(Some(Err(StreamUploadError)));
+                        this.state = State::Done;
+                        return Poll::Ready(Some(Err(StreamUploadError::FineNameNotFound)));
                     };
 
-                    this.state = State::ReadingField(field);
+                    let content_type = field
+                        .content_type()
+                        .ok_or(StreamUploadError::MimeNotFound)?;
 
-                    Poll::Ready(Some(Ok(ResultStream::New(name))))
+                    if this.allowed.iter().any(|x| match x {
+                        MimeAllowed::Any => true,
+                        MimeAllowed::Mime(mime) => mime == content_type,
+                        MimeAllowed::MediaType(name) => content_type.type_().eq(name),
+                        MimeAllowed::SubType(name) => content_type.subtype().eq(name),
+                    }) {
+                        this.state = State::ReadingField(field);
+
+                        Poll::Ready(Some(Ok(ResultStream::New(name))))
+                    } else {
+                        this.state = State::Done;
+                        Poll::Ready(Some(Err(StreamUploadError::MimeNotAllowed(
+                            content_type.clone(),
+                        ))))
+                    }
                 }
                 Ok(None) => {
                     this.state = State::Done;
                     Poll::Ready(None)
                 }
-                Err(_e) => {
+                Err(err) => {
                     this.state = State::Done;
-                    Poll::Ready(Some(Err(StreamUploadError)))
+                    Poll::Ready(Some(Err(err.into())))
                 }
             },
             State::ReadingField(field) => match ready!(field.poll_next_unpin(cx)) {
                 Some(Ok(bytes)) => Poll::Ready(Some(Ok(ResultStream::Bytes(bytes)))),
-                Some(Err(_e)) => {
+                Some(Err(err)) => {
                     this.state = State::Done;
-                    Poll::Ready(Some(Err(StreamUploadError)))
+                    Poll::Ready(Some(Err(err.into())))
                 }
                 None => {
                     this.state = State::WaitingField;
@@ -103,13 +128,49 @@ impl Stream for StreamUpload<'_> {
 
 #[derive(Debug)]
 pub struct UploadResult {
-    size: usize,
-    elapsed: u64,
-    file_name: String,
+    pub size: usize,
+    pub elapsed: u64,
+    pub file_name: String,
+}
+
+impl UploadResult {
+    fn new(size: usize, elapsed: u64, file_name: String) -> Self {
+        Self {
+            size,
+            elapsed,
+            file_name,
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct StreamUploadError;
+pub enum StreamUploadError {
+    MimeNotAllowed(Mime),
+    UnexpectedEof,
+    WriteZero,
+    FineNameNotFound,
+    MimeNotFound,
+    Field(String),
+    StorageFull,
+    Io(std::io::ErrorKind),
+}
+
+impl From<multer::Error> for StreamUploadError {
+    fn from(value: multer::Error) -> Self {
+        Self::Field(value.to_string())
+    }
+}
+
+impl From<std::io::Error> for StreamUploadError {
+    fn from(value: std::io::Error) -> Self {
+        match value.kind() {
+            std::io::ErrorKind::WriteZero => Self::WriteZero,
+            std::io::ErrorKind::StorageFull => Self::StorageFull,
+            std::io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
+            e => Self::Io(e),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Buffer {
@@ -206,8 +267,6 @@ impl AsyncWrite for Buffer {
     }
 }
 
-pub struct WriterError;
-
 impl<'a> Upload<'a> {
     pub fn new(path: PathBuf, stream: StreamUpload<'a>) -> Self {
         Self {
@@ -237,7 +296,7 @@ impl Stream for Upload<'_> {
                     let writer = if let Some(e) = this.buffer.as_mut() {
                         unsafe { Pin::new_unchecked(e) }
                     } else {
-                        panic!("aaa");
+                        panic!("Buffer is not present");
                     };
 
                     match ready!(writer.poll_write(cx, buf)) {
@@ -250,9 +309,9 @@ impl Stream for Upload<'_> {
                             }
                             this.written += n;
                         }
-                        Err(_e) => {
+                        Err(e) => {
                             this.state = StateUpload::Done;
-                            return Poll::Ready(Some(Err(StreamUploadError)));
+                            return Poll::Ready(Some(Err(e.into())));
                         }
                     }
                 }
@@ -287,9 +346,9 @@ impl Stream for Upload<'_> {
                         this.buffer = Some(Buffer::new(file));
                         this.state = StateUpload::Reading;
                     }
-                    Err(_e) => {
+                    Err(e) => {
                         this.state = StateUpload::Done;
-                        break Poll::Ready(Some(Err(StreamUploadError)));
+                        break Poll::Ready(Some(Err(e.into())));
                     }
                 },
                 StateUpload::Flush => {
@@ -306,15 +365,15 @@ impl Stream for Upload<'_> {
                                 .map(|x| x.elapsed().as_secs())
                                 .unwrap_or_default();
 
-                            break Poll::Ready(Some(Ok(UploadResult {
+                            break Poll::Ready(Some(Ok(UploadResult::new(
                                 size,
                                 elapsed,
-                                file_name: this.file_name.take().unwrap(),
-                            })));
+                                this.file_name.take().unwrap_or_default(),
+                            ))));
                         }
-                        Err(_e) => {
+                        Err(e) => {
                             this.state = StateUpload::Done;
-                            break Poll::Ready(Some(Err(StreamUploadError)));
+                            break Poll::Ready(Some(Err(e.into())));
                         }
                     }
                 }

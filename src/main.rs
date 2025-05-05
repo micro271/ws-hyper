@@ -7,7 +7,7 @@ mod stream_upload;
 
 use http::{Request, Response};
 use hyper::{body::Body, service::Service};
-use models::user::User;
+use models::{logs::Logs, user::User};
 use peer::Peer;
 use repository::Repository;
 use std::{marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc};
@@ -38,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     repository.create_index::<User>().await?;
+    repository.create_index::<Logs>().await?;
 
     tracing::info!("Listening: {:?}", &socket);
     loop {
