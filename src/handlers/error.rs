@@ -1,4 +1,4 @@
-use crate::repository::RepositoryError;
+use crate::{repository::RepositoryError, stream_upload::error::StreamUploadError};
 use bytes::Bytes;
 use http::{Response, StatusCode, header};
 use http_body_util::Full;
@@ -105,3 +105,18 @@ impl From<ResponseError> for Response<Full<Bytes>> {
 }
 
 impl std::error::Error for ResponseError {}
+
+impl From<StreamUploadError> for ResponseError {
+    fn from(value: StreamUploadError) -> Self {
+        match value {
+            StreamUploadError::MimeNotAllowed(mime) => todo!(),
+            StreamUploadError::UnexpectedEof => todo!(),
+            StreamUploadError::WriteZero => todo!(),
+            StreamUploadError::FineNameNotFound => todo!(),
+            StreamUploadError::MimeNotFound => todo!(),
+            StreamUploadError::Field(_) => todo!(),
+            StreamUploadError::StorageFull => todo!(),
+            StreamUploadError::Io(error) => todo!(),
+        }
+    }
+}

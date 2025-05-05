@@ -8,16 +8,22 @@ use crate::{
         State,
         utils::{get_extention, get_user_oid},
     },
-    models::user::{Claims, Role, User},
+    models::{
+        logs::{Logs, Operation, Owner, upload::UploadLog},
+        user::{Claims, Role, User},
+    },
     peer::Peer,
-    stream_upload::{MimeAllowed, StreamUpload, Upload},
+    stream_upload::{
+        Upload,
+        stream::{MimeAllowed, StreamUpload},
+    },
 };
+use bytes::Bytes;
 use futures::StreamExt;
-use http::Method;
-use http_body_util::BodyStream;
-use mime::Mime;
+use http::{Method, Response};
+use http_body_util::{BodyStream, Full};
 use multer::Multipart;
-use time::{OffsetDateTime, format_description};
+use time::OffsetDateTime;
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
 static PATH_ICONS: OnceLock<PathBuf> = OnceLock::new();
@@ -117,11 +123,42 @@ pub async fn upload(
     );
     let mut tmp = Upload::new(get_dir_programs(), tmp);
 
-    while let Some(e) = tmp.next().await {
-        tracing::warn!("{e:?}");
-    }
+    loop {
+        match tmp.next().await {
+            Some(Ok(log)) => {
+                let new_log = Logs {
+                    id: None,
+                    owner: Owner {
+                        username: user.username.clone(),
+                        src: ip_src.get_ip_or_unknown(),
+                        role: user.role,
+                    },
+                    at: OffsetDateTime::now_local().unwrap(),
+                    operation: Operation::Upload(UploadLog {
+                        file_name: log.file_name,
+                        channel: channel.clone(),
+                        program_tv: program_tv.clone(),
+                        elapsed_upload: Some(log.elapsed),
+                        size: log.size,
+                    }),
+                };
 
-    Err(ResponseError::unimplemented())
+                repository.insert(new_log).await?;
+            }
+            Some(Err(err)) => {
+                break Err(ResponseError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Some(err.to_string()),
+                ));
+            }
+            None => {
+                break Ok(Response::builder()
+                    .status(StatusCode::CREATED)
+                    .body(Full::new(Bytes::new()))
+                    .unwrap_or_default());
+            }
+        }
+    }
 }
 
 pub fn get_dir_programs() -> PathBuf {
