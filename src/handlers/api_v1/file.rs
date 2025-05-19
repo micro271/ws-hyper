@@ -9,12 +9,12 @@ use crate::{
         utils::{get_extention, get_user_oid},
     },
     models::{
-        logs::{Logs, Operation, Owner, upload::UploadLog},
+        logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
         user::{Claims, Role, User},
     },
     peer::Peer,
     stream_upload::{
-        Upload,
+        Upload, UploadResult,
         stream::{MimeAllowed, StreamUpload},
     },
 };
@@ -124,40 +124,44 @@ pub async fn upload(
     let mut tmp = Upload::new(get_dir_programs(), tmp);
 
     loop {
-        match tmp.next().await {
-            Some(Ok(log)) => {
-                let new_log = Logs {
-                    id: None,
-                    owner: Owner {
-                        username: user.username.clone(),
-                        src: ip_src.get_ip_or_unknown(),
-                        role: user.role,
-                    },
-                    at: OffsetDateTime::now_local().unwrap(),
-                    operation: Operation::Upload(UploadLog {
-                        file_name: log.file_name,
-                        channel: channel.clone(),
-                        program_tv: program_tv.clone(),
-                        elapsed_upload: Some(log.elapsed),
-                        size: log.size,
-                    }),
-                };
-
-                repository.insert(new_log).await?;
-            }
-            Some(Err(err)) => {
-                break Err(ResponseError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Some(err.to_string()),
-                ));
-            }
+        let (upload_result, operation_result) = match tmp.next().await {
+            Some(Ok(log)) => (log, ResultOperation::Success),
+            Some(Err(err)) => (
+                UploadResult {
+                    size: 0,
+                    elapsed: 0,
+                    file_name: "".to_string(),
+                },
+                ResultOperation::Fail(err.to_string()),
+            ),
             None => {
                 break Ok(Response::builder()
                     .status(StatusCode::CREATED)
                     .body(Full::new(Bytes::new()))
                     .unwrap_or_default());
             }
-        }
+        };
+
+        let new_log = Logs {
+            id: None,
+            owner: Owner {
+                username: user.username.clone(),
+                src: ip_src.get_ip_or_unknown(),
+                role: user.role,
+            },
+            at: OffsetDateTime::now_local().unwrap(),
+            operation: Operation::Upload {
+                detail: UploadLog {
+                    file_name: upload_result.file_name,
+                    channel: channel.clone(),
+                    program_tv: program_tv.clone(),
+                    elapsed_upload: Some(upload_result.elapsed),
+                    size: upload_result.size,
+                },
+                result: operation_result,
+            },
+        };
+        repository.insert(new_log).await?;
     }
 }
 

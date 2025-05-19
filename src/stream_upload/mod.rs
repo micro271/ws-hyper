@@ -2,7 +2,7 @@ pub mod error;
 pub mod stream;
 
 use bytes::{Buf, Bytes, BytesMut};
-use error::StreamUploadError;
+use error::UploadError;
 use futures::{FutureExt, Stream, ready};
 use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll, time::Instant};
 use stream::{ResultStream, StreamUpload};
@@ -28,7 +28,7 @@ pub enum StateUpload {
     Done,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct UploadResult {
     pub size: usize,
     pub elapsed: u64,
@@ -155,7 +155,7 @@ impl<'a> Upload<'a> {
 }
 
 impl Stream for Upload<'_> {
-    type Item = Result<UploadResult, StreamUploadError>;
+    type Item = Result<UploadResult, UploadError>;
 
     fn poll_next(
         self: Pin<&mut Self>,

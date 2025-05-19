@@ -1,47 +1,51 @@
 use mime::Mime;
 
-#[derive(Debug)]
-pub enum StreamUploadError {
-    MimeNotAllowed(Mime),
+#[derive(Debug, Clone)]
+pub enum UploadError {
+    MimeNotAllowed { file: String, mime: Mime },
     UnexpectedEof,
     WriteZero,
-    FineNameNotFound,
-    MimeNotFound,
-    Field(String),
+    FileNameNotFound,
+    MimeNotFound(String),
+    Multer(String),
     StorageFull,
-    Io(std::io::Error),
+    Io(String),
 }
 
-impl From<multer::Error> for StreamUploadError {
+impl From<multer::Error> for UploadError {
     fn from(value: multer::Error) -> Self {
-        Self::Field(value.to_string())
+        Self::Multer(value.to_string())
     }
 }
 
-impl From<std::io::Error> for StreamUploadError {
+impl From<std::io::Error> for UploadError {
     fn from(value: std::io::Error) -> Self {
         match value.kind() {
             std::io::ErrorKind::WriteZero => Self::WriteZero,
             std::io::ErrorKind::StorageFull => Self::StorageFull,
             std::io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
-            e => Self::Io(e.into()),
+            e => Self::Io(e.to_string()),
         }
     }
 }
 
-impl std::fmt::Display for StreamUploadError {
+impl std::fmt::Display for UploadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StreamUploadError::MimeNotAllowed(mime) => {
-                write!(f, "the mime {} is not allowed", mime)
+            UploadError::UnexpectedEof => write!(f, "Unexpected EOF"),
+            UploadError::WriteZero => write!(f, "Write 0 bytes"),
+            UploadError::FileNameNotFound => write!(f, "File name not found"),
+            UploadError::MimeNotFound(file) => {
+                write!(f, "File: {file} {{Mime type is not present}}")
             }
-            StreamUploadError::UnexpectedEof => write!(f, "Unexpected EOF"),
-            StreamUploadError::WriteZero => write!(f, "Write 0 bytes"),
-            StreamUploadError::FineNameNotFound => write!(f, "File name not found"),
-            StreamUploadError::MimeNotFound => write!(f, "Mime type is not present"),
-            StreamUploadError::Field(e) => write!(f, "{e}"),
-            StreamUploadError::StorageFull => write!(f, "Storage full"),
-            StreamUploadError::Io(error) => write!(f, "{error}"),
+            UploadError::MimeNotAllowed { file, mime } => {
+                write!(f, "file: {file} {{ Mime {mime} is not allowed }}")
+            }
+            UploadError::Multer(str) => write!(f, "Multer error: {str}"),
+            UploadError::StorageFull => write!(f, "Storage full"),
+            UploadError::Io(str) => write!(f, "{str}"),
         }
     }
 }
+
+impl std::error::Error for UploadError {}

@@ -4,7 +4,7 @@ use mime::{Mime, Name};
 use multer::{Field, Multipart};
 use std::task::Poll;
 
-use super::error::StreamUploadError;
+use super::error::UploadError;
 
 #[derive(Debug)]
 pub struct StreamUpload<'a> {
@@ -45,7 +45,7 @@ impl<'a> StreamUpload<'a> {
 }
 
 impl Stream for StreamUpload<'_> {
-    type Item = Result<ResultStream, StreamUploadError>;
+    type Item = Result<ResultStream, UploadError>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -58,12 +58,12 @@ impl Stream for StreamUpload<'_> {
                 Ok(Some(field)) => {
                     let Some(name) = field.file_name().map(ToString::to_string) else {
                         this.state = State::Done;
-                        return Poll::Ready(Some(Err(StreamUploadError::FineNameNotFound)));
+                        return Poll::Ready(Some(Err(UploadError::FileNameNotFound)));
                     };
 
-                    let content_type = field
-                        .content_type()
-                        .ok_or(StreamUploadError::MimeNotFound)?;
+                    let Some(content_type) = field.content_type() else {
+                        return Poll::Ready(Some(Err(UploadError::MimeNotFound(name))));
+                    };
 
                     if this.allowed.iter().any(|x| match x {
                         MimeAllowed::Any => true,
@@ -76,9 +76,10 @@ impl Stream for StreamUpload<'_> {
                         Poll::Ready(Some(Ok(ResultStream::New(name))))
                     } else {
                         this.state = State::Done;
-                        Poll::Ready(Some(Err(StreamUploadError::MimeNotAllowed(
-                            content_type.clone(),
-                        ))))
+                        Poll::Ready(Some(Err(UploadError::MimeNotAllowed {
+                            file: name,
+                            mime: content_type.clone(),
+                        })))
                     }
                 }
                 Ok(None) => {

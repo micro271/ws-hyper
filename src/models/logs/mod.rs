@@ -77,14 +77,29 @@ impl GetCollection for Logs {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(tag = "type", content = "detail")]
+#[serde(tag = "type")]
 pub enum Operation {
     Login,
-    Upload(UploadLog),
-    Download(String),
-    Rename(String),
-    Delete(String),
-    Take(String),
+    Upload {
+        result: ResultOperation,
+        detail: UploadLog,
+    },
+    Download {
+        result: ResultOperation,
+        detail: String,
+    },
+    Rename {
+        result: ResultOperation,
+        detail: String,
+    },
+    Delete {
+        result: ResultOperation,
+        detail: String,
+    },
+    Take {
+        result: ResultOperation,
+        detail: String,
+    },
 
     #[default]
     Any,
@@ -95,4 +110,10 @@ pub struct Owner {
     pub username: String,
     pub src: String,
     pub role: Role,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum ResultOperation {
+    Success,
+    Fail(String),
 }
