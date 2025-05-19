@@ -109,11 +109,11 @@ impl std::error::Error for ResponseError {}
 impl From<UploadError> for ResponseError {
     fn from(value: UploadError) -> Self {
         match value {
-            UploadError::MimeNotAllowed(_mime) => todo!(),
+            UploadError::MimeNotAllowed { file, mime } => todo!(),
             UploadError::UnexpectedEof => todo!(),
             UploadError::WriteZero => todo!(),
-            UploadError::FineNameNotFound => todo!(),
-            UploadError::MimeNotFound => todo!(),
+            UploadError::FileNameNotFound => todo!(),
+            UploadError::MimeNotFound(_) => todo!(),
             UploadError::Multer(_) => todo!(),
             UploadError::StorageFull => todo!(),
             UploadError::Io(_error) => todo!(),

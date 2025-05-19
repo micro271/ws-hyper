@@ -4,20 +4,35 @@ pub mod stream;
 use bytes::{Buf, Bytes, BytesMut};
 use error::UploadError;
 use futures::{FutureExt, Stream, ready};
+use mime::Mime;
 use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll, time::Instant};
 use stream::{ResultStream, StreamUpload};
 use tokio::{fs::File, io::AsyncWrite};
 
 const DEFAULT_BUFFER: usize = 8 * 1024;
 
-pub struct Upload<'a> {
+pub struct Upload<'a, F> {
     stream: StreamUpload<'a>,
-    path: PathBuf,
     buffer: Option<Buffer>,
     state: StateUpload,
     written: usize,
     elapsed: Option<Instant>,
-    file_name: Option<String>,
+    meta_file: Option<MetaFile>,
+    path: F,
+}
+
+pub struct MetaFile {
+    file_name: String,
+    mime: Mime,
+}
+
+impl MetaFile {
+    fn file_name(&self) -> &str {
+        &self.file_name
+    }
+    fn mime(&self) -> &Mime {
+        &self.mime
+    }
 }
 
 pub enum StateUpload {
@@ -140,21 +155,27 @@ impl AsyncWrite for Buffer {
     }
 }
 
-impl<'a> Upload<'a> {
-    pub fn new(path: PathBuf, stream: StreamUpload<'a>) -> Self {
+impl<'a, F> Upload<'a, F>
+where
+    F: Fn(&Mime) -> PathBuf + Send + Sync,
+{
+    pub fn new(stream: StreamUpload<'a>, conditional_path: F) -> Self {
         Self {
             stream,
-            path,
+            path: conditional_path,
             buffer: None,
             state: StateUpload::Reading,
             written: 0,
             elapsed: None,
-            file_name: None,
+            meta_file: None,
         }
     }
 }
 
-impl Stream for Upload<'_> {
+impl<F> Stream for Upload<'_, F>
+where
+    F: Fn(&Mime) -> PathBuf + Send + Sync,
+{
     type Item = Result<UploadResult, UploadError>;
 
     fn poll_next(
@@ -191,10 +212,11 @@ impl Stream for Upload<'_> {
                 StateUpload::Reading => {
                     let stream = unsafe { Pin::new_unchecked(&mut this.stream) };
                     match ready!(stream.poll_next(cx)) {
-                        Some(Ok(ResultStream::New(name))) => {
-                            let mut path = this.path.clone();
-                            path.push(&name);
-                            this.file_name = Some(name);
+                        Some(Ok(ResultStream::New(meta))) => {
+                            let mut path = (this.path)(meta.mime());
+
+                            path.push(meta.file_name());
+                            this.meta_file = Some(meta);
                             this.state = StateUpload::Create(File::create(path).boxed());
                             this.elapsed = Some(Instant::now());
                         }
@@ -241,7 +263,10 @@ impl Stream for Upload<'_> {
                             break Poll::Ready(Some(Ok(UploadResult::new(
                                 size,
                                 elapsed,
-                                this.file_name.take().unwrap_or_default(),
+                                this.meta_file
+                                    .take()
+                                    .map(|x| x.file_name)
+                                    .unwrap_or_default(),
                             ))));
                         }
                         Err(e) => {

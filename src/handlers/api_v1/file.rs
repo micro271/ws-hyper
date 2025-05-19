@@ -117,14 +117,23 @@ pub async fn upload(
     let stream = BodyStream::new(body)
         .filter_map(|x| async move { x.map(|x| x.into_data().ok()).transpose() });
 
-    let tmp = StreamUpload::new(
+    let stream = StreamUpload::new(
         Multipart::new(stream, boundary),
-        vec![MimeAllowed::MediaType(mime::VIDEO)],
+        vec![
+            MimeAllowed::MediaType(mime::VIDEO),
+            MimeAllowed::MediaType(mime::IMAGE),
+        ],
     );
-    let mut tmp = Upload::new(get_dir_programs(), tmp);
+    let mut stream = Upload::new(stream, |x| {
+        if mime::VIDEO.eq(&x.type_()) {
+            get_dir_programs()
+        } else {
+            get_dir_icons()
+        }
+    });
 
     loop {
-        let (upload_result, operation_result) = match tmp.next().await {
+        let (upload_result, operation_result) = match stream.next().await {
             Some(Ok(log)) => (log, ResultOperation::Success),
             Some(Err(err)) => (
                 UploadResult {
