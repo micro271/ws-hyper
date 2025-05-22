@@ -62,7 +62,7 @@ impl Stream for StreamUpload<'_> {
                     };
 
                     let Some(content_type) = field.content_type().cloned() else {
-                        return Poll::Ready(Some(Err(UploadError::MimeNotFound(name))));
+                        return Poll::Ready(Some(Err(UploadError::MimeNotFound { file: name })));
                     };
 
                     if this.allowed.iter().any(|x| match x {

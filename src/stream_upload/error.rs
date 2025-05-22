@@ -6,7 +6,7 @@ pub enum UploadError {
     UnexpectedEof,
     WriteZero,
     FileNameNotFound,
-    MimeNotFound(String),
+    MimeNotFound { file: String },
     Multer(String),
     StorageFull,
     Io(String),
@@ -35,7 +35,7 @@ impl std::fmt::Display for UploadError {
             UploadError::UnexpectedEof => write!(f, "Unexpected EOF"),
             UploadError::WriteZero => write!(f, "Write 0 bytes"),
             UploadError::FileNameNotFound => write!(f, "File name not found"),
-            UploadError::MimeNotFound(file) => {
+            UploadError::MimeNotFound { file } => {
                 write!(f, "File: {file} {{Mime type is not present}}")
             }
             UploadError::MimeNotAllowed { file, mime } => {
