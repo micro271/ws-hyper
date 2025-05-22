@@ -1,6 +1,7 @@
-pub mod data_entry;
-pub mod file;
-pub mod user;
+pub(super) mod data_entry;
+pub(super) mod download;
+pub(super) mod file;
+pub(super) mod user;
 use std::sync::Arc;
 
 use crate::{
