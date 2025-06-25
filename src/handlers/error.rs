@@ -108,15 +108,24 @@ impl std::error::Error for ResponseError {}
 
 impl From<UploadError> for ResponseError {
     fn from(value: UploadError) -> Self {
-        match value {
-            UploadError::MimeNotAllowed { file, mime } => todo!(),
-            UploadError::UnexpectedEof => todo!(),
-            UploadError::WriteZero => todo!(),
+        let (status, detail) = match value {
+            UploadError::MimeNotAllowed { file, mime } => (
+                StatusCode::BAD_REQUEST,
+                Some(format!("The file {file} have an unallower mime ({mime})")),
+            ),
             UploadError::FileNameNotFound => todo!(),
-            UploadError::MimeNotFound(_) => todo!(),
-            UploadError::Multer(_) => todo!(),
-            UploadError::StorageFull => todo!(),
-            UploadError::Io(_error) => todo!(),
-        }
+            UploadError::MimeNotFound { file } => (
+                StatusCode::BAD_REQUEST,
+                Some(format!("The file {file} dont have an mime type")),
+            ),
+            UploadError::Multer(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
+            UploadError::StorageFull => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Some("You file is very large, i dont have anough space".to_string()),
+            ),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, None),
+        };
+
+        ResponseError::new(status, detail)
     }
 }

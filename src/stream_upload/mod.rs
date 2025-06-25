@@ -148,10 +148,14 @@ impl AsyncWrite for Buffer {
     }
 
     fn poll_shutdown(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        ready!(self.as_mut().poll_flush(cx))?;
+
+        let this = unsafe { self.get_unchecked_mut() };
+
+        unsafe { Pin::new_unchecked(&mut this.inner) }.poll_shutdown(cx)
     }
 }
 

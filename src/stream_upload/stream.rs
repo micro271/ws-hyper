@@ -15,9 +15,12 @@ pub struct StreamUpload<'a> {
 
 #[derive(Debug)]
 pub enum MimeAllowed {
+    #[allow(dead_code)]
     Any,
+    #[allow(dead_code)]
     Mime(Mime),
     MediaType(Name<'static>),
+    #[allow(dead_code)]
     SubType(Name<'static>),
 }
 

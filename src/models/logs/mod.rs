@@ -44,18 +44,6 @@ impl IndexDB for Logs {
 }
 
 impl Logs {
-    pub fn new(src: String, username: String, role: Role, operation: Operation) -> Self {
-        Self {
-            id: None,
-            at: OffsetDateTime::now_local().unwrap(),
-            operation,
-            owner: Owner {
-                username,
-                role,
-                src,
-            },
-        }
-    }
     pub fn new_from_user(user: &User, src: &Peer, operation: Operation) -> Self {
         Self {
             owner: Owner {
