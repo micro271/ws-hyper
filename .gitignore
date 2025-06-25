@@ -4,3 +4,7 @@ Cargo.lock
 download_srv/target
 download_srv/Cargo.lock
 download_srv/.env
+
+utils/target
+utils/Cargo.lock
+utils/.env
