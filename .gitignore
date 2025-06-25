@@ -1,4 +1,6 @@
 /target
 .env
-www
 Cargo.lock
+download_srv/target
+download_srv/Cargo.lock
+download_srv/.env
