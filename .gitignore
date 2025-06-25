@@ -1,6 +1,7 @@
-/target
-.env
-Cargo.lock
+upload_files/target
+upload_files/.env
+upload_files/Cargo.lock
+
 download_srv/target
 download_srv/Cargo.lock
 download_srv/.env
