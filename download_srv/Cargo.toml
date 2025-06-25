@@ -12,3 +12,4 @@ hyper = "1.6.0"
 jsonwebtoken = "9.3.1"
 time = "0.3.41"
 tokio = { version = "1.45.1", features = ["full"] }
+utils = { path = "../utils" }

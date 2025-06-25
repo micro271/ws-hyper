@@ -8,3 +8,7 @@ download_srv/.env
 utils/target
 utils/Cargo.lock
 utils/.env
+
+auth/target
+auth/Cargo.lock
+auth/.env
