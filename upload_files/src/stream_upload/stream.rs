@@ -27,7 +27,7 @@ pub enum MimeAllowed {
 #[derive(Debug)]
 pub enum State<'a> {
     WaitingField,
-    ReadingField(Field<'a>),
+    ReadingField(Box<Field<'a>>),
     Done,
 }
 
@@ -74,7 +74,7 @@ impl Stream for StreamUpload<'_> {
                         MimeAllowed::MediaType(name) => content_type.type_().eq(name),
                         MimeAllowed::SubType(name) => content_type.subtype().eq(name),
                     }) {
-                        this.state = State::ReadingField(field);
+                        this.state = State::ReadingField(Box::new(field));
 
                         Poll::Ready(Some(Ok(ResultStream::New(MetaFile {
                             file_name: name,

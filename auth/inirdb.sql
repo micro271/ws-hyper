@@ -1,18 +1,18 @@
 
 CREATE DATABASE programas;
 
-CREATE TYPE IF NOT EXISTS ROL AS ENUM ('Productor', 'Administrador', 'Operador');
-CREATE TYPE IF NOT EXISTS ESTADO AS ENUM ('Activo', 'Inactivo');
+CREATE TYPE IF NOT EXISTS ROL AS ENUM ('Producer', 'Administrator', 'Operator');
+CREATE TYPE IF NOT EXISTS ESTADO AS ENUM ('Active', 'Inactive');
 CREATE TYPE IF NOT EXISTS VERBS AS ENUM ('PutFile', 'DeleteFile', 'Read', 'CreateUser', 'ModifyUser', 'CreateCh', 'ModifyCh', 'CreateProgram', 'ModifyProgram', 'All');
 
 CREATE TABLE IF NOT EXISTS usuarios (
     id UUID,
-    usuario TEXT unique,
+    user TEXT unique,
     passwd TEXT,
     email TEXT,
     verbos VERBS,
-    estado ESTADO,
-    rol ROL,
+    user_state ESTADO,
+    role ROL,
     resource TEXT,
     PRIMARY KEY (id),
 );
