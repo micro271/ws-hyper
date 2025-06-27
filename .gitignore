@@ -13,3 +13,7 @@ utils/.env
 auth/target
 auth/Cargo.lock
 auth/.env
+
+notify/target
+notify/Cargo.lock
+notify/.env
