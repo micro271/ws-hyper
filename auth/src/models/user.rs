@@ -3,13 +3,14 @@ use sqlx::prelude::FromRow;
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct Usuarios {
-    pub id: uuid::Uuid,
-    pub user: String,
+    pub username: String,
     pub passwd: String,
     pub email: String,
     pub verbos: Verbs,
+    pub phone: String,
     pub user_state: UserState,
     pub role: Role,
+    pub resources: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]
