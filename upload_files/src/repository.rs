@@ -6,8 +6,6 @@ use mongodb::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::models::user::{Encrypt, User};
-
 pub struct Repository {
     inner: Client,
 }
@@ -28,27 +26,6 @@ impl Repository {
         let tmp = Self {
             inner: Client::with_options(opt)?,
         };
-
-        let username = "admin".to_string();
-
-        match tmp
-            .insert(User {
-                id: None,
-                username: username.clone(),
-                password: "prueba".to_string().encrypt().unwrap(),
-                email: None,
-                phone: None,
-                role: crate::models::user::Role::Admin,
-                ch: None,
-            })
-            .await
-        {
-            Err(RepositoryError::DuplicateKey) => {
-                tracing::warn!("The default username: \"{username}\" already exists");
-            }
-            Ok(id) => tracing::info!("created default user, _id: {id}"),
-            Err(err) => tracing::error!("Unexpected error: {err}"),
-        }
 
         Ok(tmp)
     }

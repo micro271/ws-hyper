@@ -1,6 +1,5 @@
 pub(super) mod data_entry;
 pub(super) mod file;
-pub(super) mod user;
 use http::{Method, Request, StatusCode, header};
 use hyper::body::Incoming;
 use mongodb::bson::doc;
@@ -18,7 +17,7 @@ pub async fn api(req: Request<Incoming>) -> ResultResponse {
 
     let headers = req.headers();
 
-    if let Some(token) = Token::<JwtCookie>::get_token(headers) {
+    if let Some(_token) = Token::<JwtCookie>::get_token(headers) {
     } else {
         return Err(ResponseError::new(
             StatusCode::UNAUTHORIZED,
