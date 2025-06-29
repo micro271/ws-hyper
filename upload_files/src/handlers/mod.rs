@@ -3,12 +3,12 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
-use crate::peer::Peer;
+use crate::{handlers::api_v1::api, peer::Peer};
 
-use super::{redirect::Redirect, repository::Repository};
+use super::repository::Repository;
 use bytes::Bytes;
 use error::ResponseError;
-use http::{Method, Request, Response, StatusCode, header};
+use http::{Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use serde::de::DeserializeOwned;
@@ -36,7 +36,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let duration = std::time::Instant::now();
     let path = req.uri().path().to_string();
 
-    let response = hello(req).await;
+    let response = api(req).await;
     let duration = duration.elapsed().as_millis();
     match response {
         Ok(r) => {
@@ -62,23 +62,6 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             );
             Ok(e.into())
         }
-    }
-}
-
-pub async fn hello(mut req: Request<Incoming>) -> ResultResponse {
-    match (req.uri().path(), req.method()) {
-        (_, &Method::OPTIONS) => Ok(cors()),
-        ("/login", &Method::POST) => api_v1::login(req).await,
-        (path, _) if path.starts_with("/api/v1") => {
-            let Some(claims) = api_v1::verifi_token_from_cookie(req.headers()) else {
-                return Ok(Redirect::to("/login").into());
-            };
-
-            req.extensions_mut().insert(claims);
-
-            api_v1::api(req).await
-        }
-        _ => Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None)),
     }
 }
 

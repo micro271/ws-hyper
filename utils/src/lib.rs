@@ -1,4 +1,68 @@
+use http::{HeaderMap, header};
 use std::pin::Pin;
+
+const JWT_IDENTIFIED: &str = "JWT";
+
+pub trait GetToken {
+    fn search(headers: &HeaderMap) -> Option<Self>
+    where
+        Self: Sized;
+    fn get(self) -> String;
+}
+
+pub struct JwtCookie(String);
+
+impl GetToken for JwtCookie {
+    fn search(headers: &HeaderMap) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        headers
+            .get(header::COOKIE)
+            .and_then(|x| {
+                x.to_str().ok().and_then(|x| {
+                    x.split(";")
+                        .map(str::trim)
+                        .find(|x| x.starts_with(JWT_IDENTIFIED))
+                        .and_then(|x| x.split("=").nth(1).map(ToString::to_string))
+                })
+            })
+            .map(Self)
+    }
+    fn get(self) -> String {
+        self.0
+    }
+}
+
+pub struct JwtHeader(String);
+
+impl GetToken for JwtHeader {
+    fn search(headers: &HeaderMap) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|x| {
+                x.to_str()
+                    .ok()
+                    .and_then(|x| x.strip_prefix("Bearer "))
+                    .map(ToString::to_string)
+            })
+            .map(Self)
+    }
+    fn get(self) -> String {
+        self.0
+    }
+}
+
+pub struct Token<T: GetToken>(T);
+
+impl<T: GetToken> Token<T> {
+    pub fn get_token(headers: &HeaderMap) -> Option<String> {
+        T::search(headers).map(|x| x.get())
+    }
+}
 
 pub struct Io<T> {
     inner: T,
