@@ -1,13 +1,18 @@
 use http::{HeaderMap, Request, Response, header};
-use hyper::{body::Body, service::Service};
+use http_body_util::BodyExt;
+use hyper::{
+    body::{Body, Incoming},
+    service::Service,
+};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+
 use p256::{
     ecdsa::{SigningKey, VerifyingKey},
     elliptic_curve::rand_core,
     pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, marker::PhantomData, path::PathBuf, pin::Pin, sync::Arc};
+use std::{fs, marker::PhantomData, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc};
 const JWT_IDENTIFIED: &str = "JWT";
 const ECDS_PRIV_FILE: &str = "ec_priv_key.pem";
 const ECDS_PUB_FILE: &str = "ec_pub_key.pem";
@@ -282,5 +287,50 @@ impl<F: Clone, R, Repo: Sync + Send + 'static> std::clone::Clone for ServiceWith
             state: self.state.clone(),
             _req: PhantomData,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Peer(Option<SocketAddr>);
+
+impl Peer {
+    pub fn new(socket: Option<SocketAddr>) -> Self {
+        Self(socket)
+    }
+
+    pub fn get_socket_or_unknown(&self) -> String {
+        self.0.map_or("Unknown".to_string(), |x| x.to_string())
+    }
+
+    pub fn get_ip_or_unknown(&self) -> String {
+        self.0.map_or("Unknown".to_string(), |x| x.ip().to_string())
+    }
+}
+
+pub struct ParseBodyToJson<T> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T> ParseBodyToJson<T>
+where
+    T: DeserializeOwned,
+{
+    pub async fn get(body: Incoming) -> Result<T, ParseErrorFromBody> {
+        match body.collect().await {
+            Ok(e) => match serde_json::from_slice::<'_, T>(&e.to_bytes()) {
+                Ok(e) => Ok(e),
+                _ => Err(ParseErrorFromBody::new("Parsing data entry error")),
+            },
+            Err(_) => Err(ParseErrorFromBody::new("Data entry error")),
+        }
+    }
+}
+
+pub struct ParseErrorFromBody {
+    detail: &'static str,
+}
+impl ParseErrorFromBody {
+    pub fn new(detail: &'static str) -> Self {
+        Self { detail }
     }
 }
