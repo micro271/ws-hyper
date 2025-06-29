@@ -1,4 +1,5 @@
-use http::{HeaderMap, header};
+use http::{HeaderMap, Request, Response, header};
+use hyper::{body::Body, service::Service};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use p256::{
     ecdsa::{SigningKey, VerifyingKey},
@@ -6,7 +7,7 @@ use p256::{
     pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, path::PathBuf, pin::Pin};
+use std::{fs, marker::PhantomData, path::PathBuf, pin::Pin, sync::Arc};
 const JWT_IDENTIFIED: &str = "JWT";
 const ECDS_PRIV_FILE: &str = "ec_priv_key.pem";
 const ECDS_PUB_FILE: &str = "ec_pub_key.pem";
@@ -230,5 +231,56 @@ impl<T: tokio::io::AsyncWrite> hyper::rt::Write for Io<T> {
             unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) },
             cx,
         )
+    }
+}
+
+pub struct ServiceWithState<C, R, Repo> {
+    f: C,
+    state: Arc<Repo>,
+    _req: PhantomData<fn(R)>,
+}
+
+pub fn service_with_state<F, R, S, Repo>(state: Arc<Repo>, f: F) -> ServiceWithState<F, R, Repo>
+where
+    F: Fn(Request<R>) -> S,
+    S: Future,
+    Repo: Sync + Send + 'static,
+{
+    ServiceWithState {
+        f,
+        state,
+        _req: PhantomData,
+    }
+}
+
+impl<C, ReqBody, ResBody, F, E, Repo> Service<Request<ReqBody>>
+    for ServiceWithState<C, ReqBody, Repo>
+where
+    C: Fn(Request<ReqBody>) -> F + Copy,
+    ReqBody: Body,
+    F: Future<Output = Result<Response<ResBody>, E>>,
+    ResBody: Body,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    Repo: Sync + Send + 'static,
+{
+    type Response = Response<ResBody>;
+
+    type Error = E;
+
+    type Future = F;
+
+    fn call(&self, mut req: Request<ReqBody>) -> Self::Future {
+        req.extensions_mut().insert(self.state.clone());
+        (self.f)(req)
+    }
+}
+
+impl<F: Clone, R, Repo: Sync + Send + 'static> std::clone::Clone for ServiceWithState<F, R, Repo> {
+    fn clone(&self) -> Self {
+        ServiceWithState {
+            f: self.f.clone(),
+            state: self.state.clone(),
+            _req: PhantomData,
+        }
     }
 }

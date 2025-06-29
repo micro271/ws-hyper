@@ -5,14 +5,12 @@ mod redirect;
 mod repository;
 mod stream_upload;
 
-use http::{Request, Response};
-use hyper::{body::Body, service::Service};
 use models::logs::Logs;
 use peer::Peer;
 use repository::Repository;
-use std::{marker::PhantomData, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
-use utils::Io;
+use utils::{Io, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,53 +59,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::error!("{e:?}");
             }
         });
-    }
-}
-
-pub struct ServiceWithState<C, R> {
-    f: C,
-    state: Arc<Repository>,
-    _req: PhantomData<fn(R)>,
-}
-
-pub fn service_with_state<F, R, S>(state: Arc<Repository>, f: F) -> ServiceWithState<F, R>
-where
-    F: Fn(Request<R>) -> S,
-    S: Future,
-{
-    ServiceWithState {
-        f,
-        state,
-        _req: PhantomData,
-    }
-}
-
-impl<C, ReqBody, ResBody, F, E> Service<Request<ReqBody>> for ServiceWithState<C, ReqBody>
-where
-    C: Fn(Request<ReqBody>) -> F + Copy,
-    ReqBody: Body,
-    F: Future<Output = Result<Response<ResBody>, E>>,
-    ResBody: Body,
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    type Response = Response<ResBody>;
-
-    type Error = E;
-
-    type Future = F;
-
-    fn call(&self, mut req: Request<ReqBody>) -> Self::Future {
-        req.extensions_mut().insert(self.state.clone());
-        (self.f)(req)
-    }
-}
-
-impl<F: Clone, R> std::clone::Clone for ServiceWithState<F, R> {
-    fn clone(&self) -> Self {
-        ServiceWithState {
-            f: self.f.clone(),
-            state: self.state.clone(),
-            _req: PhantomData,
-        }
     }
 }
