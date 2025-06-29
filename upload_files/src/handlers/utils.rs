@@ -1,7 +1,7 @@
 use http::Extensions;
 use mongodb::bson::oid::ObjectId;
 
-use crate::models::user::Claims;
+use crate::models::user::Claim;
 
 use super::{BodyExt, DeserializeOwned, Incoming, ResponseError, StatusCode};
 
@@ -42,7 +42,7 @@ where
     }
 }
 
-pub fn get_user_oid(claims: &Claims) -> Result<ObjectId, ResponseError> {
+pub fn get_user_oid(claims: &Claim) -> Result<ObjectId, ResponseError> {
     match claims.sub.parse::<ObjectId>() {
         Ok(oid) => Ok(oid),
         Err(e) => {

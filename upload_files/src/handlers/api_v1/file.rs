@@ -10,7 +10,7 @@ use crate::{
     },
     models::{
         logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
-        user::{Claims, Role, User},
+        user::{Claim, Role, User},
     },
     peer::Peer,
     stream_upload::{
@@ -56,7 +56,7 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
         .and_then(|x| x.parse().map_err(|_| parse_error))?;
 
     if req.method() == Method::POST {
-        let claims = get_extention::<Claims>(req.extensions())?;
+        let claims = get_extention::<Claim>(req.extensions())?;
         let repository = get_extention::<State>(req.extensions())?;
         let user = repository
             .get_one::<User>(doc! {"_id": get_user_oid(claims)?})

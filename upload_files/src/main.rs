@@ -50,9 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_with_state(repo, |mut req, repo| {
+                    service_with_state(repo, |mut req| {
                         let ext = req.extensions_mut();
-                        ext.insert(repo);
                         ext.insert(Peer::new(peer));
                         handlers::entry(req)
                     }),
@@ -73,7 +72,7 @@ pub struct ServiceWithState<C, R> {
 
 pub fn service_with_state<F, R, S>(state: Arc<Repository>, f: F) -> ServiceWithState<F, R>
 where
-    F: Fn(Request<R>, Arc<Repository>) -> S,
+    F: Fn(Request<R>) -> S,
     S: Future,
 {
     ServiceWithState {
@@ -85,7 +84,7 @@ where
 
 impl<C, ReqBody, ResBody, F, E> Service<Request<ReqBody>> for ServiceWithState<C, ReqBody>
 where
-    C: Fn(Request<ReqBody>, Arc<Repository>) -> F + Copy,
+    C: Fn(Request<ReqBody>) -> F + Copy,
     ReqBody: Body,
     F: Future<Output = Result<Response<ResBody>, E>>,
     ResBody: Body,
@@ -97,8 +96,9 @@ where
 
     type Future = F;
 
-    fn call(&self, req: Request<ReqBody>) -> Self::Future {
-        (self.f)(req, self.state.clone())
+    fn call(&self, mut req: Request<ReqBody>) -> Self::Future {
+        req.extensions_mut().insert(self.state.clone());
+        (self.f)(req)
     }
 }
 

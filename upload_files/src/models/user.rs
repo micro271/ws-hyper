@@ -9,6 +9,7 @@ use mongodb::{
     options::IndexOptions,
 };
 use serde::{Deserialize, Serialize};
+use utils::GetClaim;
 
 pub trait Encrypt {
     type Error;
@@ -17,10 +18,20 @@ pub trait Encrypt {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Claims {
+pub struct Claim {
     pub sub: String,
     pub exp: i64,
     pub role: Role,
+}
+
+impl GetClaim<Claim> for User {
+    fn get_claim(self) -> Claim {
+        Claim {
+            sub: "".to_string(),
+            exp: 1,
+            role: Role::Admin,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,7 +40,7 @@ pub struct UserEntry {
     pub password: String,
 }
 
-impl From<&User> for Claims {
+impl From<&User> for Claim {
     fn from(value: &User) -> Self {
         Self {
             sub: value.id.unwrap().to_string(),

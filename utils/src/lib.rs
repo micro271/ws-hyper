@@ -28,7 +28,7 @@ pub trait VerifyTokenEcdsa {
 pub trait GenTokenFromEcds {
     fn gen_token<T, B>(claim: T) -> Result<String, JwtHandleError>
     where
-        T: Claims,
+        T: GetClaim<B>,
         B: Serialize;
 }
 
@@ -78,7 +78,7 @@ impl GenEcdsa for JwtHandle {
 impl GenTokenFromEcds for JwtHandleError {
     fn gen_token<T, B>(claim: T) -> Result<String, JwtHandleError>
     where
-        T: Claims,
+        T: GetClaim<B>,
         B: Serialize,
     {
         let mut path_priv_key = PathBuf::from(PKI);
@@ -87,38 +87,13 @@ impl GenTokenFromEcds for JwtHandleError {
         let priv_key = fs::read(path_priv_key).unwrap();
         let priv_key = EncodingKey::from_ec_pem(&priv_key).unwrap();
 
-        let token = encode(
-            &Header::new(ALGORITHM_JWT),
-            &claim.get_claim::<B>(),
-            &priv_key,
-        )
-        .unwrap();
+        let token = encode(&Header::new(ALGORITHM_JWT), &claim.get_claim(), &priv_key).unwrap();
         Ok(token)
     }
 }
 
-impl JwtHandle {
-    pub fn verify_token<B>(token: String) -> Result<B, JwtHandleError>
-    where
-        B: DeserializeOwned,
-    {
-        let mut path = PathBuf::from(PKI);
-        path.push(ECDS_PUB_FILE);
-        let pub_key = fs::read(path).unwrap();
-
-        let dec = DecodingKey::from_ec_pem(&pub_key).unwrap();
-
-        let validate = Validation::new(ALGORITHM_JWT);
-
-        let decode = decode::<B>(&token, &dec, &validate).unwrap();
-        Ok(decode.claims)
-    }
-}
-
-pub trait Claims {
-    fn get_claim<T>(&self) -> T
-    where
-        T: Serialize;
+pub trait GetClaim<T: Serialize> {
+    fn get_claim(self) -> T;
 }
 
 #[derive(Debug)]

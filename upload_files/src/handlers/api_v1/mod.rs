@@ -3,7 +3,6 @@ pub(super) mod file;
 use http::{Method, Request, StatusCode, header};
 use hyper::body::Incoming;
 use mongodb::bson::doc;
-use utils::{JwtCookie, Token};
 
 use crate::handlers::cors;
 
@@ -14,16 +13,6 @@ use super::{
 
 pub async fn api(req: Request<Incoming>) -> ResultResponse {
     let path = req.uri().path().split("/v1").nth(1).unwrap_or_default();
-
-    let headers = req.headers();
-
-    if let Some(_token) = Token::<JwtCookie>::get_token(headers) {
-    } else {
-        return Err(ResponseError::new(
-            StatusCode::UNAUTHORIZED,
-            Some("Token is not present"),
-        ));
-    }
 
     if req.method() == Method::OPTIONS {
         Ok(cors())

@@ -3,9 +3,10 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
-use crate::{handlers::api_v1::api, peer::Peer};
+use crate::{handlers::api_v1::api, models::user::Claim, peer::Peer};
 
 use super::repository::Repository;
+use ::utils::{JwtCookie, JwtHandle, Token, VerifyTokenEcdsa};
 use bytes::Bytes;
 use error::ResponseError;
 use http::{Request, Response, StatusCode, header};
@@ -36,9 +37,9 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let duration = std::time::Instant::now();
     let path = req.uri().path().to_string();
 
-    let response = api(req).await;
     let duration = duration.elapsed().as_millis();
-    match response {
+
+    match midlleware_token(req).await {
         Ok(r) => {
             tracing::info!(
                 "Response {{ Method: {}, Status: {}, Path={}, duration: {}ms, Src_req: {} }}",
@@ -62,6 +63,21 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             );
             Ok(e.into())
         }
+    }
+}
+
+pub async fn midlleware_token(mut req: Request<Incoming>) -> ResultResponse {
+    if let Some(token) = Token::<JwtCookie>::get_token(req.headers()) {
+        let tmp = JwtHandle::verify_token::<Claim>(&token)
+            .map_err(|_| ResponseError::new::<&str>(StatusCode::UNAUTHORIZED, None))?;
+        req.extensions_mut().insert(tmp);
+
+        api(req).await
+    } else {
+        Err(ResponseError::new(
+            StatusCode::UNAUTHORIZED,
+            Some("Token is not present"),
+        ))
     }
 }
 
