@@ -1,16 +1,14 @@
 mod handlers;
 mod models;
-mod peer;
 mod redirect;
 mod repository;
 mod stream_upload;
 
 use models::logs::Logs;
-use peer::Peer;
 use repository::Repository;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
-use utils::{Io, service_with_state};
+use utils::{Io, Peer, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

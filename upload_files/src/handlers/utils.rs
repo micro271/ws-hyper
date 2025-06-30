@@ -5,28 +5,6 @@ use crate::models::user::Claim;
 
 use super::{BodyExt, DeserializeOwned, Incoming, ResponseError, StatusCode};
 
-pub async fn from_incoming_to<T>(body: Incoming) -> Result<T, ResponseError>
-where
-    T: DeserializeOwned,
-{
-    match body.collect().await {
-        Ok(e) => match serde_json::from_slice::<'_, T>(&e.to_bytes()) {
-            Ok(e) => Ok(e),
-            _ => Err(ResponseError::new(
-                StatusCode::BAD_REQUEST,
-                Some("Parsing data entry error"),
-            )),
-        },
-        Err(e) => {
-            tracing::error!("Error to deserialize the body - {e}");
-            Err(ResponseError::new(
-                StatusCode::BAD_REQUEST,
-                Some("Data entry error"),
-            ))
-        }
-    }
-}
-
 pub fn get_extention<T>(ext: &Extensions) -> Result<&T, ResponseError>
 where
     T: Sync + Send + 'static,

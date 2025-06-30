@@ -7,11 +7,9 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use upload::UploadLog;
+use utils::Peer;
 
-use crate::{
-    peer::Peer,
-    repository::{GetCollection, IndexDB},
-};
+use crate::repository::{GetCollection, IndexDB};
 
 use super::user::{Role, User};
 

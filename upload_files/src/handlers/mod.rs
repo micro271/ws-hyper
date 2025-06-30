@@ -3,10 +3,10 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
-use crate::{handlers::api_v1::api, models::user::Claim, peer::Peer};
+use crate::{handlers::api_v1::api, models::user::Claim};
 
 use super::repository::Repository;
-use ::utils::{JwtCookie, JwtHandle, Token, VerifyTokenEcdsa};
+use ::utils::{JwtCookie, JwtHandle, Peer, Token, VerifyTokenEcdsa};
 use bytes::Bytes;
 use error::ResponseError;
 use http::{Request, Response, StatusCode, header};

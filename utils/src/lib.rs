@@ -81,7 +81,7 @@ impl GenEcdsa for JwtHandle {
     }
 }
 
-impl GenTokenFromEcds for JwtHandleError {
+impl GenTokenFromEcds for JwtHandle {
     fn gen_token<T, B>(claim: T) -> Result<String, JwtHandleError>
     where
         T: GetClaim<B>,
@@ -332,5 +332,11 @@ pub struct ParseErrorFromBody {
 impl ParseErrorFromBody {
     pub fn new(detail: &'static str) -> Self {
         Self { detail }
+    }
+}
+
+impl std::fmt::Display for ParseErrorFromBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.detail)
     }
 }

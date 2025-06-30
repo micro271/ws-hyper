@@ -1,5 +1,3 @@
-use std::{path::PathBuf, sync::OnceLock};
-
 use super::{
     Incoming, ParseError, Request, ResponseError, ResultResponse, StatusCode, doc, header,
 };
@@ -12,7 +10,6 @@ use crate::{
         logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
         user::{Claim, Role, User},
     },
-    peer::Peer,
     stream_upload::{
         Upload, UploadResult,
         stream::{MimeAllowed, StreamUpload},
@@ -23,7 +20,9 @@ use futures::StreamExt;
 use http::{HeaderMap, Method, Response};
 use http_body_util::{BodyStream, Full};
 use multer::Multipart;
+use std::{path::PathBuf, sync::OnceLock};
 use time::OffsetDateTime;
+use utils::Peer;
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
 static PATH_ICONS: OnceLock<PathBuf> = OnceLock::new();
@@ -58,9 +57,6 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
     if req.method() == Method::POST {
         let claims = get_extention::<Claim>(req.extensions())?;
         let repository = get_extention::<State>(req.extensions())?;
-        let user = repository
-            .get_one::<User>(doc! {"_id": get_user_oid(claims)?})
-            .await?;
 
         if !matches!(user.ch.as_ref(), Some(ch) if ch.name == channel && ch.program.iter().any(|x| x.name == program_tv))
             && claims.role != Role::Admin
