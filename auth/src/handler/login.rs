@@ -25,7 +25,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
                         .status(StatusCode::OK)
                         .body(Full::new(Bytes::from(json!({"token": e}).to_string())))
                         .unwrap_or_default()),
-                    Err(e) => Ok(Response::builder()
+                    Err(_e) => Ok(Response::builder()
                         .status(StatusCode::UNAUTHORIZED)
                         .body(Full::default())
                         .unwrap_or_default()),
@@ -36,7 +36,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
                     .unwrap_or_default()),
             }
         }
-        Err(e) => Ok(Response::builder()
+        Err(_e) => Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .body(Full::default())
             .unwrap_or_default()),

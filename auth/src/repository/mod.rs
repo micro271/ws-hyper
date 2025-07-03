@@ -31,7 +31,7 @@ impl PgRepository {
             verbos: vec![Verbs::All],
             phone: None,
             role: crate::models::user::Role::Administrator,
-            resources: "*".to_string(),
+            resources: Some("/*".to_string()),
         };
         _ = repo.insert_one_user(user).await;
         Ok(repo)
@@ -71,7 +71,7 @@ impl PgRepository {
             .bind(user.resources)
             .execute(&self.inner)
             .await
-            .map_err(|x| RepositoryError::NotFound)?;
+            .map_err(|_x| RepositoryError::NotFound)?;
         Ok(QueryResult::Insert(res.rows_affected()))
     }
 }

@@ -18,17 +18,18 @@ pub struct User {
     pub phone: Option<String>,
     pub user_state: UserState,
     pub role: Role,
-    pub resources: String,
+    pub resources: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]
 #[sqlx(type_name = "ESTADO")]
 pub enum UserState {
     Active,
+    #[default]
     Inactive,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[sqlx(type_name = "VERBS")]
 pub enum Verbs {
     All,
@@ -45,14 +46,16 @@ pub enum Verbs {
     CreateProgram,
     ModifyProgram,
     ReadProgram,
-    Unknown,
+    #[default]
+    None,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]
 #[sqlx(type_name = "ROL")]
 pub enum Role {
     Administrator,
     Producer,
+    #[default]
     Operator,
 }
 
@@ -112,7 +115,7 @@ impl Verbs {
             Verbs::ReadProgram => 11,
             Verbs::ModifyProgram => 12,
             Verbs::CreateProgram => 13,
-            Verbs::Unknown => 255,
+            Verbs::None => 255,
         };
 
         LevelPermission::new_unck(level)
@@ -128,7 +131,7 @@ impl LevelPermission {
     fn new(level: u8) -> Result<Self, LevelError> {
         match level {
             0..=13 => Ok(Self(level)),
-            _ => return Err(LevelError),
+            _ => Err(LevelError),
         }
     }
 
@@ -152,7 +155,7 @@ impl LevelPermission {
             11 => Verbs::ReadProgram,
             12 => Verbs::ModifyProgram,
             13 => Verbs::CreateProgram,
-            _ => Verbs::Unknown,
+            _ => Verbs::None,
         }
     }
 
@@ -172,7 +175,7 @@ impl LevelPermission {
             11 => vec![Verbs::ReadProgram],
             12 => vec![Verbs::ModifyProgram, Verbs::ReadProgram],
             13 => vec![Verbs::CreateProgram],
-            _ => vec![Verbs::Unknown],
+            _ => vec![Verbs::None],
         }
     }
 }
