@@ -5,7 +5,6 @@ use hyper::{
     body::{Bytes, Incoming},
     header,
 };
-use jsonwebtoken::Header;
 use serde_json::json;
 use std::convert::Infallible;
 use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToJson};

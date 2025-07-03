@@ -27,9 +27,9 @@ impl PgRepository {
             id: None,
             username: "admin".to_string(),
             passwd: "admin".to_string(),
-            email: "email-falso@domain-dalse.com".to_string(),
+            email: None,
             verbos: vec![Verbs::All],
-            phone: "545464654".to_string(),
+            phone: None,
             role: crate::models::user::Role::Administrator,
             resources: "*".to_string(),
         };
