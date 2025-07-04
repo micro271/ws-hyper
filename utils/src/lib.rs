@@ -307,6 +307,7 @@ impl Peer {
     }
 }
 
+#[derive(Debug)]
 pub struct ParseBodyToJson<T> {
     _phantom: PhantomData<T>,
 }
@@ -326,6 +327,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct ParseErrorFromBody {
     detail: &'static str,
 }
