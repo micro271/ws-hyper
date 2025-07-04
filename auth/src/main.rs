@@ -4,7 +4,7 @@ mod repository;
 use crate::{handler::entry, repository::PgRepository};
 use hyper::server::conn::http1;
 use std::sync::Arc;
-use utils::{Io, service_with_state};
+use utils::{GenEcdsa, Io, JwtHandle, service_with_state};
 type Repository = Arc<PgRepository>;
 
 #[tokio::main]
@@ -25,6 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_host = std::env::var("APP_HOST").unwrap_or("0.0.0.0".to_string());
 
     let listener = tokio::net::TcpListener::bind(format!("{app_host}:{app_port}")).await?;
+
+    JwtHandle::gen_ecdsa(None)?;
 
     loop {
         let (stream, _) = listener.accept().await?;
