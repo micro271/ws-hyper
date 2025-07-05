@@ -2,7 +2,7 @@ mod handler;
 mod models;
 mod repository;
 use crate::{handler::entry, repository::PgRepository};
-use hyper::{server::conn::http1, server::conn::http2};
+use hyper::server::conn::http2;
 use std::sync::Arc;
 use utils::{GenEcdsa, Io, JwtHandle, TokioExecutor, service_with_state};
 type Repository = Arc<PgRepository>;

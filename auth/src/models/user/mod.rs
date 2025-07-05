@@ -93,7 +93,7 @@ impl GetClaim<Claim> for User {
 }
 
 impl TableName for User {
-    fn name(&self) -> &str {
+    fn name() -> &'static str {
         "users"
     }
 }
