@@ -2,9 +2,9 @@ mod handler;
 mod models;
 mod repository;
 use crate::{handler::entry, repository::PgRepository};
-use hyper::server::conn::http1;
+use hyper::{server::conn::http1, server::conn::http2};
 use std::sync::Arc;
-use utils::{GenEcdsa, Io, JwtHandle, service_with_state};
+use utils::{GenEcdsa, Io, JwtHandle, TokioExecutor, service_with_state};
 type Repository = Arc<PgRepository>;
 
 #[tokio::main]
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let repo = Arc::clone(&repo);
         let io = Io::new(stream);
         tokio::task::spawn(async move {
-            if let Err(e) = http1::Builder::new()
+            if let Err(err) = http2::Builder::new(TokioExecutor)
                 .serve_connection(
                     io,
                     service_with_state(repo, |mut req| {
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await
             {
-                panic!("{e}");
+                panic!("{err}")
             }
         });
     }

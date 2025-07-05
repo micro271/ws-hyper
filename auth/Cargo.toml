@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 bcrypt = "0.17.0"
-hyper = { version = "1.6.0", features = ["http1"] }
+hyper = { version = "1.6.0", features = ["http1", "http2"] }
 jsonwebtoken = "9.3.1"
 prost = "0.14.1"
 regex = "1.11.1"

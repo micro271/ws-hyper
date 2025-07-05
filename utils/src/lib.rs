@@ -22,7 +22,7 @@ const ALGORITHM_JWT: Algorithm = Algorithm::ES256;
 pub struct JwtHandle;
 
 pub trait GenEcdsa {
-    fn gen_ecdsa() -> Result<(), JwtHandleError>;
+    fn gen_ecdsa(path: Option<&str>) -> Result<(), JwtHandleError>;
 }
 
 pub trait VerifyTokenEcdsa {
@@ -55,13 +55,13 @@ impl VerifyTokenEcdsa for JwtHandle {
 }
 
 impl GenEcdsa for JwtHandle {
-    fn gen_ecdsa() -> Result<(), JwtHandleError> {
+    fn gen_ecdsa(path: Option<&str>) -> Result<(), JwtHandleError> {
         let key = SigningKey::random(&mut rand_core::OsRng);
         let pub_key = VerifyingKey::from(&key);
 
         let private_pem = key.to_pkcs8_pem(Default::default()).unwrap();
         let public_pem = pub_key.to_public_key_pem(Default::default()).unwrap();
-        let path = PathBuf::from(PKI);
+        let path = PathBuf::from(path.unwrap_or(PKI));
 
         if !path.exists() {
             fs::create_dir(&path).unwrap();
@@ -102,10 +102,21 @@ pub trait GetClaim<T: Serialize> {
     fn get_claim(self) -> T;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum JwtHandleError {
     EnvNotFound,
     GenEc,
+}
+
+impl std::error::Error for JwtHandleError {}
+
+impl std::fmt::Display for JwtHandleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JwtHandleError::EnvNotFound => write!(f, "Var Environment not found"),
+            JwtHandleError::GenEc => write!(f, "Gen Ecds fail"),
+        }
+    }
 }
 
 pub trait GetToken {
@@ -340,5 +351,18 @@ impl ParseErrorFromBody {
 impl std::fmt::Display for ParseErrorFromBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.detail)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TokioExecutor;
+
+impl<F> hyper::rt::Executor<F> for TokioExecutor
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, fut: F) {
+        tokio::task::spawn(fut);
     }
 }

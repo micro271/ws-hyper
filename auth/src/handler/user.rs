@@ -33,7 +33,7 @@ pub async fn get(
     let user = ParseBodyToJson::<User>::get(body).await.unwrap();
 
     let repo = _parts.extensions.get::<Repository>().unwrap();
-    let result = match repo.insert_one_user(user).await {
+    let result = match repo.get_user("".to_string()).await {
         Ok(_e) => StatusCode::OK,
         Err(_err) => StatusCode::INTERNAL_SERVER_ERROR,
     };
