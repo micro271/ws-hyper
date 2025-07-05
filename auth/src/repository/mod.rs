@@ -4,7 +4,13 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::models::user::{User, UserState, Verbs};
+use crate::{
+    handler::user::get,
+    models::{
+        program::Programa,
+        user::{User, UserState, Verbs},
+    },
+};
 
 macro_rules! get {
     ($pool:expr, $t:ty, $key:expr, $value:expr) => {
@@ -14,11 +20,25 @@ macro_rules! get {
             <$t>::from(resp)
         }
     };
-    ($pool:expr, $t:ty, $table:expr) => {
+    ($pool:expr, $t:ty) => {
         async {
             let query = format!("SELECT * FROM {}", <$t>::name());
             let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
 
+            resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
+        }
+    };
+
+    ($pool:expr, $t:ty, $(inner_join => $join1:ty, $join2:ty, $key_join1:expr, $key_join2:expr),+ ) => {
+        async {
+            let mut query = format!("SELECT * FROM {}", <$t>::name());
+            $(
+                let key1 = format!("{}.{}", <$join1>::name(), $key_join1);
+                let key2 = format!("{}.{}", <$join2>::name(), $key_join2);
+                query.push_str(&format!(" INNET JOIN ON {} = {}", key1, key2));
+            )*
+
+            let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
             resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
         }
     };
@@ -57,12 +77,13 @@ impl PgRepository {
     }
 
     pub async fn get_users(&self) -> Result<Vec<User>, RepositoryError> {
-        let get = get!(&self.inner, User, "users").await;
+        let get = get!(&self.inner, User).await;
         Ok(get)
     }
 
     pub async fn get_user(&self, username: &str) -> Result<User, RepositoryError> {
         let tmp = get!(&self.inner, User, "username", username).await;
+
         Ok(tmp)
     }
 
