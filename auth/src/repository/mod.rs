@@ -66,7 +66,7 @@ impl PgRepository {
             role: crate::models::user::Role::Administrator,
             resources: Some("/*".to_string()),
         };
-        _ = repo.insert_one_user(user).await;
+        _ = repo.insert_user(user).await;
         Ok(repo)
     }
 
@@ -86,7 +86,7 @@ impl PgRepository {
         Ok(tmp)
     }
 
-    pub async fn insert_one_user(&self, user: User) -> Result<QueryResult<User>, RepositoryError> {
+    pub async fn insert_user(&self, user: User) -> Result<QueryResult<User>, RepositoryError> {
         let query = format!(
             "INSERT INTO {} (username, passwd, email, verbos, user_state, phone, role, resources) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             User::name()

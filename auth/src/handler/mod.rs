@@ -1,3 +1,5 @@
+mod entry;
+mod error;
 pub mod login;
 pub mod user;
 
@@ -9,12 +11,14 @@ use hyper::{
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 
-use crate::handler::user::get;
+use crate::handler::{error::ResponseErr, user::get};
+
+type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
 
-    match (url, req.method()) {
+    let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
         ("/api/v1/user", _) => {
             let path = req.uri().path().strip_prefix("/api/v1/user").unwrap();
@@ -34,6 +38,11 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             .status(StatusCode::BAD_REQUEST)
             .body(Full::new(Bytes::from_static(b"Not Found")))
             .unwrap_or_default()),
+    };
+
+    match resp {
+        Ok(e) => Ok(e),
+        Err(err) => Ok(err.into()),
     }
 }
 

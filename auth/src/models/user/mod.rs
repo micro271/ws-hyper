@@ -1,4 +1,3 @@
-pub mod builder;
 pub mod resourece;
 
 use serde::{Deserialize, Serialize};
@@ -33,19 +32,16 @@ pub enum UserState {
 #[sqlx(type_name = "VERBS")]
 pub enum Verbs {
     All,
-    ReadFile,
+    ReadFiles,
     PutFile,
     DeleteFIle,
     TakeFile,
     ReadUser,
     ModifyUser,
     CreareUser,
-    ReadCh,
-    ModifyCh,
-    CreateCh,
-    CreateProgram,
-    ModifyProgram,
-    ReadProgram,
+    ReadDirectory,
+    ModifyDirectory,
+    CreateDirectory,
     #[default]
     None,
 }
@@ -95,87 +91,5 @@ impl GetClaim<Claim> for User {
 impl TableName for User {
     fn name() -> &'static str {
         "users"
-    }
-}
-
-impl Verbs {
-    fn level(&self) -> LevelPermission {
-        let level = match self {
-            Verbs::All => 0,
-            Verbs::ReadFile => 1,
-            Verbs::PutFile => 2,
-            Verbs::DeleteFIle => 3,
-            Verbs::TakeFile => 4,
-            Verbs::ReadUser => 5,
-            Verbs::ModifyUser => 6,
-            Verbs::CreareUser => 7,
-            Verbs::ReadCh => 8,
-            Verbs::ModifyCh => 9,
-            Verbs::CreateCh => 10,
-            Verbs::ReadProgram => 11,
-            Verbs::ModifyProgram => 12,
-            Verbs::CreateProgram => 13,
-            Verbs::None => 255,
-        };
-
-        LevelPermission::new_unck(level)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LevelPermission(u8);
-
-pub struct LevelError;
-
-impl LevelPermission {
-    fn new(level: u8) -> Result<Self, LevelError> {
-        match level {
-            0..=13 => Ok(Self(level)),
-            _ => Err(LevelError),
-        }
-    }
-
-    fn new_unck(level: u8) -> Self {
-        Self(level)
-    }
-
-    fn verb(self) -> Verbs {
-        match self.0 {
-            0 => Verbs::All,
-            1 => Verbs::ReadFile,
-            2 => Verbs::PutFile,
-            3 => Verbs::DeleteFIle,
-            4 => Verbs::TakeFile,
-            5 => Verbs::ReadUser,
-            6 => Verbs::ModifyUser,
-            7 => Verbs::CreareUser,
-            8 => Verbs::ReadCh,
-            9 => Verbs::ModifyCh,
-            10 => Verbs::CreateCh,
-            11 => Verbs::ReadProgram,
-            12 => Verbs::ModifyProgram,
-            13 => Verbs::CreateProgram,
-            _ => Verbs::None,
-        }
-    }
-
-    fn get_normalize(self) -> Vec<Verbs> {
-        match self.0 {
-            0 => vec![Verbs::All],
-            1 => vec![Verbs::ReadFile],
-            2 => vec![Verbs::ReadFile, Verbs::PutFile],
-            3 => vec![Verbs::ReadFile, Verbs::DeleteFIle],
-            4 => vec![Verbs::ReadFile, Verbs::TakeFile],
-            5 => vec![Verbs::ReadUser],
-            6 => vec![Verbs::ModifyUser, Verbs::ReadUser],
-            7 => vec![Verbs::CreareUser],
-            8 => vec![Verbs::ReadCh],
-            9 => vec![Verbs::ModifyCh, Verbs::ReadCh],
-            10 => vec![Verbs::CreateCh],
-            11 => vec![Verbs::ReadProgram],
-            12 => vec![Verbs::ModifyProgram, Verbs::ReadProgram],
-            13 => vec![Verbs::CreateProgram],
-            _ => vec![Verbs::None],
-        }
     }
 }
