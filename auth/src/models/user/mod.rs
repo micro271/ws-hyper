@@ -1,5 +1,3 @@
-pub mod resourece;
-
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;

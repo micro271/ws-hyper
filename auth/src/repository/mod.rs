@@ -1,3 +1,4 @@
+use bcrypt::{DEFAULT_COST, hash};
 use sqlx::{
     pool::Pool,
     postgres::{PgPoolOptions, Postgres},
@@ -7,30 +8,46 @@ use uuid::Uuid;
 use crate::models::user::{User, UserState, Verbs};
 
 macro_rules! get {
-    ($pool:expr, $t:ty, $key:expr, $value:expr) => {
+    (one, $pool:expr, $t:ty $(, where = [$($cond:expr),+])? $(,)?) => {
         async {
-            let query = format!("SELECT FROM {} WHERE {} = {}", <$t>::name(), $key, $value);
-            let resp = sqlx::query(&query).fetch_one($pool).await.unwrap();
-            <$t>::from(resp)
+            let mut query = format!("SELECT * FROM {}", <$t>::name());
+            $(
+                let wheres = vec![$($cond),+].join(" AND ");
+                query.push_str(&format!(" WHERE {}", wheres));
+            )?
+
+            sqlx::query(&query).fetch_one($pool).await.unwrap().into()
         }
     };
-    ($pool:expr, $t:ty) => {
+
+    (many, $pool:expr, $t:ty $(, where = [$($cond:expr),+])?) => {
         async {
             let query = format!("SELECT * FROM {}", <$t>::name());
-            let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
 
+            $(
+                flag_vec = true;
+                let wheres = vec![$($cond),+].join(" AND ");
+                query.push_str(&format!(" WHERE {}", wheres));
+            )?
+
+            let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
             resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
         }
     };
 
-    ($pool:expr, $t:ty, $(inner_join => $join1:ty, $join2:ty, $key_join1:expr, $key_join2:expr),+ ) => {
+    ($pool:expr, $t:ty, from => $from:ty $(, inner_join => $join1:ty : $key_join1:literal, $join2:ty : $key_join2:literal)+ $(, _where => [ $($cond:expr),+ ])?) => {
         async {
-            let mut query = format!("SELECT * FROM {}", <$join1>::name());
+            let mut query = format!("SELECT * FROM {}", <$from>::name());
             $(
                 let key1 = format!("{}.{}", <$join1>::name(), $key_join1);
                 let key2 = format!("{}.{}", <$join2>::name(), $key_join2);
-                query.push_str(&format!(" INNET JOIN {} ON {} = {}", key1, key2));
+                query.push_str(&format!(" INNET JOIN {} ON {} = {}", <$join2>::name(), key1, key2));
             )*
+
+            $(
+                let wheres = vec![$($cond),+].join(" AND ");
+                query.push_str(&format!(" WHERE {}", wheres));
+            )?
 
             let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
             resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
@@ -59,30 +76,32 @@ impl PgRepository {
             user_state: UserState::Active,
             id: None,
             username: "admin".to_string(),
-            passwd: "admin".to_string(),
+            passwd: hash("admin", DEFAULT_COST).unwrap(),
             email: None,
             verbos: vec![Verbs::All],
             phone: None,
             role: crate::models::user::Role::Administrator,
             resources: Some("/*".to_string()),
         };
+
         _ = repo.insert_user(user).await;
         Ok(repo)
     }
 
     pub async fn get_users(&self) -> Result<Vec<User>, RepositoryError> {
-        let get = get!(&self.inner, User).await;
+        let get = get!(many, &self.inner, User).await;
         Ok(get)
     }
 
     pub async fn get_user(&self, username: &str) -> Result<User, RepositoryError> {
-        let tmp = get!(&self.inner, User, "username", username).await;
-
+        let tmp =
+            get!(one, &self.inner, User, where = [ format!("username = {}", username) ]).await;
         Ok(tmp)
     }
 
     pub async fn get_user_with_id(&self, id: Uuid) -> Result<User, RepositoryError> {
-        let tmp = get!(&self.inner, User, "id", id).await;
+        let tmp = get!(one, &self.inner, User, where = [ format!("id = {}", id) ]).await;
+
         Ok(tmp)
     }
 

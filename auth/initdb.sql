@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS program (
+CREATE TABLE IF NOT EXISTS programs (
     id UUID,
     icon TEXT,
     username TEXT,

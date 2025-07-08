@@ -1,10 +1,5 @@
-use std::convert::Infallible;
-
 use http_body_util::Full;
-use hyper::{
-    Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-};
+use hyper::{Request, Response, StatusCode, body::Incoming};
 use utils::ParseBodyToJson;
 use uuid::Uuid;
 
