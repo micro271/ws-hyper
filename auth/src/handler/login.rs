@@ -21,11 +21,10 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
 
     match ParseBodyToJson::<Login>::get(body).await {
         Ok(login) => {
-            let QueryResult::SelectOne(user) = repo
-                .get_user::<User, _>(("username", login.username))
-                .await?
+            let Ok(QueryResult::SelectOne(user)) =
+                repo.get_user::<User, _>(("username", login.username)).await
             else {
-                return Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR));
+                return Err(ResponseErr::status(StatusCode::NOT_FOUND));
             };
 
             match verify(login.password, &user.passwd) {
@@ -35,20 +34,11 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
                         .status(StatusCode::OK)
                         .body(Full::new(Bytes::from(json!({"token": e}).to_string())))
                         .unwrap_or_default()),
-                    Err(_e) => Ok(Response::builder()
-                        .status(StatusCode::UNAUTHORIZED)
-                        .body(Full::default())
-                        .unwrap_or_default()),
+                    Err(err) => Err(ResponseErr::new(err, StatusCode::BAD_REQUEST)),
                 },
-                _ => Ok(Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(Full::default())
-                    .unwrap_or_default()),
+                _ => Err(ResponseErr::status(StatusCode::UNAUTHORIZED)),
             }
         }
-        Err(_e) => Ok(Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .body(Full::default())
-            .unwrap_or_default()),
+        Err(e) => Err(ResponseErr::new(e, StatusCode::UNAUTHORIZED)),
     }
 }

@@ -77,7 +77,7 @@ impl From<PgRow> for User {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claim {
     pub sub: String,
     pub exp: i64,
