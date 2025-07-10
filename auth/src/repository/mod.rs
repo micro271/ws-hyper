@@ -1,9 +1,15 @@
+use std::fmt::Display;
+
 use bcrypt::{DEFAULT_COST, hash};
+use http_body_util::Full;
+use hyper::{Response, StatusCode, body::Bytes, header};
+use serde::Serialize;
+use serde_json::json;
 use sqlx::{
+    Encode, Type,
     pool::Pool,
-    postgres::{PgPoolOptions, Postgres},
+    postgres::{PgPoolOptions, PgRow, Postgres},
 };
-use uuid::Uuid;
 
 use crate::models::user::{User, UserState, Verbs};
 
@@ -16,7 +22,7 @@ macro_rules! get {
                 query.push_str(&format!(" WHERE {}", wheres));
             )?
 
-            sqlx::query(&query).fetch_one($pool).await.unwrap().into()
+            sqlx::query(&query).fetch_one($pool).await.unwrap()
         }
     };
 
@@ -93,16 +99,28 @@ impl PgRepository {
         Ok(get)
     }
 
-    pub async fn get_user(&self, username: &str) -> Result<User, RepositoryError> {
-        let tmp =
-            get!(one, &self.inner, User, where = [ format!("username = {}", username) ]).await;
+    pub async fn get_user<T, Pk>(&self, pk: (&str, Pk)) -> Result<QueryResult<T>, RepositoryError>
+    where
+        Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
+        T: TableName + From<PgRow>,
+    {
+        let tmp = QueryResult::SelectOne(
+            get!(one, &self.inner, T, where = [ format!("{} = {}", pk.0, pk.1) ])
+                .await
+                .into(),
+        );
         Ok(tmp)
     }
 
-    pub async fn get_user_with_id(&self, id: Uuid) -> Result<User, RepositoryError> {
-        let tmp = get!(one, &self.inner, User, where = [ format!("id = {}", id) ]).await;
+    pub async fn delete<T, Pk>(&self, pk: Pk) -> Result<QueryResult<T>, RepositoryError>
+    where
+        T: TableName,
+        Pk: for<'q> sqlx::Encode<'q, Postgres> + Type<Postgres>,
+    {
+        let query = format!("DELETE FROM {} WHERE id = $1", T::name());
+        let tmp = sqlx::query(&query).bind(pk).execute(&self.inner).await?;
 
-        Ok(tmp)
+        Ok(QueryResult::Delete(tmp.rows_affected()))
     }
 
     pub async fn insert_user(&self, user: User) -> Result<QueryResult<User>, RepositoryError> {
@@ -141,6 +159,32 @@ pub enum QueryResult<T> {
     Update(u64),
 }
 
+impl<T: Serialize> From<QueryResult<T>> for Response<Full<Bytes>> {
+    fn from(value: QueryResult<T>) -> Self {
+        match value {
+            QueryResult::SelectOne(item) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Full::new(Bytes::from(json!({"data": item}).to_string())))
+                .unwrap_or_default(),
+            QueryResult::Select(items) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Full::new(Bytes::from(
+                    json!({"length": items.len(), "data": items}).to_string(),
+                )))
+                .unwrap_or_default(),
+            QueryResult::Insert(n) | QueryResult::Delete(n) | QueryResult::Update(n) => {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Full::new(Bytes::from(json!({"row_affect": n}).to_string())))
+                    .unwrap_or_default()
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RepositoryError {
     NotFound,
@@ -151,6 +195,12 @@ impl std::fmt::Display for RepositoryError {
         match self {
             Self::NotFound => write!(f, "Row not found"),
         }
+    }
+}
+
+impl From<sqlx::error::Error> for RepositoryError {
+    fn from(value: sqlx::error::Error) -> Self {
+        Self::NotFound
     }
 }
 

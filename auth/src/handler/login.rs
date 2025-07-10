@@ -11,6 +11,8 @@ use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToJson};
 use crate::{
     Repository,
     handler::{Login, error::ResponseErr},
+    models::user::User,
+    repository::QueryResult,
 };
 
 pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseErr> {
@@ -19,7 +21,13 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
 
     match ParseBodyToJson::<Login>::get(body).await {
         Ok(login) => {
-            let user = repo.get_user(&login.username).await.unwrap();
+            let QueryResult::SelectOne(user) = repo
+                .get_user::<User, _>(("username", login.username))
+                .await?
+            else {
+                return Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+
             match verify(login.password, &user.passwd) {
                 Ok(true) => match JwtHandle::gen_token(user) {
                     Ok(e) => Ok(Response::builder()

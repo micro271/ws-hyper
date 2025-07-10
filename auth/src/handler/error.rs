@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, Version, body::Bytes};
 
+use crate::repository::RepositoryError;
+
 #[derive(Debug)]
 pub struct ResponseErr {
     detail: Option<String>,
@@ -14,6 +16,13 @@ impl ResponseErr {
         Self {
             detail: detail.to_string().into(),
             status: status_code,
+        }
+    }
+
+    pub fn status(status: StatusCode) -> Self {
+        Self {
+            detail: None,
+            status,
         }
     }
 }
@@ -28,5 +37,11 @@ impl From<ResponseErr> for Response<Full<Bytes>> {
                 None => Full::default(),
             })
             .unwrap_or_default()
+    }
+}
+
+impl From<RepositoryError> for ResponseErr {
+    fn from(value: RepositoryError) -> Self {
+        ResponseErr::new(value, StatusCode::BAD_REQUEST)
     }
 }

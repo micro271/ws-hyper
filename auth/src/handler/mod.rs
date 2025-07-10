@@ -21,7 +21,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
         ("/api/v1/user", _) => {
-            let path = req.uri().path().strip_prefix("/api/v1/user").unwrap();
+            let path = req.uri().path().strip_prefix("/api/v1/user/").unwrap();
             let uuid = path.parse().ok();
             match *req.method() {
                 Method::POST if path.is_empty() => user::new(req).await,
