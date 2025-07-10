@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, Version, body::Bytes};
 
-use crate::repository::RepositoryError;
+use crate::{models::user::EncryptErr, repository::RepositoryError};
 
 #[derive(Debug)]
 pub struct ResponseErr {
@@ -43,5 +43,11 @@ impl From<ResponseErr> for Response<Full<Bytes>> {
 impl From<RepositoryError> for ResponseErr {
     fn from(value: RepositoryError) -> Self {
         ResponseErr::new(value, StatusCode::BAD_REQUEST)
+    }
+}
+
+impl From<EncryptErr> for ResponseErr {
+    fn from(value: EncryptErr) -> Self {
+        ResponseErr::new(value, StatusCode::INTERNAL_SERVER_ERROR)
     }
 }

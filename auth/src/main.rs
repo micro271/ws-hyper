@@ -1,7 +1,11 @@
 mod handler;
 mod models;
 mod repository;
-use crate::{handler::entry, repository::PgRepository};
+use crate::{
+    handler::entry,
+    models::user::{User, UserState, Verbs},
+    repository::PgRepository,
+};
 use hyper::server::conn::http2;
 use std::sync::Arc;
 use utils::{GenEcdsa, Io, JwtHandle, TokioExecutor, service_with_state};
@@ -19,7 +23,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let uri = format!("postgres://{db_user}:{secret}@{db_host}:{db_port}/{db_name}");
 
-    let repo = Arc::new(PgRepository::with_default_user(uri).await?);
+    let default_user = User {
+        user_state: UserState::Active,
+        id: None,
+        username: "admin".to_string(),
+        passwd: "admin".to_string(),
+        email: None,
+        verbos: vec![Verbs::All],
+        phone: None,
+        role: crate::models::user::Role::Administrator,
+        resources: Some("/*".to_string()),
+    };
+
+    let repo = Arc::new(PgRepository::with_default_user(uri, default_user).await?);
 
     let app_port = std::env::var("PORT").unwrap_or("2525".to_string());
     let app_host = std::env::var("APP_HOST").unwrap_or("0.0.0.0".to_string());

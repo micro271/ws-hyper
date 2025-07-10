@@ -1,6 +1,3 @@
-use std::fmt::Display;
-
-use bcrypt::{DEFAULT_COST, hash};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde::Serialize;
@@ -10,8 +7,9 @@ use sqlx::{
     pool::Pool,
     postgres::{PgPoolOptions, PgRow, Postgres},
 };
+use std::fmt::Display;
 
-use crate::models::user::{User, UserState, Verbs};
+use crate::models::user::User;
 
 macro_rules! get {
     (one, $pool:expr, $t:ty $(, where = [$($cond:expr),+])? $(,)?) => {
@@ -76,21 +74,10 @@ impl PgRepository {
         Ok(Self { inner: repo })
     }
 
-    pub async fn with_default_user(url: String) -> Result<Self, RepositoryError> {
+    pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
-        let user = User {
-            user_state: UserState::Active,
-            id: None,
-            username: "admin".to_string(),
-            passwd: hash("admin", DEFAULT_COST).unwrap(),
-            email: None,
-            verbos: vec![Verbs::All],
-            phone: None,
-            role: crate::models::user::Role::Administrator,
-            resources: Some("/*".to_string()),
-        };
+        repo.insert_user(user).await?;
 
-        _ = repo.insert_user(user).await;
         Ok(repo)
     }
 

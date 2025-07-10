@@ -1,3 +1,4 @@
+use bcrypt::{DEFAULT_COST, hash};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;
@@ -16,6 +17,13 @@ pub struct User {
     pub user_state: UserState,
     pub role: Role,
     pub resources: Option<String>,
+}
+
+impl User {
+    pub fn encrypt_passwd(&mut self) -> Result<(), EncryptErr> {
+        self.passwd = hash(&self.passwd, DEFAULT_COST).map_err(|_| EncryptErr)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]
@@ -91,3 +99,14 @@ impl TableName for User {
         "users"
     }
 }
+
+#[derive(Debug)]
+pub struct EncryptErr;
+
+impl std::fmt::Display for EncryptErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Password encrypt error")
+    }
+}
+
+impl std::error::Error for EncryptErr {}
