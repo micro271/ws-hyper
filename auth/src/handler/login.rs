@@ -11,7 +11,6 @@ use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToJson};
 use crate::{
     Repository,
     handler::{Login, error::ResponseErr},
-    models::user::User,
     repository::QueryResult,
 };
 
@@ -21,8 +20,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
 
     match ParseBodyToJson::<Login>::get(body).await {
         Ok(login) => {
-            let Ok(QueryResult::SelectOne(user)) =
-                repo.get_user::<User, _>(("username", login.username)).await
+            let Ok(QueryResult::SelectOne(user)) = repo.myself(("username", login.username)).await
             else {
                 return Err(ResponseErr::status(StatusCode::NOT_FOUND));
             };

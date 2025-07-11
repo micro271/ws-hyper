@@ -5,11 +5,11 @@ use crate::repository::TableName;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Programa {
-    icon: String,
-    id_user: Uuid,
-    name: String,
-    description: String,
-    ch: String,
+    pub id: Uuid,
+    pub icon: String,
+    pub user_id: Uuid,
+    pub name: String,
+    pub description: String,
 }
 
 impl TableName for Programa {

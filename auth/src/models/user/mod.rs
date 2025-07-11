@@ -17,6 +17,7 @@ pub struct User {
     pub user_state: UserState,
     pub role: Role,
     pub resources: Option<String>,
+    pub description: Option<String>,
 }
 
 impl User {
@@ -52,7 +53,9 @@ pub enum Verbs {
     None,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]
+#[derive(
+    Debug, Deserialize, Serialize, sqlx::Type, Default, Clone, Copy, PartialEq, PartialOrd,
+)]
 #[sqlx(type_name = "ROL")]
 pub enum Role {
     Administrator,
@@ -67,6 +70,7 @@ impl From<PgRow> for User {
             id: value.get("id"),
             username: value.get("username"),
             passwd: value.get("passwd"),
+            description: value.get("description"),
             email: value.get("email"),
             verbos: value.get("verbos"),
             phone: value.get("phone"),
@@ -79,7 +83,7 @@ impl From<PgRow> for User {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claim {
-    pub sub: String,
+    pub sub: Uuid,
     pub exp: i64,
     pub role: Role,
 }
@@ -87,7 +91,7 @@ pub struct Claim {
 impl GetClaim<Claim> for User {
     fn get_claim(self) -> Claim {
         Claim {
-            sub: self.username,
+            sub: self.id.unwrap(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(5)).unix_timestamp(),
             role: self.role,
         }
@@ -110,3 +114,19 @@ impl std::fmt::Display for EncryptErr {
 }
 
 impl std::error::Error for EncryptErr {}
+
+#[inline]
+pub fn default_account_admin() -> User {
+    User {
+        user_state: UserState::Active,
+        id: None,
+        username: "admin".to_string(),
+        passwd: "admin".to_string(),
+        email: None,
+        verbos: vec![Verbs::All],
+        phone: None,
+        role: crate::models::user::Role::Administrator,
+        resources: Some("/*".to_string()),
+        description: Some("Default account".to_string()),
+    }
+}

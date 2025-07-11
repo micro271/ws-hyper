@@ -5,11 +5,11 @@ use serde_json::json;
 use sqlx::{
     Encode, Type,
     pool::Pool,
-    postgres::{PgPoolOptions, PgRow, Postgres},
+    postgres::{PgPoolOptions, Postgres},
 };
 use std::fmt::Display;
 
-use crate::models::user::User;
+use crate::models::{GetUserOwn, GetUserPubAdm, program::Programa, user::User};
 
 macro_rules! get {
     (one, $pool:expr, $t:ty $(, where = [$($cond:expr),+])? $(,)?) => {
@@ -81,22 +81,41 @@ impl PgRepository {
         Ok(repo)
     }
 
-    pub async fn get_users(&self) -> Result<Vec<User>, RepositoryError> {
-        let get = get!(many, &self.inner, User).await;
-        Ok(get)
+    pub async fn get_all(&self) -> Result<QueryResult<GetUserPubAdm>, RepositoryError> {
+        let all =
+            get!(&self.inner, GetUserPubAdm, from => User, inner_join => User: "id", Programa: "user_id")
+                .await;
+        Ok(QueryResult::Select(all))
     }
 
-    pub async fn get_user<T, Pk>(&self, pk: (&str, Pk)) -> Result<QueryResult<T>, RepositoryError>
+    pub async fn myself<Pk>(&self, pk: (&str, Pk)) -> Result<QueryResult<User>, RepositoryError>
     where
         Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
-        T: TableName + From<PgRow>,
     {
         let tmp = QueryResult::SelectOne(
-            get!(one, &self.inner, T, where = [ format!("{} = {}", pk.0, pk.1) ])
+            get!(one, &self.inner, User, where = [ format!("{} = {}", pk.0, pk.1) ])
                 .await
                 .into(),
         );
         Ok(tmp)
+    }
+
+    pub async fn get_myself<Pk>(
+        &self,
+        pk: (&str, Pk),
+    ) -> Result<QueryResult<GetUserOwn>, RepositoryError>
+    where
+        Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
+    {
+        let mut user = get!(&self.inner, GetUserOwn, from => User, inner_join => User: "id", Programa: "user_id", _where => [format!("{} = {}", pk.0, pk.1)] ).await;
+
+        if user.len() > 1 {
+            return Err(RepositoryError::ManyRows);
+        }
+
+        Ok(QueryResult::SelectOne(
+            user.pop().ok_or(RepositoryError::NotFound)?,
+        ))
     }
 
     pub async fn delete<T, Pk>(&self, pk: Pk) -> Result<QueryResult<T>, RepositoryError>
@@ -175,12 +194,14 @@ impl<T: Serialize> From<QueryResult<T>> for Response<Full<Bytes>> {
 #[derive(Debug)]
 pub enum RepositoryError {
     NotFound,
+    ManyRows,
 }
 
 impl std::fmt::Display for RepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound => write!(f, "Row not found"),
+            Self::ManyRows => write!(f, "Many rows"),
         }
     }
 }

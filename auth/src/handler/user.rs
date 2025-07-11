@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::{
     Repository,
     handler::{ResponseHandlers, error::ResponseErr},
-    models::user::User,
+    models::user::{Claim, Role, User},
+    repository::QueryResult,
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
@@ -23,10 +24,15 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
 
 pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
     let repo = req.extensions().get::<Repository>().unwrap();
+    let claim = req.extensions().get::<Claim>().unwrap();
+    let Ok(QueryResult::SelectOne(user)) = repo.myself(("id", claim.sub)).await else {
+        return Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR));
+    };
 
     match id {
-        Some(e) => Ok(repo.get_user::<User, _>(("id", e)).await?.into()),
-        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)), // wait
+        Some(e) if e == user.id.unwrap() => Ok(repo.get_myself(("id", e)).await?.into()),
+        None if user.role == Role::Administrator => Ok(repo.get_all().await?.into()),
+        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     }
 }
 

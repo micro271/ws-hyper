@@ -14,15 +14,16 @@ CREATE TABLE IF NOT EXISTS users (
     phone TEXT,
     role ROL,
     resources TEXT,
+    description TEXT,
     PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS programs (
     id UUID,
     icon TEXT,
-    username TEXT,
+    user_id TEXT,
     name TEXT UNIQUE,
     description TEXT,
-    PRIMARY KEY (username, name),
-    FOREIGN KEY (username) REFERENCES users(username) ON UPDATE CASCADE ON DELETE CASCADE
+    PRIMARY KEY (user_id, name),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
 );
