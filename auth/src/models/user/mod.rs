@@ -4,7 +4,10 @@ use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;
 use uuid::Uuid;
 
-use crate::repository::TableName;
+use crate::{
+    models::program::Programa,
+    repository::{InnerJoin, TableName},
+};
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct User {
@@ -18,6 +21,15 @@ pub struct User {
     pub role: Role,
     pub resources: Option<String>,
     pub description: Option<String>,
+}
+
+impl InnerJoin<Programa> for User {
+    fn fields() -> String {
+        let name = User::name();
+        format!(
+            "{name}.id, {name}.username, {name}.email, {name}.role, {name}.state, {name}.phone, {name}.verbs, {name}.resource, {name}.descripcion"
+        )
+    }
 }
 
 impl User {
@@ -76,7 +88,7 @@ impl From<PgRow> for User {
             phone: value.get("phone"),
             user_state: value.get("user_state"),
             role: value.get("role"),
-            resources: value.get("resource"),
+            resources: value.get("resources"),
         }
     }
 }
@@ -116,8 +128,8 @@ impl std::fmt::Display for EncryptErr {
 impl std::error::Error for EncryptErr {}
 
 #[inline]
-pub fn default_account_admin() -> User {
-    User {
+pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
+    let mut user = User {
         user_state: UserState::Active,
         id: None,
         username: "admin".to_string(),
@@ -128,5 +140,7 @@ pub fn default_account_admin() -> User {
         role: crate::models::user::Role::Administrator,
         resources: Some("/*".to_string()),
         description: Some("Default account".to_string()),
-    }
+    };
+    user.encrypt_passwd()?;
+    Ok(user)
 }

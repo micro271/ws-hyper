@@ -8,6 +8,7 @@ use sqlx::{
     postgres::{PgPoolOptions, Postgres},
 };
 use std::fmt::Display;
+use uuid::Uuid;
 
 use crate::models::{GetUserOwn, GetUserPubAdm, program::Programa, user::User};
 
@@ -39,21 +40,41 @@ macro_rules! get {
         }
     };
 
-    ($pool:expr, $t:ty, from => $from:ty $(, inner_join => $join1:ty : $key_join1:literal, $join2:ty : $key_join2:literal)+ $(, _where => [ $($cond:expr),+ ])?) => {
+    ($pool:expr, $t:ty, from => $from:ty $(, left_join => $join1:ty : $key_join1:literal, $join2:ty : $key_join2:literal)+ $(, _where => [ $($key:expr, $value:expr);+ ])?) => {
         async {
-            let mut query = format!("SELECT * FROM {}", <$from>::name());
-            $(
-                let key1 = format!("{}.{}", <$join1>::name(), $key_join1);
-                let key2 = format!("{}.{}", <$join2>::name(), $key_join2);
-                query.push_str(&format!(" INNET JOIN {} ON {} = {}", <$join2>::name(), key1, key2));
-            )*
+
+            let mut inners = String::new();
+            let selects = vec![$(<$join1 as InnerJoin<$join2>>::fields())+].join(",");
 
             $(
-                let wheres = vec![$($cond),+].join(" AND ");
+                let key1 = format!("{}.{}",<$join1>::name(), $key_join1);
+                let key2 = format!("{}.{}",<$join2>::name(), $key_join2);
+                inners.push_str(&format!(" LEFT JOIN {} ON {} = {}", <$join2>::name(), key1, key2));
+            )+
+
+
+            let mut query = format!("SELECT {} FROM {}", selects, <$from>::name());
+            let mut values: Vec<Types> = Vec::new();
+
+            $(
+                let mut wheres = String::new();
+                let mut count = 0;
+                $(
+                    count += 1;
+                    wheres.push_str(&format!("{} = ${}", $key, count));
+                    values.push($value);
+                )+
+
                 query.push_str(&format!(" WHERE {}", wheres));
+
             )?
 
-            let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
+            let resp = values.into_iter().fold(sqlx::query(&query),|acc, value| match value {
+                Types::Uuid(uuid) => acc.bind(uuid),
+                Types::String(string) => acc.bind(string),
+            });
+
+            let resp = resp.fetch_all($pool).await.unwrap();
             resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
         }
     };
@@ -83,7 +104,7 @@ impl PgRepository {
 
     pub async fn get_all(&self) -> Result<QueryResult<GetUserPubAdm>, RepositoryError> {
         let all =
-            get!(&self.inner, GetUserPubAdm, from => User, inner_join => User: "id", Programa: "user_id")
+            get!(&self.inner, GetUserPubAdm, from => User, left_join => User: "id", Programa: "user_id")
                 .await;
         Ok(QueryResult::Select(all))
     }
@@ -93,21 +114,19 @@ impl PgRepository {
         Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
     {
         let tmp = QueryResult::SelectOne(
-            get!(one, &self.inner, User, where = [ format!("{} = {}", pk.0, pk.1) ])
+            get!(one, &self.inner, User, where = [ format!("{} = '{}'", pk.0, pk.1) ])
                 .await
                 .into(),
         );
         Ok(tmp)
     }
 
-    pub async fn get_myself<Pk>(
+    pub async fn get_myself(
         &self,
-        pk: (&str, Pk),
-    ) -> Result<QueryResult<GetUserOwn>, RepositoryError>
-    where
-        Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
-    {
-        let mut user = get!(&self.inner, GetUserOwn, from => User, inner_join => User: "id", Programa: "user_id", _where => [format!("{} = {}", pk.0, pk.1)] ).await;
+        key: &str,
+        value: Types,
+    ) -> Result<QueryResult<GetUserOwn>, RepositoryError> {
+        let mut user = get!(&self.inner, GetUserOwn, from => User, left_join => User: "id", Programa: "user_id", _where => [format!("{}.{}",User::name(), key), value] ).await;
 
         if user.len() > 1 {
             return Err(RepositoryError::ManyRows);
@@ -118,15 +137,24 @@ impl PgRepository {
         ))
     }
 
-    pub async fn delete<T, Pk>(&self, pk: Pk) -> Result<QueryResult<T>, RepositoryError>
+    pub async fn delete<T>(
+        &self,
+        key: &str,
+        value: Types,
+    ) -> Result<QueryResult<T>, RepositoryError>
     where
         T: TableName,
-        Pk: for<'q> sqlx::Encode<'q, Postgres> + Type<Postgres>,
     {
-        let query = format!("DELETE FROM {} WHERE id = $1", T::name());
-        let tmp = sqlx::query(&query).bind(pk).execute(&self.inner).await?;
+        let query = format!("DELETE FROM {} WHERE {} = $1", T::name(), key);
+        let ex = sqlx::query(&query);
+        let ex = match value {
+            Types::Uuid(uuid) => ex.bind(uuid),
+            Types::String(string) => ex.bind(string),
+        };
 
-        Ok(QueryResult::Delete(tmp.rows_affected()))
+        let ex = ex.execute(&self.inner).await?;
+
+        Ok(QueryResult::Delete(ex.rows_affected()))
     }
 
     pub async fn insert_user(&self, user: User) -> Result<QueryResult<User>, RepositoryError> {
@@ -216,4 +244,29 @@ impl std::error::Error for RepositoryError {}
 
 pub trait TableName {
     fn name() -> &'static str;
+}
+
+pub trait InnerJoin<T>: TableName
+where
+    T: InnerJoin<Self>,
+    Self: Sized,
+{
+    fn fields() -> String;
+}
+
+pub enum Types {
+    Uuid(Uuid),
+    String(String),
+}
+
+impl From<Uuid> for Types {
+    fn from(value: Uuid) -> Self {
+        Self::Uuid(value)
+    }
+}
+
+impl From<String> for Types {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
 }

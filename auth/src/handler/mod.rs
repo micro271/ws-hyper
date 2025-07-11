@@ -24,7 +24,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
-        ("/api/v1/user", _) => {
+        (path, _) if path.starts_with("/api/v1/user") => {
             let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
                 return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
             };
@@ -34,14 +34,17 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             };
             req.extensions_mut().insert(claim);
 
-            let path = req.uri().path().strip_prefix("/api/v1/user/").unwrap();
-            let uuid = path.parse().ok();
+            let uuid = req
+                .uri()
+                .path()
+                .strip_prefix("/api/v1/user/")
+                .and_then(|x| x.parse().ok());
 
             match *req.method() {
-                Method::POST if path.is_empty() => user::new(req).await,
+                Method::POST if uuid.is_none() => user::new(req).await,
                 Method::GET => get(req, uuid).await,
-                Method::DELETE => user::delete(req, uuid.unwrap()).await,
-                Method::PATCH => user::update(req, uuid.unwrap()).await,
+                Method::DELETE if uuid.is_some() => user::delete(req, uuid.unwrap()).await,
+                Method::PATCH if uuid.is_some() => user::update(req, uuid.unwrap()).await,
                 _ => Ok(ResponseErr::status(StatusCode::BAD_REQUEST).into()),
             }
         }

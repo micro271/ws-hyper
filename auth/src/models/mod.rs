@@ -31,25 +31,24 @@ pub struct GetUserOwn {
     phone: String,
     program_icon: String,
     program_name: String,
-    channel: String,
 }
 
 impl From<PgRow> for GetUserPubAdm {
     fn from(value: PgRow) -> Self {
         Self {
-            id: value.get("id"),
-            username: value.get("username"),
-            email: value.get("email"),
-            role: value.get("role"),
-            state: value.get("state"),
-            phone: value.get("phone"),
-            verbs: value.get("verbs"),
-            resources: value.get("resources"),
-            user_description: value.get("user_description"),
-            program: value.get("program"),
-            program_id: value.get("program_id"),
-            program_icon: value.get("program_icon"),
-            program_description: value.get("program_description"),
+            id: value.get("users.id"),
+            username: value.get("users.username"),
+            email: value.get("users.email"),
+            role: value.get("users.role"),
+            state: value.get("users.state"),
+            phone: value.get("users.phone"),
+            verbs: value.get("users.verbs"),
+            resources: value.get("users.resources"),
+            user_description: value.get("users.description"),
+            program: value.get("program.name"),
+            program_id: value.get("program.id"),
+            program_icon: value.get("program.icon"),
+            program_description: value.get("program.description"),
         }
     }
 }
@@ -57,12 +56,11 @@ impl From<PgRow> for GetUserPubAdm {
 impl From<PgRow> for GetUserOwn {
     fn from(value: PgRow) -> Self {
         Self {
-            username: value.get("username"),
-            email: value.get("email"),
-            phone: value.get("phone"),
-            program_icon: value.get("program_icon"),
-            program_name: value.get("program_name"),
-            channel: value.get("channel"),
+            username: value.get("users.username"),
+            email: value.get("users.email"),
+            phone: value.get("users.phone"),
+            program_icon: value.get("program.icon"),
+            program_name: value.get("program.name"),
         }
     }
 }

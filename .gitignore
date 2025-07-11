@@ -13,6 +13,7 @@ utils/.env
 auth/target
 auth/Cargo.lock
 auth/.env
+auth/pki_auth
 
 notify/target
 notify/Cargo.lock

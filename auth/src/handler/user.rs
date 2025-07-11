@@ -6,7 +6,7 @@ use crate::{
     Repository,
     handler::{ResponseHandlers, error::ResponseErr},
     models::user::{Claim, Role, User},
-    repository::QueryResult,
+    repository::{QueryResult, Types},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
@@ -30,7 +30,7 @@ pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
     };
 
     match id {
-        Some(e) if e == user.id.unwrap() => Ok(repo.get_myself(("id", e)).await?.into()),
+        Some(e) if e == user.id.unwrap() => Ok(repo.get_myself("id", Types::Uuid(e)).await?.into()),
         None if user.role == Role::Administrator => Ok(repo.get_all().await?.into()),
         _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     }
@@ -42,7 +42,7 @@ pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
         .get::<Repository>()
         .ok_or(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))?;
 
-    Ok(repo.delete::<User, _>(id).await?.into())
+    Ok(repo.delete::<User>("id", Types::Uuid(id)).await?.into())
 }
 
 pub async fn update(_req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
