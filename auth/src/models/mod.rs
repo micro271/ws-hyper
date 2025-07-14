@@ -26,6 +26,7 @@ pub struct GetUserPubAdm {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetUserOwn {
+    id: Uuid,
     username: String,
     email: String,
     phone: String,
@@ -56,6 +57,7 @@ impl From<PgRow> for GetUserPubAdm {
 impl From<PgRow> for GetUserOwn {
     fn from(value: PgRow) -> Self {
         Self {
+            id: value.get("users.id"),
             username: value.get("users.username"),
             email: value.get("users.email"),
             phone: value.get("users.phone"),

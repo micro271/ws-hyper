@@ -3,40 +3,66 @@ use hyper::{Response, StatusCode, body::Bytes, header};
 use serde::Serialize;
 use serde_json::json;
 use sqlx::{
-    Encode, Type,
     pool::Pool,
     postgres::{PgPoolOptions, Postgres},
 };
-use std::fmt::Display;
 use uuid::Uuid;
 
 use crate::models::{GetUserOwn, GetUserPubAdm, program::Programa, user::User};
 
-macro_rules! get {
-    (one, $pool:expr, $t:ty $(, where = [$($cond:expr),+])? $(,)?) => {
-        async {
-            let mut query = format!("SELECT * FROM {}", <$t>::name());
-            $(
-                let wheres = vec![$($cond),+].join(" AND ");
-                query.push_str(&format!(" WHERE {}", wheres));
-            )?
-
-            sqlx::query(&query).fetch_one($pool).await.unwrap()
+macro_rules! bind {
+    ($q:expr, $type:expr) => {
+        match $type {
+            Types::Uuid(uuid) => $q.bind(uuid),
+            Types::String(string) => $q.bind(string),
         }
     };
+}
 
-    (many, $pool:expr, $t:ty $(, where = [$($cond:expr),+])?) => {
+macro_rules! get_one {
+    ($pool:expr, $t:ty $(, where = [$($key:expr, $value:expr);+])? $(,)?) => {
+        async {
+            let mut query = format!("SELECT * FROM {}", <$t>::name());
+
+            let mut list: Vec<Types> = Vec::new();
+            $(
+                let mut count = 0;
+                let mut wheres = vec![];
+                $(
+                    count += 1;
+                    wheres.push(format!(" {} = ${} ", $key, count));
+                    list.push($value);
+                )+
+                query.push_str(&format!(" WHERE {}", wheres.join(" AND ")));
+            )?
+
+            let acc = list.into_iter().fold(sqlx::query(&query), |acc, value | bind!(acc, value));
+
+            acc.fetch_one($pool).await.map(<$t>::from)
+        }
+    };
+}
+
+macro_rules! get_many {
+    ($pool:expr, $t:ty $(, where = [$($key:expr, $value:expr);+])?) => {
         async {
             let query = format!("SELECT * FROM {}", <$t>::name());
 
+            #[allow(unused_mut)] let mut types: Vec<Types> = vec![];
             $(
-                flag_vec = true;
-                let wheres = vec![$($cond),+].join(" AND ");
-                query.push_str(&format!(" WHERE {}", wheres));
+                let count = 0;
+                let wheres = vec![];
+                $(
+                    count += 1;
+                    wheres.push(format!("{} = ${}", $key, count));
+                    types.push($value)
+                )*
+                query.push_str(&format!(" WHERE {}", wheres.join(" AND ")));
             )?
 
-            let resp = sqlx::query(&query).fetch_all($pool).await.unwrap();
-            resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
+            let resp = types.into_iter().fold(sqlx::query(&query), |acc, value| bind!(acc, value));
+
+            resp.fetch_all($pool).await.map(|x| x.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>() )
         }
     };
 
@@ -53,8 +79,8 @@ macro_rules! get {
             )+
 
 
-            let mut query = format!("SELECT {} FROM {}", selects, <$from>::name());
-            let mut values: Vec<Types> = Vec::new();
+            #[allow(unused_mut)] let mut query = format!("SELECT {} FROM {}", selects, <$from>::name());
+            #[allow(unused_mut)] let mut values: Vec<Types> = Vec::new();
 
             $(
                 let mut wheres = String::new();
@@ -69,13 +95,9 @@ macro_rules! get {
 
             )?
 
-            let resp = values.into_iter().fold(sqlx::query(&query),|acc, value| match value {
-                Types::Uuid(uuid) => acc.bind(uuid),
-                Types::String(string) => acc.bind(string),
-            });
+            let resp = values.into_iter().fold(sqlx::query(&query),|acc, value| bind!(acc, value));
 
-            let resp = resp.fetch_all($pool).await.unwrap();
-            resp.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>()
+            resp.fetch_all($pool).await.map(|x| x.into_iter().map(|x| <$t>::from(x)).collect::<Vec<$t>>())
         }
     };
 }
@@ -102,31 +124,42 @@ impl PgRepository {
         Ok(repo)
     }
 
-    pub async fn get_all(&self) -> Result<QueryResult<GetUserPubAdm>, RepositoryError> {
-        let all =
-            get!(&self.inner, GetUserPubAdm, from => User, left_join => User: "id", Programa: "user_id")
-                .await;
+    pub async fn get_users(&self) -> Result<QueryResult<User>, RepositoryError> {
+        let all = get_many!(&self.inner, User).await?;
         Ok(QueryResult::Select(all))
     }
 
-    pub async fn myself<Pk>(&self, pk: (&str, Pk)) -> Result<QueryResult<User>, RepositoryError>
-    where
-        Pk: for<'q> Encode<'q, Postgres> + Type<Postgres> + Display,
-    {
+    pub async fn get_user(
+        &self,
+        key: &str,
+        value: Types,
+    ) -> Result<QueryResult<User>, RepositoryError> {
         let tmp = QueryResult::SelectOne(
-            get!(one, &self.inner, User, where = [ format!("{} = '{}'", pk.0, pk.1) ])
-                .await
+            get_one!(&self.inner, User, where = [ key, value ])
+                .await?
                 .into(),
         );
         Ok(tmp)
     }
 
-    pub async fn get_myself(
+    pub async fn get_users_pub(
         &self,
         key: &str,
         value: Types,
-    ) -> Result<QueryResult<GetUserOwn>, RepositoryError> {
-        let mut user = get!(&self.inner, GetUserOwn, from => User, left_join => User: "id", Programa: "user_id", _where => [format!("{}.{}",User::name(), key), value] ).await;
+    ) -> Result<QueryResult<GetUserPubAdm>, RepositoryError> {
+        let mut user = get_many!(&self.inner, GetUserPubAdm, from => User, left_join => User: "id", Programa: "user_id", _where => [format!("{}.{}",User::name(), key), value] ).await?;
+
+        if user.len() > 1 {
+            return Err(RepositoryError::ManyRows);
+        }
+
+        Ok(QueryResult::SelectOne(
+            user.pop().ok_or(RepositoryError::NotFound)?,
+        ))
+    }
+
+    pub async fn get_user_pub(&self) -> Result<QueryResult<GetUserOwn>, RepositoryError> {
+        let mut user = get_many!(&self.inner, GetUserOwn, from => User, left_join => User: "id", Programa: "user_id" ).await?;
 
         if user.len() > 1 {
             return Err(RepositoryError::ManyRows);

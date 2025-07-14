@@ -25,12 +25,14 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
 pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
     let repo = req.extensions().get::<Repository>().unwrap();
     let claim = req.extensions().get::<Claim>().unwrap();
-    let Ok(QueryResult::SelectOne(user)) = repo.myself(("id", claim.sub)).await else {
+    let Ok(QueryResult::SelectOne(user)) = repo.get_user("id", claim.sub.into()).await else {
         return Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     match id {
-        Some(e) if e == user.id.unwrap() => Ok(repo.get_myself("id", Types::Uuid(e)).await?.into()),
+        Some(e) if e == user.id.unwrap() => {
+            Ok(repo.get_user_pub("id", Types::Uuid(e)).await?.into())
+        }
         None if user.role == Role::Administrator => Ok(repo.get_all().await?.into()),
         _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     }
@@ -45,6 +47,6 @@ pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     Ok(repo.delete::<User>("id", Types::Uuid(id)).await?.into())
 }
 
-pub async fn update(_req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+pub async fn update(_req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
     Err(ResponseErr::status(StatusCode::NOT_IMPLEMENTED))
 }

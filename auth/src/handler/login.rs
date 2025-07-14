@@ -20,7 +20,8 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
 
     match ParseBodyToJson::<Login>::get(body).await {
         Ok(login) => {
-            let Ok(QueryResult::SelectOne(user)) = repo.myself(("username", login.username)).await
+            let Ok(QueryResult::SelectOne(user)) =
+                repo.get_user("username", login.username.into()).await
             else {
                 return Err(ResponseErr::status(StatusCode::NOT_FOUND));
             };
