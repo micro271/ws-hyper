@@ -34,21 +34,38 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             };
             req.extensions_mut().insert(claim);
 
-            let uuid = req
-                .uri()
-                .path()
-                .strip_prefix("/api/v1/user/")
-                .and_then(|x| x.parse().ok());
+            let path = req.uri().path().strip_prefix("/api/v1/user/");
 
-            match *req.method() {
-                Method::POST if uuid.is_none() => user::new(req).await,
-                Method::GET => get(req, uuid).await,
-                Method::DELETE if uuid.is_some() => user::delete(req, uuid.unwrap()).await,
-                Method::PATCH if uuid.is_some() => user::update(req, uuid.unwrap()).await,
-                _ => Ok(ResponseErr::status(StatusCode::BAD_REQUEST).into()),
+            match (req.method().clone(), path) {
+                (Method::POST, None) => user::new(req).await,
+                (Method::DELETE, Some(uuid)) => {
+                    if let Ok(uuid) = uuid.parse() {
+                        user::delete(req, uuid).await
+                    } else {
+                        Err(ResponseErr::status(StatusCode::BAD_REQUEST))
+                    }
+                }
+                (Method::PATCH, Some(uuid)) => {
+                    if let Ok(uuid) = uuid.parse() {
+                        user::update(req, uuid).await
+                    } else {
+                        Err(ResponseErr::status(StatusCode::BAD_REQUEST))
+                    }
+                }
+                (Method::GET, Some(path)) => {
+                    println!("SI");
+                    let mut path = path.split(':');
+                    let uuid = path.next().and_then(|x| x.parse().ok());
+                    let extend = path.next().map(|x| x.eq("extend")).unwrap_or_default();
+                    get(req, uuid, extend).await
+                }
+                _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
             }
         }
-        _ => Ok(ResponseErr::status(StatusCode::BAD_REQUEST).into()),
+        (path, &Method::GET) if path.starts_with("/api/v1/users") => {
+            Err(ResponseErr::status(StatusCode::NOT_IMPLEMENTED))
+        }
+        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     };
 
     match resp {

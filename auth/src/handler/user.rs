@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     Repository,
     handler::{ResponseHandlers, error::ResponseErr},
-    models::user::{Claim, Role, User},
+    models::user::{Claim, User},
     repository::{QueryResult, Types},
 };
 
@@ -22,18 +22,18 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
     Ok(repo.insert_user(user).await?.into())
 }
 
-pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
+pub async fn get(req: Request<Incoming>, id: Option<Uuid>, extend: bool) -> ResponseHandlers {
     let repo = req.extensions().get::<Repository>().unwrap();
     let claim = req.extensions().get::<Claim>().unwrap();
     let Ok(QueryResult::SelectOne(user)) = repo.get_user("id", claim.sub.into()).await else {
         return Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR));
     };
-
-    match id {
-        Some(e) if e == user.id.unwrap() => {
-            Ok(repo.get_user_pub("id", Types::Uuid(e)).await?.into())
-        }
-        None if user.role == Role::Administrator => Ok(repo.get_all().await?.into()),
+    println!("entro");
+    match (id, extend) {
+        (Some(id), true) if user.is_admin() || user == id => Ok(repo.get_user_pub().await?.into()),
+        (Some(id), false) if user.id.unwrap() == id => Ok(repo.get_user_pub().await?.into()),
+        (None, false) if user.is_admin() => Ok(repo.get_users_pub().await?.into()),
+        (None, true) if user.is_admin() => Ok(repo.get_users_pub_extend().await?.into()),
         _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     }
 }

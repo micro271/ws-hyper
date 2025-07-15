@@ -37,6 +37,21 @@ impl User {
         self.passwd = hash(&self.passwd, DEFAULT_COST).map_err(|_| EncryptErr)?;
         Ok(())
     }
+    pub fn is_admin(&self) -> bool {
+        self.role == Role::Administrator
+    }
+}
+
+impl std::cmp::PartialEq<Uuid> for User {
+    fn eq(&self, other: &Uuid) -> bool {
+        self.id.map(|x| x.eq(other)).unwrap_or_default()
+    }
+}
+
+impl std::cmp::PartialEq<str> for User {
+    fn eq(&self, other: &str) -> bool {
+        self.username == other
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]

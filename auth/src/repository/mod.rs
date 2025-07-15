@@ -41,6 +41,13 @@ macro_rules! get_one {
             acc.fetch_one($pool).await.map(<$t>::from)
         }
     };
+
+    ($pool:expr, $t:ty, from => $from:ty $(, left_join => $join1:ty : $key_join1:literal, $join2:ty : $key_join2:literal)+, _where => [ $($key:expr, $value:expr);+ ]) => {
+        async {
+            let resp = get_many($poo, $ty, from => $from, $(left_join => $join: $ket_join1, $join2: $key_join2)+, _where => [$($key:expr, $value:expr);+]).await;
+            resp.filter(|x| x.len() == 1).map(|x| x.pop().unwrap())
+        }
+    };
 }
 
 macro_rules! get_many {
@@ -119,14 +126,9 @@ impl PgRepository {
 
     pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
-        repo.insert_user(user).await?;
+        _ = repo.insert_user(user).await;
 
         Ok(repo)
-    }
-
-    pub async fn get_users(&self) -> Result<QueryResult<User>, RepositoryError> {
-        let all = get_many!(&self.inner, User).await?;
-        Ok(QueryResult::Select(all))
     }
 
     pub async fn get_user(
@@ -134,20 +136,27 @@ impl PgRepository {
         key: &str,
         value: Types,
     ) -> Result<QueryResult<User>, RepositoryError> {
-        let tmp = QueryResult::SelectOne(
-            get_one!(&self.inner, User, where = [ key, value ])
-                .await?
-                .into(),
-        );
-        Ok(tmp)
+        Ok(QueryResult::SelectOne(
+            get_one!(&self.inner, User, where = [ key, value ]).await?,
+        ))
     }
 
-    pub async fn get_users_pub(
+    pub async fn get_users_pub(&self) -> Result<QueryResult<GetUserOwn>, RepositoryError> {
+        let mut user = get_many!(&self.inner, GetUserOwn, from => User, left_join => User: "id", Programa: "user_id" ).await?;
+
+        if user.len() > 1 {
+            return Err(RepositoryError::ManyRows);
+        }
+
+        Ok(QueryResult::SelectOne(
+            user.pop().ok_or(RepositoryError::NotFound)?,
+        ))
+    }
+
+    pub async fn get_users_pub_extend(
         &self,
-        key: &str,
-        value: Types,
     ) -> Result<QueryResult<GetUserPubAdm>, RepositoryError> {
-        let mut user = get_many!(&self.inner, GetUserPubAdm, from => User, left_join => User: "id", Programa: "user_id", _where => [format!("{}.{}",User::name(), key), value] ).await?;
+        let mut user = get_many!(&self.inner, GetUserPubAdm, from => User, left_join => User: "id", Programa: "user_id" ).await?;
 
         if user.len() > 1 {
             return Err(RepositoryError::ManyRows);
@@ -268,7 +277,7 @@ impl std::fmt::Display for RepositoryError {
 }
 
 impl From<sqlx::error::Error> for RepositoryError {
-    fn from(value: sqlx::error::Error) -> Self {
+    fn from(_value: sqlx::error::Error) -> Self {
         Self::NotFound
     }
 }
