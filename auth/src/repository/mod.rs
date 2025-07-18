@@ -8,13 +8,21 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::models::{GetUserOwn, GetUserPubAdm, program::Programa, user::User};
+use crate::models::{
+    GetUserOwn, GetUserPubAdm,
+    program::Programa,
+    user::{Role, User, UserState, Verbs},
+};
 
 macro_rules! bind {
     ($q:expr, $type:expr) => {
         match $type {
             Types::Uuid(uuid) => $q.bind(uuid),
             Types::String(string) => $q.bind(string),
+            Types::OptString(vec) => $q.bind(vec),
+            Types::Verbs(vec) => $q.bind(vec),
+            Types::UserState(state) => $q.bind(state),
+            Types::Role(role) => $q.bind(role),
         }
     };
 }
@@ -189,33 +197,34 @@ impl PgRepository {
     {
         let query = format!("DELETE FROM {} WHERE {} = $1", T::name(), key);
         let ex = sqlx::query(&query);
-        let ex = match value {
-            Types::Uuid(uuid) => ex.bind(uuid),
-            Types::String(string) => ex.bind(string),
-        };
+        let ex = bind!(ex, value);
 
         let ex = ex.execute(&self.inner).await?;
 
         Ok(QueryResult::Delete(ex.rows_affected()))
     }
 
-    pub async fn insert_user(&self, user: User) -> Result<QueryResult<User>, RepositoryError> {
+    pub async fn insert_user<T>(&self, user: T) -> Result<QueryResult<T>, RepositoryError>
+    where
+        T: TableName + InsertPg,
+    {
+        let cols = T::get_fields_name();
+        let len = cols.len();
         let query = format!(
-            "INSERT INTO {} (username, passwd, email, verbos, user_state, phone, role, resources) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            User::name()
+            "INSERT INTO {} ({}) VALUES ({})",
+            User::name(),
+            cols.join(", "),
+            (1..=len)
+                .map(|x| format!("${x}"))
+                .collect::<Vec<String>>()
+                .join(", ")
         );
-        let res = sqlx::query(&query)
-            .bind(user.username)
-            .bind(user.passwd)
-            .bind(user.email)
-            .bind(user.verbos)
-            .bind(user.user_state)
-            .bind(user.phone)
-            .bind(user.role)
-            .bind(user.resources)
+        let res = T::get_fields(user)
+            .into_iter()
+            .fold(sqlx::query(&query), |acc, value| bind!(acc, value))
             .execute(&self.inner)
-            .await
-            .map_err(|_x| RepositoryError::NotFound)?;
+            .await?;
+
         Ok(QueryResult::Insert(res.rows_affected()))
     }
 }
@@ -225,6 +234,11 @@ impl std::ops::Deref for PgRepository {
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
+}
+
+pub trait InsertPg: Sized {
+    fn get_fields(self) -> Vec<Types>;
+    fn get_fields_name() -> Vec<&'static str>;
 }
 
 pub enum QueryResult<T> {
@@ -299,6 +313,10 @@ where
 pub enum Types {
     Uuid(Uuid),
     String(String),
+    OptString(Option<String>),
+    Verbs(Vec<Verbs>),
+    UserState(UserState),
+    Role(Role),
 }
 
 impl From<Uuid> for Types {
@@ -310,5 +328,29 @@ impl From<Uuid> for Types {
 impl From<String> for Types {
     fn from(value: String) -> Self {
         Self::String(value)
+    }
+}
+
+impl From<Option<String>> for Types {
+    fn from(value: Option<String>) -> Self {
+        Self::OptString(value)
+    }
+}
+
+impl From<Vec<Verbs>> for Types {
+    fn from(value: Vec<Verbs>) -> Self {
+        Self::Verbs(value)
+    }
+}
+
+impl From<UserState> for Types {
+    fn from(value: UserState) -> Self {
+        Self::UserState(value)
+    }
+}
+
+impl From<Role> for Types {
+    fn from(value: Role) -> Self {
+        Self::Role(value)
     }
 }

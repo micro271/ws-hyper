@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     models::program::Programa,
-    repository::{InnerJoin, TableName},
+    repository::{InnerJoin, InsertPg, TableName},
 };
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
@@ -158,4 +158,31 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
     };
     user.encrypt_passwd()?;
     Ok(user)
+}
+
+impl InsertPg for User {
+    fn get_fields(self) -> Vec<crate::repository::Types> {
+        vec![
+            self.username.into(),
+            self.passwd.into(),
+            self.email.into(),
+            self.verbos.into(),
+            self.user_state.into(),
+            self.phone.into(),
+            self.role.into(),
+            self.resources.into(),
+        ]
+    }
+    fn get_fields_name() -> Vec<&'static str> {
+        vec![
+            "username",
+            "passwd",
+            "email",
+            "verbs",
+            "user_state",
+            "phone",
+            "role",
+            "resources",
+        ]
+    }
 }
