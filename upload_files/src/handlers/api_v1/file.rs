@@ -1,10 +1,10 @@
 use super::{
-    Incoming, ParseError, Request, ResponseError, ResultResponse, StatusCode, doc, header,
+    Incoming, ParseError, Request, ResponseError, ResultResponse, StatusCode, header,
 };
 use crate::{
     handlers::{
         State,
-        utils::{get_extention, get_user_oid},
+        utils::{get_extention},
     },
     models::{
         logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
@@ -53,10 +53,18 @@ pub async fn file(req: Request<Incoming>) -> ResultResponse {
             "Channel is not present".into(),
         ))
         .and_then(|x| x.parse().map_err(|_| parse_error))?;
-
+    let user = User {
+        id: None,
+        username: "".to_string(),
+        password: "".to_string(),
+        email: None,
+        phone: None,
+        role: Role::Admin,
+        ch: None,
+    };
     if req.method() == Method::POST {
         let claims = get_extention::<Claim>(req.extensions())?;
-        let repository = get_extention::<State>(req.extensions())?;
+        let _repository = get_extention::<State>(req.extensions())?;
 
         if !matches!(user.ch.as_ref(), Some(ch) if ch.name == channel && ch.program.iter().any(|x| x.name == program_tv))
             && claims.role != Role::Admin

@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use futures::{Stream, StreamExt, ready};
+use futures::{Stream, ready};
 use mime::{Mime, Name};
 use multer::{Field, Multipart};
-use std::task::Poll;
+use std::{pin::Pin, task::Poll};
 
 use super::{MetaFile, error::UploadError};
 
@@ -27,7 +27,7 @@ pub enum MimeAllowed {
 #[derive(Debug)]
 pub enum State<'a> {
     WaitingField,
-    ReadingField(Box<Field<'a>>),
+    ReadingField(Pin<Box<Field<'a>>>),
     Done,
 }
 
@@ -51,16 +51,14 @@ impl Stream for StreamUpload<'_> {
     type Item = Result<ResultStream, UploadError>;
 
     fn poll_next(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        let this = unsafe { self.get_unchecked_mut() };
-
-        match &mut this.state {
-            State::WaitingField => match ready!(this.multipart.poll_next_field(cx)) {
+        match &mut self.state {
+            State::WaitingField => match ready!(self.multipart.poll_next_field(cx)) {
                 Ok(Some(field)) => {
                     let Some(name) = field.file_name().map(ToString::to_string) else {
-                        this.state = State::Done;
+                        self.state = State::Done;
                         return Poll::Ready(Some(Err(UploadError::FileNameNotFound)));
                     };
 
@@ -68,20 +66,20 @@ impl Stream for StreamUpload<'_> {
                         return Poll::Ready(Some(Err(UploadError::MimeNotFound { file: name })));
                     };
 
-                    if this.allowed.iter().any(|x| match x {
+                    if self.allowed.iter().any(|x| match x {
                         MimeAllowed::Any => true,
                         MimeAllowed::Mime(mime) => content_type.eq(mime),
                         MimeAllowed::MediaType(name) => content_type.type_().eq(name),
                         MimeAllowed::SubType(name) => content_type.subtype().eq(name),
                     }) {
-                        this.state = State::ReadingField(Box::new(field));
+                        self.state = State::ReadingField(Box::pin(field));
 
                         Poll::Ready(Some(Ok(ResultStream::New(MetaFile {
                             file_name: name,
                             mime: content_type,
                         }))))
                     } else {
-                        this.state = State::Done;
+                        self.state = State::Done;
                         Poll::Ready(Some(Err(UploadError::MimeNotAllowed {
                             file: name,
                             mime: content_type,
@@ -89,22 +87,22 @@ impl Stream for StreamUpload<'_> {
                     }
                 }
                 Ok(None) => {
-                    this.state = State::Done;
+                    self.state = State::Done;
                     Poll::Ready(None)
                 }
                 Err(err) => {
-                    this.state = State::Done;
+                    self.state = State::Done;
                     Poll::Ready(Some(Err(err.into())))
                 }
             },
-            State::ReadingField(field) => match ready!(field.poll_next_unpin(cx)) {
+            State::ReadingField(field) => match ready!(field.as_mut().poll_next(cx)) {
                 Some(Ok(bytes)) => Poll::Ready(Some(Ok(ResultStream::Bytes(bytes)))),
                 Some(Err(err)) => {
-                    this.state = State::Done;
+                    self.state = State::Done;
                     Poll::Ready(Some(Err(err.into())))
                 }
                 None => {
-                    this.state = State::WaitingField;
+                    self.state = State::WaitingField;
                     Poll::Ready(Some(Ok(ResultStream::Eof)))
                 }
             },

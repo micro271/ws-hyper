@@ -3,7 +3,7 @@ pub mod stream;
 
 use bytes::{Buf, Bytes, BytesMut};
 use error::UploadError;
-use futures::{FutureExt, Stream, ready};
+use futures::{Stream, ready};
 use mime::Mime;
 use std::{fmt::Debug, path::PathBuf, pin::Pin, task::Poll, time::Instant};
 use stream::{ResultStream, StreamUpload};
@@ -82,8 +82,9 @@ impl Buffer {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        let this = unsafe { self.get_unchecked_mut() };
-        let mut writer = unsafe { Pin::new_unchecked(&mut this.inner) };
+        let this = self.get_mut();
+
+        let mut writer = Pin::new(&mut this.inner);
 
         loop {
             if this.bytes.is_empty() {
@@ -134,12 +135,13 @@ impl AsyncWrite for Buffer {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        let this = unsafe { self.get_unchecked_mut() };
-        let mut writer = unsafe { Pin::new_unchecked(&mut this.inner) };
+        let this = self.get_mut();
+        let bytes = &mut this.bytes;
+        let mut writer = Pin::new(&mut this.inner);
 
-        while !this.bytes.is_empty() {
-            match ready!(writer.as_mut().poll_write(cx, &this.bytes)) {
-                Ok(n) => this.bytes.advance(n),
+        while !bytes.is_empty() {
+            match ready!(writer.as_mut().poll_write(cx, bytes.as_ref())) {
+                Ok(n) => bytes.advance(n),
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }
@@ -153,9 +155,7 @@ impl AsyncWrite for Buffer {
     ) -> Poll<Result<(), std::io::Error>> {
         ready!(self.as_mut().poll_flush(cx))?;
 
-        let this = unsafe { self.get_unchecked_mut() };
-
-        unsafe { Pin::new_unchecked(&mut this.inner) }.poll_shutdown(cx)
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -176,6 +176,8 @@ where
     }
 }
 
+impl<'a, F> Unpin for Upload<'a, F> {}
+
 impl<F> Stream for Upload<'_, F>
 where
     F: Fn(&Mime) -> PathBuf + Send + Sync,
@@ -186,18 +188,18 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let this = unsafe { self.get_unchecked_mut() };
+        let this = self.get_mut();
 
         loop {
             match &mut this.state {
                 StateUpload::Writting(buf) => {
-                    let writer = if let Some(e) = this.buffer.as_mut() {
-                        unsafe { Pin::new_unchecked(e) }
-                    } else {
-                        panic!("Buffer is not present");
-                    };
-
-                    match ready!(writer.poll_write(cx, buf)) {
+                    match ready!(
+                        this.buffer
+                            .as_mut()
+                            .map(Pin::new)
+                            .expect("Buffer is not present")
+                            .poll_write(cx, buf)
+                    ) {
                         Ok(n) => {
                             if n < buf.len() {
                                 this.state =
@@ -213,34 +215,31 @@ where
                         }
                     }
                 }
-                StateUpload::Reading => {
-                    let stream = unsafe { Pin::new_unchecked(&mut this.stream) };
-                    match ready!(stream.poll_next(cx)) {
-                        Some(Ok(ResultStream::New(meta))) => {
-                            let mut path = (this.path)(meta.mime());
+                StateUpload::Reading => match ready!(Pin::new(&mut this.stream).poll_next(cx)) {
+                    Some(Ok(ResultStream::New(meta))) => {
+                        let mut path = (this.path)(meta.mime());
 
-                            path.push(meta.file_name());
-                            this.meta_file = Some(meta);
-                            this.state = StateUpload::Create(File::create(path).boxed());
-                            this.elapsed = Some(Instant::now());
-                        }
-                        Some(Ok(ResultStream::Bytes(bytes))) => {
-                            this.state = StateUpload::Writting(bytes);
-                        }
-                        Some(Ok(ResultStream::Eof)) => {
-                            this.state = StateUpload::Flush;
-                        }
-                        Some(Err(e)) => {
-                            this.state = StateUpload::Done;
-                            break Poll::Ready(Some(Err(e)));
-                        }
-                        None => {
-                            this.state = StateUpload::Done;
-                            break Poll::Ready(None);
-                        }
+                        path.push(meta.file_name());
+                        this.meta_file = Some(meta);
+                        this.state = StateUpload::Create(Box::pin(File::create(path)));
+                        this.elapsed = Some(Instant::now());
                     }
-                }
-                StateUpload::Create(new_file) => match ready!(new_file.poll_unpin(cx)) {
+                    Some(Ok(ResultStream::Bytes(bytes))) => {
+                        this.state = StateUpload::Writting(bytes);
+                    }
+                    Some(Ok(ResultStream::Eof)) => {
+                        this.state = StateUpload::Flush;
+                    }
+                    Some(Err(e)) => {
+                        this.state = StateUpload::Done;
+                        break Poll::Ready(Some(Err(e)));
+                    }
+                    None => {
+                        this.state = StateUpload::Done;
+                        break Poll::Ready(None);
+                    }
+                },
+                StateUpload::Create(new_file) => match ready!(new_file.as_mut().poll(cx)) {
                     Ok(file) => {
                         this.buffer = Some(Buffer::new(file));
                         this.state = StateUpload::Reading;
@@ -251,8 +250,7 @@ where
                     }
                 },
                 StateUpload::Flush => {
-                    let writer = unsafe { Pin::new_unchecked(this.buffer.as_mut().unwrap()) };
-                    match ready!(writer.poll_flush(cx)) {
+                    match ready!(this.buffer.as_mut().map(Pin::new).unwrap().poll_flush(cx)) {
                         Ok(()) => {
                             this.state = StateUpload::Reading;
                             let size = this.written;

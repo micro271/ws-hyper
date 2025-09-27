@@ -3,7 +3,7 @@ use mongodb::bson::oid::ObjectId;
 
 use crate::models::user::Claim;
 
-use super::{BodyExt, DeserializeOwned, Incoming, ResponseError, StatusCode};
+use super::{ResponseError, StatusCode};
 
 pub fn get_extention<T>(ext: &Extensions) -> Result<&T, ResponseError>
 where
