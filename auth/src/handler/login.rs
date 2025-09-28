@@ -11,7 +11,8 @@ use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToJson};
 use crate::{
     Repository,
     handler::{Login, error::ResponseErr},
-    repository::QueryResult,
+    models::user::User,
+    repository::QueryOwn,
 };
 
 pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseErr> {
@@ -20,8 +21,9 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
     println!("entro!");
     match ParseBodyToJson::<Login>::get(body).await {
         Ok(login) => {
-            let Ok(QueryResult::SelectOne(user)) =
-                repo.get_user("username", login.username.into()).await
+            let Ok(user) = repo
+                .get(QueryOwn::<User>::builder().wh("username", login.username.into()))
+                .await
             else {
                 return Err(ResponseErr::status(StatusCode::NOT_FOUND));
             };

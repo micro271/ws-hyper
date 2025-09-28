@@ -4,10 +4,7 @@ use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;
 use uuid::Uuid;
 
-use crate::{
-    models::program::Programa,
-    repository::{InnerJoin, InsertPg, TableName},
-};
+use crate::repository::{TABLA_USER, Table};
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct User {
@@ -22,22 +19,13 @@ pub struct User {
     pub description: Option<String>,
 }
 
-impl InnerJoin<Programa> for User {
-    fn fields() -> String {
-        let name = User::name();
-        format!(
-            "{name}.id, {name}.username, {name}.email, {name}.role, {name}.state, {name}.phone, {name}.verbs, {name}.resource, {name}.descripcion"
-        )
-    }
-}
-
 impl User {
     pub fn encrypt_passwd(&mut self) -> Result<(), EncryptErr> {
         self.passwd = hash(&self.passwd, DEFAULT_COST).map_err(|_| EncryptErr)?;
         Ok(())
     }
     pub fn is_admin(&self) -> bool {
-        self.role == Role::Administrator
+        self.role == Role::Administrator || self.role == Role::SuperUs
     }
 }
 
@@ -66,6 +54,7 @@ pub enum UserState {
 )]
 #[sqlx(type_name = "ROL")]
 pub enum Role {
+    SuperUs,
     Administrator,
     Productor,
     #[default]
@@ -75,6 +64,7 @@ pub enum Role {
 impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Role::SuperUs => write!(f, "SuperUsuario"),
             Role::Administrator => write!(f, "Admin"),
             Role::Productor => write!(f, "Productor"),
             Role::Operador => write!(f, "Operador"),
@@ -102,7 +92,6 @@ impl From<PgRow> for User {
 pub struct Claim {
     pub sub: Uuid,
     pub exp: i64,
-    pub role: Role,
 }
 
 impl GetClaim<Claim> for User {
@@ -110,14 +99,7 @@ impl GetClaim<Claim> for User {
         Claim {
             sub: self.id.unwrap(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(5)).unix_timestamp(),
-            role: self.role,
         }
-    }
-}
-
-impl TableName for User {
-    fn name() -> &'static str {
-        "users"
     }
 }
 
@@ -149,28 +131,34 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
     Ok(user)
 }
 
-impl InsertPg for User {
-    fn get_fields(self) -> Vec<crate::repository::Types> {
+impl<'a> Table<'a> for User {
+    fn columns() -> Vec<&'a str> {
         vec![
-            self.username.into(),
-            self.passwd.into(),
-            self.email.into(),
-            self.user_state.into(),
-            self.phone.into(),
-            self.role.into(),
-            self.resources.into(),
-        ]
-    }
-    fn get_fields_name() -> Vec<&'static str> {
-        vec![
+            "id",
             "username",
             "passwd",
             "email",
-            "verbs",
-            "user_state",
             "phone",
+            "user_state",
             "role",
             "resources",
+            "description",
+        ]
+    }
+    fn name() -> &'a str {
+        TABLA_USER
+    }
+    fn values(self) -> Vec<crate::repository::Types> {
+        vec![
+            self.id.unwrap().into(),
+            self.username.into(),
+            self.passwd.into(),
+            self.email.into(),
+            self.phone.into(),
+            self.user_state.into(),
+            self.role.into(),
+            self.resources.into(),
+            self.description.into(),
         ]
     }
 }

@@ -11,54 +11,67 @@ use hyper::{
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
+use uuid::Uuid;
 
 use crate::{
     handler::{error::ResponseErr, user::get},
-    models::user::Claim,
+    models::user::{Claim, Role, User},
+    repository::{PgRepository, QueryOwn},
 };
 
 type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 
-pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
+
         (path, _) if path.starts_with("/api/v1/user") => {
             let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
                 return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
             };
-            let claim = match JwtHandle::verify_token::<Claim>(&token) {
-                Ok(claim) => claim,
+
+            let id = match JwtHandle::verify_token::<Claim>(&token) {
+                Ok(claim) => claim.sub,
                 Err(err) => return Ok(ResponseErr::new(err, StatusCode::UNAUTHORIZED).into()),
             };
-            req.extensions_mut().insert(claim);
 
-            let path = req.uri().path().strip_prefix("/api/v1/user/");
+            let path = req
+                .uri()
+                .path()
+                .strip_prefix("/api/v1/user/")
+                .map(ToString::to_string);
+            let repo = req.extensions().get::<PgRepository>().unwrap();
+            let Ok(user) = repo
+                .get(QueryOwn::<User>::builder().wh("id", id.into()))
+                .await
+            else {
+                return Ok(ResponseErr::status(StatusCode::BAD_REQUEST).into());
+            };
 
             match (req.method().clone(), path) {
-                (Method::POST, None) => user::new(req).await,
-                (Method::DELETE, Some(uuid)) => {
-                    if let Ok(uuid) = uuid.parse() {
-                        user::delete(req, uuid).await
-                    } else {
-                        Err(ResponseErr::status(StatusCode::BAD_REQUEST))
+                (Method::POST, None) => {
+                    if user.role != Role::Administrator {
+                        return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
                     }
+                    user::new(req).await
+                }
+                (Method::DELETE, Some(uuid)) => {
+                    let uuid = uuid.parse::<Uuid>().unwrap();
+
+                    user::delete(req, uuid).await
                 }
                 (Method::PATCH, Some(uuid)) => {
-                    if let Ok(uuid) = uuid.parse() {
-                        user::update(req, uuid).await
-                    } else {
-                        Err(ResponseErr::status(StatusCode::BAD_REQUEST))
+                    let uuid = uuid.parse::<Uuid>().unwrap();
+
+                    if uuid != user.id.unwrap() && user.role != Role::Administrator {
+                        return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
                     }
+
+                    user::update(req, uuid).await
                 }
-                (Method::GET, Some(path)) => {
-                    println!("SI");
-                    let mut path = path.split(':');
-                    let uuid = path.next().and_then(|x| x.parse().ok());
-                    let extend = path.next().map(|x| x.eq("extend")).unwrap_or_default();
-                    get(req, uuid, extend).await
-                }
+                (Method::GET, some) => get(req, some.unwrap().parse::<Uuid>().ok()).await,
                 _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
             }
         }
