@@ -1,10 +1,11 @@
 use mongodb::bson::{doc, oid::ObjectId};
 use serde::{Deserialize, Serialize};
 use utils::GetClaim;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Claim {
-    pub sub: String,
+    pub sub: Uuid,
     pub exp: i64,
     pub role: Role,
 }
@@ -12,23 +13,18 @@ pub struct Claim {
 impl GetClaim<Claim> for User {
     fn get_claim(self) -> Claim {
         Claim {
-            sub: "".to_string(),
-            exp: 1,
-            role: Role::Admin,
+            sub: self.id.unwrap(),
+            exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(6)).unix_timestamp(),
+            role: self.role,
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct UserEntry {
-    pub username: String,
-    pub password: String,
-}
 
 impl From<&User> for Claim {
     fn from(value: &User) -> Self {
         Self {
-            sub: value.id.unwrap().to_string(),
+            sub: value.id.unwrap(),
             exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(2)).unix_timestamp(),
             role: value.role,
         }
@@ -37,8 +33,8 @@ impl From<&User> for Claim {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
-    #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
-    pub id: Option<ObjectId>,
+//    #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
+    pub id: Option<Uuid>,
 
     pub username: String,
     pub password: String,
@@ -51,6 +47,7 @@ pub struct User {
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum Role {
     Admin,
+    Operador,
     Productor,
 }
 
@@ -59,6 +56,7 @@ impl std::fmt::Display for Role {
         match self {
             Self::Admin => write!(f, "Admin"),
             Self::Productor => write!(f, "Productor"),
+            Self::Operador => write!(f, "Operador"),
         }
     }
 }

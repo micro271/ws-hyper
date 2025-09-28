@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::models::{
     GetUserOwn, GetUserPubAdm,
     program::Programa,
-    user::{Role, User, UserState, Verbs},
+    user::{Role, User, UserState},
 };
 
 macro_rules! bind {
@@ -20,7 +20,6 @@ macro_rules! bind {
             Types::Uuid(uuid) => $q.bind(uuid),
             Types::String(string) => $q.bind(string),
             Types::OptString(vec) => $q.bind(vec),
-            Types::Verbs(vec) => $q.bind(vec),
             Types::UserState(state) => $q.bind(state),
             Types::Role(role) => $q.bind(role),
         }
@@ -117,6 +116,7 @@ macro_rules! get_many {
     };
 }
 
+#[derive(Debug)]
 pub struct PgRepository {
     inner: Pool<Postgres>,
 }
@@ -314,7 +314,6 @@ pub enum Types {
     Uuid(Uuid),
     String(String),
     OptString(Option<String>),
-    Verbs(Vec<Verbs>),
     UserState(UserState),
     Role(Role),
 }
@@ -334,12 +333,6 @@ impl From<String> for Types {
 impl From<Option<String>> for Types {
     fn from(value: Option<String>) -> Self {
         Self::OptString(value)
-    }
-}
-
-impl From<Vec<Verbs>> for Types {
-    fn from(value: Vec<Verbs>) -> Self {
-        Self::Verbs(value)
     }
 }
 

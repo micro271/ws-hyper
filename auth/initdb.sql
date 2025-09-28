@@ -2,14 +2,12 @@ CREATE DATABASE programas;
 
 CREATE TYPE ROL AS ENUM ('Producer', 'Administrator', 'Operator');
 CREATE TYPE ESTADO AS ENUM ('Active', 'Inactive');
-CREATE TYPE VERBS AS ENUM ('PutFile', 'DeleteFile', 'Read', 'CreateUser', 'ModifyUser', 'CreateProgram', 'ModifyProgram', 'All');
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID DEFAULT gen_random_uuid(),
     username TEXT UNIQUE,
     passwd TEXT,
     email TEXT,
-    verbos VERBS[],
     user_state ESTADO,
     phone TEXT,
     role ROL,

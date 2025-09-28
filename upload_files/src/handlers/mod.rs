@@ -3,20 +3,18 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
-use crate::{handlers::api_v1::api, models::user::Claim};
+use crate::{handlers::api_v1::upload, models::user::Claim};
 
-use super::repository::Repository;
 use ::utils::{JwtCookie, JwtHandle, Peer, Token, VerifyTokenEcdsa};
 use bytes::Bytes;
 use error::ResponseError;
 use http::{Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible};
 use utils::get_extention;
 
 type ResultResponse = Result<Response<Full<Bytes>>, ResponseError>;
-pub type State = Arc<Repository>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = req.method().clone();
@@ -71,7 +69,7 @@ pub async fn midlleware_token(mut req: Request<Incoming>) -> ResultResponse {
             .map_err(|_| ResponseError::new::<&str>(StatusCode::UNAUTHORIZED, None))?;
         req.extensions_mut().insert(tmp);
 
-        api(req).await
+        upload(req).await
     } else {
         Err(ResponseError::new(
             StatusCode::UNAUTHORIZED,

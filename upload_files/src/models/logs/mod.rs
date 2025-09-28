@@ -1,7 +1,6 @@
 pub mod upload;
 
 use mongodb::{
-    IndexModel,
     bson::{doc, oid::ObjectId},
 };
 use serde::{Deserialize, Serialize};
@@ -9,7 +8,6 @@ use time::OffsetDateTime;
 use upload::UploadLog;
 use utils::Peer;
 
-use crate::repository::{GetCollection, IndexDB};
 
 use super::user::{Role, User};
 
@@ -25,22 +23,6 @@ pub struct Logs {
     pub owner: Owner,
 }
 
-impl IndexDB for Logs {
-    fn get_unique_index() -> Vec<mongodb::IndexModel>
-    where
-        Self: Sized,
-    {
-        vec![
-            IndexModel::builder()
-                .keys(doc! {"operation.type": 1})
-                .build(),
-            IndexModel::builder()
-                .keys(doc! {"owner.username":1})
-                .build(),
-        ]
-    }
-}
-
 impl Logs {
     pub fn new_from_user(user: &User, src: &Peer, operation: Operation) -> Self {
         Self {
@@ -53,12 +35,6 @@ impl Logs {
             at: OffsetDateTime::now_local().unwrap(),
             operation,
         }
-    }
-}
-
-impl GetCollection for Logs {
-    fn collection() -> &'static str {
-        "logs"
     }
 }
 

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
-use crate::models::user::{UserState, Verbs};
+use crate::models::user::UserState;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetUserPubAdm {
@@ -15,7 +15,6 @@ pub struct GetUserPubAdm {
     role: String,
     state: UserState,
     phone: String,
-    verbs: Verbs,
     resources: String,
     user_description: String,
     program_id: Uuid,
@@ -43,7 +42,6 @@ impl From<PgRow> for GetUserPubAdm {
             role: value.get("users.role"),
             state: value.get("users.state"),
             phone: value.get("users.phone"),
-            verbs: value.get("users.verbs"),
             resources: value.get("users.resources"),
             user_description: value.get("users.description"),
             program: value.get("program.name"),

@@ -1,4 +1,4 @@
-use crate::{repository::RepositoryError, stream_upload::error::UploadError};
+use crate::{stream_upload::error::UploadError};
 use bytes::Bytes;
 use http::{Response, StatusCode, header};
 use http_body_util::Full;
@@ -76,21 +76,6 @@ impl std::fmt::Display for ParseError {
 impl std::fmt::Display for ResponseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Status: {} - {:?}", self.status, self.body)
-    }
-}
-
-impl From<RepositoryError> for ResponseError {
-    fn from(value: RepositoryError) -> Self {
-        let mut flag_not_detail = true;
-        let status = match value {
-            RepositoryError::MongoDb(_) | RepositoryError::DatabaseDefault => {
-                flag_not_detail = false;
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            _ => StatusCode::BAD_REQUEST,
-        };
-
-        Self::new(status, (flag_not_detail).then_some(value.to_string()))
     }
 }
 

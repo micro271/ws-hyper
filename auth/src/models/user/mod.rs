@@ -15,7 +15,6 @@ pub struct User {
     pub username: String,
     pub passwd: String,
     pub email: Option<String>,
-    pub verbos: Vec<Verbs>,
     pub phone: Option<String>,
     pub user_state: UserState,
     pub role: Role,
@@ -62,33 +61,25 @@ pub enum UserState {
     Inactive,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, PartialEq, Eq, Hash, Clone, Copy, Default)]
-#[sqlx(type_name = "VERBS")]
-pub enum Verbs {
-    All,
-    ReadFiles,
-    PutFile,
-    DeleteFIle,
-    TakeFile,
-    ReadUser,
-    ModifyUser,
-    CreareUser,
-    ReadDirectory,
-    ModifyDirectory,
-    CreateDirectory,
-    #[default]
-    None,
-}
-
 #[derive(
     Debug, Deserialize, Serialize, sqlx::Type, Default, Clone, Copy, PartialEq, PartialOrd,
 )]
 #[sqlx(type_name = "ROL")]
 pub enum Role {
     Administrator,
-    Producer,
+    Productor,
     #[default]
-    Operator,
+    Operador,
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Administrator => write!(f, "Admin"),
+            Role::Productor => write!(f, "Productor"),
+            Role::Operador => write!(f, "Operador"),
+        }
+    }
 }
 
 impl From<PgRow> for User {
@@ -99,7 +90,6 @@ impl From<PgRow> for User {
             passwd: value.get("passwd"),
             description: value.get("description"),
             email: value.get("email"),
-            verbos: value.get("verbos"),
             phone: value.get("phone"),
             user_state: value.get("user_state"),
             role: value.get("role"),
@@ -150,7 +140,6 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
         username: "admin".to_string(),
         passwd: "admin".to_string(),
         email: None,
-        verbos: vec![Verbs::All],
         phone: None,
         role: crate::models::user::Role::Administrator,
         resources: Some("/*".to_string()),
@@ -166,7 +155,6 @@ impl InsertPg for User {
             self.username.into(),
             self.passwd.into(),
             self.email.into(),
-            self.verbos.into(),
             self.user_state.into(),
             self.phone.into(),
             self.role.into(),
