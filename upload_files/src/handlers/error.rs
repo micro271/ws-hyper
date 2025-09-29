@@ -1,4 +1,4 @@
-use crate::{stream_upload::error::UploadError};
+use crate::stream_upload::error::UploadError;
 use bytes::Bytes;
 use http::{Response, StatusCode, header};
 use http_body_util::Full;

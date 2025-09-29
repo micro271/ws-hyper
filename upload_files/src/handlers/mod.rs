@@ -3,7 +3,7 @@ pub mod error;
 pub mod program;
 pub mod utils;
 
-use crate::{handlers::api_v1::upload, models::user::Claim};
+use crate::{grpc_v1::GrpcClient, handlers::api_v1::upload, models::user::Claim};
 
 use ::utils::{JwtCookie, JwtHandle, Peer, Token, VerifyTokenEcdsa};
 use bytes::Bytes;
@@ -11,10 +11,11 @@ use error::ResponseError;
 use http::{Request, Response, StatusCode, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
-use std::{convert::Infallible};
+use std::{convert::Infallible, sync::Arc};
 use utils::get_extention;
 
 type ResultResponse = Result<Response<Full<Bytes>>, ResponseError>;
+type GrpcCli = Arc<GrpcClient>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = req.method().clone();

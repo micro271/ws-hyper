@@ -1,4 +1,4 @@
-use mongodb::bson::{doc, oid::ObjectId};
+use mongodb::bson::doc;
 use serde::{Deserialize, Serialize};
 use utils::GetClaim;
 use uuid::Uuid;
@@ -20,7 +20,6 @@ impl GetClaim<Claim> for User {
     }
 }
 
-
 impl From<&User> for Claim {
     fn from(value: &User) -> Self {
         Self {
@@ -33,7 +32,7 @@ impl From<&User> for Claim {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
-//    #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
+    //    #[serde(skip_serializing_if = "Option::is_none", rename = "_id")]
     pub id: Option<Uuid>,
 
     pub username: String,

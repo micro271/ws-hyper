@@ -1,12 +1,12 @@
 use super::{Incoming, Request, ResponseError, ResultResponse, StatusCode, header};
 use crate::{
-    handlers::{utils::get_extention},
+    handlers::{utils::get_extention, GrpcCli},
     models::{
-        logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
+        logs::{upload::UploadLog, Logs, Operation, Owner, ResultOperation},
+        user::Role,
     },
     stream_upload::{
-        Upload, UploadResult,
-        stream::{MimeAllowed, StreamUpload},
+        stream::{MimeAllowed, StreamUpload}, Upload, UploadResult
     },
 };
 use bytes::Bytes;
@@ -14,6 +14,7 @@ use futures::StreamExt;
 use http::{HeaderMap, Response};
 use http_body_util::{BodyStream, Full};
 use multer::Multipart;
+use uuid::Uuid;
 use std::{path::PathBuf, sync::OnceLock};
 use time::OffsetDateTime;
 use utils::Peer;
@@ -68,13 +69,14 @@ pub async fn upload_video(
                     .unwrap_or_default());
             }
         };
-
-        let new_log = Logs {
+        let info = get_extention::<GrpcCli>(&parts.extensions)?;
+        let user_indo = info.user_info(Uuid::new_v4()).await.unwrap();
+        let _new_log = Logs {
             id: None,
             owner: Owner {
-                username: user.username.clone(),
+                username: user_indo.username,
                 src: ip_src.get_ip_or_unknown(),
-                role: user.role,
+                role: Role::Admin,
             },
             at: OffsetDateTime::now_local().unwrap(),
             operation: Operation::Upload {
@@ -88,6 +90,7 @@ pub async fn upload_video(
                 result: operation_result,
             },
         };
+        
         // repository.insert(new_log).await?;
     }
 }

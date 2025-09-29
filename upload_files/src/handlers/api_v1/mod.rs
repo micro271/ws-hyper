@@ -11,20 +11,33 @@ use super::{
 };
 
 pub async fn upload(req: Request<Incoming>) -> ResultResponse {
-    let mut path = req.uri().path().split("api/v1/file/").nth(1).map(|x| x.split('/').map(ToString::to_string).collect::<Vec<String>>()).unwrap_or_default();
-    
+    let mut path = req
+        .uri()
+        .path()
+        .split("api/v1/file/")
+        .nth(1)
+        .map(|x| {
+            x.split('/')
+                .map(ToString::to_string)
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
     if path.len() != 2 {
-        return Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None).into());
+        return Err(ResponseError::new::<&str>(StatusCode::BAD_REQUEST, None));
     }
 
     let programa = path.pop();
     let ch = path.pop();
 
-    let user = req.extensions().get::<Claim>();
+    let _user = req.extensions().get::<Claim>();
 
     if req.method() == Method::OPTIONS {
         Ok(cors())
-    } else if req.method() == Method::POST && let Some(programa) = programa && let Some(ch) = ch {
+    } else if req.method() == Method::POST
+        && let Some(programa) = programa
+        && let Some(ch) = ch
+    {
         file::upload_video(req, ch, programa).await
     } else {
         Err(ResponseError::new(

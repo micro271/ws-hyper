@@ -1,13 +1,10 @@
 pub mod upload;
 
-use mongodb::{
-    bson::{doc, oid::ObjectId},
-};
+use mongodb::bson::{doc, oid::ObjectId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use upload::UploadLog;
 use utils::Peer;
-
 
 use super::user::{Role, User};
 
