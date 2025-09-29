@@ -11,10 +11,7 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::models::{
-    program::Programa,
-    user::{Role, User, UserState},
-};
+use crate::models::user::{Role, User, UserState};
 
 pub const TABLA_PROGRAMA: &str = "programa";
 pub const TABLA_USER: &str = "users";
@@ -49,7 +46,7 @@ impl PgRepository {
 
     pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
-        _ = repo.insert_user(user).await;
+        _ = repo.insert_user(InsertOwn::insert(user)).await;
 
         Ok(repo)
     }
@@ -65,7 +62,13 @@ impl PgRepository {
     where
         T: for<'b> Table<'b> + From<PgRow>,
     {
-        Ok(query.build().fetch_all(&self.inner).await?.into_iter().map(T::from).collect::<Vec<T>>())
+        Ok(query
+            .build()
+            .fetch_all(&self.inner)
+            .await?
+            .into_iter()
+            .map(T::from)
+            .collect::<Vec<T>>())
     }
 
     pub async fn delete(&self, id: Uuid) -> Result<QueryResult<User>, RepositoryError> {
@@ -78,8 +81,16 @@ impl PgRepository {
         Ok(QueryResult::Delete(ex.rows_affected()))
     }
 
-    pub async fn insert_user<T>(&self, user: T) -> Result<QueryResult<T>, RepositoryError> {
-        todo!()
+    pub async fn insert_user<T>(
+        &self,
+        mut insert: InsertOwn<T>,
+    ) -> Result<QueryResult<T>, RepositoryError>
+    where
+        T: for<'b> Table<'b>,
+    {
+        let _res = insert.query().execute(&self.inner).await?;
+
+        Ok(QueryResult::Insert(1))
     }
 }
 
@@ -231,7 +242,7 @@ where
     pub fn build(&'a mut self) -> Query<'a, Postgres, PgArguments> {
         self.query = format!("SELECT * FROM {}", T::name());
 
-        if let Some(wheres) = std::mem::replace(&mut self.wh, None) {
+        if let Some(wheres) = self.wh.take() {
             let mut aux = Vec::new();
             let mut first = true;
             let mut n = 1;
@@ -240,6 +251,7 @@ where
                     self.query.push_str(" AND");
                 } else {
                     first = false;
+                    self.query.push_str(" WHERE");
                 }
 
                 self.query.push_str(&format!(" {key} = ${n}"));
@@ -255,5 +267,57 @@ where
         } else {
             sqlx::query(&self.query)
         }
+    }
+}
+
+pub struct InsertOwn<T> {
+    query: String,
+    len: u32,
+    item: Option<T>,
+}
+
+pub trait Insert<T> {
+    fn insert(item: T) -> Self;
+    fn query(&mut self) -> Query<'_, Postgres, PgArguments>;
+}
+
+impl<T> Insert<T> for InsertOwn<T>
+where
+    T: for<'a> Table<'a>,
+{
+    fn insert(item: T) -> Self {
+        let columns = T::columns();
+        Self {
+            query: format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                T::name(),
+                columns.join(","),
+                (1..=columns.len())
+                    .map(|x| format!("${x}"))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
+            len: 1,
+            item: Some(item),
+        }
+    }
+
+    fn query(&mut self) -> Query<'_, Postgres, PgArguments> {
+        let item = self.item.take();
+
+        item.unwrap()
+            .values()
+            .into_iter()
+            .fold(sqlx::query(&self.query), |acc, item| bind!(acc, item))
+    }
+}
+
+impl<T> Insert<Vec<T>> for InsertOwn<Vec<T>> {
+    fn insert(_item: Vec<T>) -> Self {
+        todo!()
+    }
+
+    fn query(&mut self) -> Query<'_, Postgres, PgArguments> {
+        todo!()
     }
 }

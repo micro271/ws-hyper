@@ -1,6 +1,6 @@
 CREATE DATABASE programas;
 
-CREATE TYPE ROL AS ENUM ('Producer', 'Administrator', 'Operator');
+CREATE TYPE ROL AS ENUM ('Producer', 'Administrator', 'Operator', 'SuperUs');
 CREATE TYPE ESTADO AS ENUM ('Active', 'Inactive');
 
 CREATE TABLE IF NOT EXISTS users (

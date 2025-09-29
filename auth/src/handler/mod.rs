@@ -9,7 +9,7 @@ use hyper::{
     body::{Bytes, Incoming},
 };
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
@@ -20,6 +20,7 @@ use crate::{
 };
 
 type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
+type Repo = Arc<PgRepository>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
@@ -42,7 +43,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
                 .path()
                 .strip_prefix("/api/v1/user/")
                 .map(ToString::to_string);
-            let repo = req.extensions().get::<PgRepository>().unwrap();
+            let repo = req.extensions().get::<Repo>().unwrap();
             let Ok(user) = repo
                 .get(QueryOwn::<User>::builder().wh("id", id.into()))
                 .await
@@ -71,7 +72,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
 
                     user::update(req, uuid).await
                 }
-                (Method::GET, some) => get(req, some.unwrap().parse::<Uuid>().ok()).await,
+                (Method::GET, None) => get(req, (!user.is_admin()).then_some(id)).await,
                 _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
             }
         }

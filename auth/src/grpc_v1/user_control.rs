@@ -11,7 +11,10 @@ pub use proto::{
 use tonic::{Response, Status, async_trait};
 use uuid::Uuid;
 
-use crate::{models::user::User, repository::{PgRepository, QueryOwn, Types}};
+use crate::{
+    models::user::User,
+    repository::{PgRepository, QueryOwn, Types},
+};
 
 #[derive(Debug)]
 pub struct CheckUser {
@@ -20,7 +23,7 @@ pub struct CheckUser {
 
 impl CheckUser {
     pub fn new(repo: Arc<PgRepository>) -> Self {
-        Self { repo: repo }
+        Self { repo }
     }
 }
 
@@ -34,7 +37,10 @@ impl UserControl for CheckUser {
 
         let user = self
             .repo
-            .get(QueryOwn::<User>::builder().wh("id",Types::Uuid(Uuid::from_bytes(id.try_into().unwrap()))))
+            .get(
+                QueryOwn::<User>::builder()
+                    .wh("id", Types::Uuid(Uuid::from_bytes(id.try_into().unwrap()))),
+            )
             .await
             .unwrap();
 

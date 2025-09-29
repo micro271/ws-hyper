@@ -123,7 +123,7 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
         passwd: "admin".to_string(),
         email: None,
         phone: None,
-        role: crate::models::user::Role::Administrator,
+        role: crate::models::user::Role::SuperUs,
         resources: Some("/*".to_string()),
         description: Some("Default account".to_string()),
     };
@@ -150,7 +150,7 @@ impl<'a> Table<'a> for User {
     }
     fn values(self) -> Vec<crate::repository::Types> {
         vec![
-            self.id.unwrap().into(),
+            self.id.unwrap_or_default().into(),
             self.username.into(),
             self.passwd.into(),
             self.email.into(),

@@ -40,18 +40,14 @@ impl From<PgRow> for UserAllInfo {
             role: value.get(format!("{TABLA_USER}.role").as_str()),
             resources: value.get(format!("{TABLA_USER}.resources").as_str()),
             desc: value.get(format!("{TABLA_USER}.description").as_str()),
-            program: if let Some(id) =
-                value.get::<'_, Option<Uuid>, _>(format!("{TABLA_PROGRAMA}.id").as_str())
-            {
-                Some(ProgramInfo {
-                    id: id,
+            program: value
+                .get::<'_, Option<Uuid>, _>(format!("{TABLA_PROGRAMA}.id").as_str())
+                .map(|id| ProgramInfo {
+                    id,
                     name: value.get(format!("{TABLA_PROGRAMA}.name").as_str()),
                     desc: value.get(format!("{TABLA_PROGRAMA}.description").as_str()),
                     icon: value.get(format!("{TABLA_PROGRAMA}.icon").as_str()),
-                })
-            } else {
-                None
-            },
+                }),
         }
     }
 }

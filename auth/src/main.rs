@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_with_state(repo, |mut req| {
+                    service_with_state(repo, move |mut req| {
                         req.extensions_mut().insert(peer);
                         entry(req)
                     }),
