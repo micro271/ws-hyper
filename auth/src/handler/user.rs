@@ -22,7 +22,17 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
     Ok(repo.insert_user(InsertOwn::insert(user)).await?.into())
 }
 
-pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
+pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+    let repo = req.extensions().get::<Repo>().unwrap();
+
+    Ok(QueryResult::SelectOne(
+        repo.get(QueryOwn::<User>::builder().wh("id", id.into()))
+            .await?,
+    )
+    .into())
+}
+
+pub async fn get_many(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
     let repo = req.extensions().get::<Repo>().unwrap();
 
     let mut builder = QueryOwn::<User>::builder();
@@ -31,7 +41,7 @@ pub async fn get(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
         builder = builder.wh("id", id.into());
     }
 
-    Ok(QueryResult::SelectOne(repo.get(builder).await?).into())
+    Ok(QueryResult::Select(repo.gets(builder).await?).into())
 }
 
 pub async fn delete(req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {

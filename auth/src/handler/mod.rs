@@ -14,7 +14,7 @@ use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
 use crate::{
-    handler::{error::ResponseErr, user::get},
+    handler::error::ResponseErr,
     models::user::{Claim, Role, User},
     repository::{PgRepository, QueryOwn},
 };
@@ -42,13 +42,18 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
                 .uri()
                 .path()
                 .strip_prefix("/api/v1/user/")
-                .map(ToString::to_string);
+                .map(str::parse::<Uuid>)
+                .map(|x| {
+                    x.map_err(|_| ResponseErr::new("Invalid user type", StatusCode::BAD_REQUEST))
+                });
             let repo = req.extensions().get::<Repo>().unwrap();
             let Ok(user) = repo
                 .get(QueryOwn::<User>::builder().wh("id", id.into()))
                 .await
             else {
-                return Ok(ResponseErr::status(StatusCode::BAD_REQUEST).into());
+                return Ok(
+                    ResponseErr::new("[101] - User not found", StatusCode::NOT_FOUND).into(),
+                );
             };
 
             match (req.method().clone(), path) {
@@ -58,21 +63,28 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
                     }
                     user::new(req).await
                 }
-                (Method::DELETE, Some(uuid)) => {
-                    let uuid = uuid.parse::<Uuid>().unwrap();
-
-                    user::delete(req, uuid).await
-                }
-                (Method::PATCH, Some(uuid)) => {
-                    let uuid = uuid.parse::<Uuid>().unwrap();
-
-                    if uuid != user.id.unwrap() && user.role != Role::Administrator {
+                (Method::DELETE, Some(Ok(uuid))) => user::delete(req, uuid).await,
+                (Method::PATCH, Some(Ok(uuid))) => {
+                    if uuid != user.id.unwrap() && !user.is_admin() {
                         return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
                     }
 
                     user::update(req, uuid).await
                 }
-                (Method::GET, None) => get(req, (!user.is_admin()).then_some(id)).await,
+                (Method::GET, Some(Ok(uuid))) => {
+                    if uuid != id {
+                        Err(ResponseErr::new(
+                            "You can only see your information",
+                            StatusCode::UNAUTHORIZED,
+                        ))
+                    } else {
+                        user::get(req, id).await
+                    }
+                }
+                (Method::GET, None) if user.role != Role::Productor => {
+                    user::get_many(req, None).await
+                }
+                (_, Some(Err(e))) => Ok(e.into()),
                 _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
             }
         }
