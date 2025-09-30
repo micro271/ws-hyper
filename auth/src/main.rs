@@ -6,7 +6,7 @@ use crate::{
     grpc_v1::user_control::CheckUser, handler::entry, models::user::default_account_admin,
     repository::PgRepository,
 };
-use grpc_v1::user_control::UserControlServer;
+use grpc_v1::user_control::UserInfoServer;
 use hyper::server::conn::http1;
 use std::sync::Arc;
 use tonic::transport::Server;
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         println!("iniciamos");
         Server::builder()
-            .add_service(UserControlServer::new(user_check))
+            .add_service(UserInfoServer::new(user_check))
             .serve(gprc_ceck_user)
             .await
     });

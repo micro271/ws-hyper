@@ -1,10 +1,8 @@
 mod proto {
     tonic::include_proto!("check_user");
 }
-
-pub use proto::{user_control_client::UserControlClient, RoleReply, RoleRequest};
-
 use crate::models::user::Role;
+pub use proto::{user_info_client::UserInfoClient, UserInfoReply, UserInfoRequest};
 
 impl TryFrom<i32> for Role {
     type Error = <proto::Role as TryFrom<i32>>::Error;

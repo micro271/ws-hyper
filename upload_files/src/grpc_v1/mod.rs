@@ -1,29 +1,28 @@
 pub mod user_check;
 
-use crate::{grpc_v1::user_check::UserControlClient, models::logs::Logs};
 use tonic::Status;
-use user_check::{RoleReply, RoleRequest};
+use user_check::{UserInfoClient, UserInfoReply, UserInfoRequest};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct GrpcClient {
-    check_user: UserControlClient<tonic::transport::Channel>,
+    check_user: UserInfoClient<tonic::transport::Channel>,
 }
 
 impl GrpcClient {
     pub async fn new(endpoint_check_user: String) -> Self {
         Self {
-            check_user: UserControlClient::connect(endpoint_check_user)
+            check_user: UserInfoClient::connect(endpoint_check_user)
                 .await
                 .unwrap(),
         }
     }
 
-    pub async fn user_info(&self, id: Uuid) -> Result<RoleReply, GrpcErr> {
+    pub async fn user_info(&self, id: Uuid) -> Result<UserInfoReply, GrpcErr> {
         Ok(self
             .check_user
             .clone()
-            .get_role(RoleRequest { id: id.into() })
+            .get_role(UserInfoRequest { id: id.into() })
             .await?
             .into_inner())
     }

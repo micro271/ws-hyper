@@ -5,15 +5,14 @@ mod proto {
 use std::sync::Arc;
 
 pub use proto::{
-    RoleReply, RoleRequest,
-    user_control_server::{UserControl, UserControlServer},
+    UserInfoRequest, UserInfoReply,
+    user_info_server::{UserInfo, UserInfoServer},
 };
 use tonic::{Response, Status, async_trait};
 use uuid::Uuid;
 
 use crate::{
-    models::user::User,
-    repository::{PgRepository, QueryOwn, Types},
+    models::user::User, repository::{PgRepository, QueryOwn, Types}
 };
 
 #[derive(Debug)]
@@ -28,11 +27,11 @@ impl CheckUser {
 }
 
 #[async_trait]
-impl UserControl for CheckUser {
+impl UserInfo for CheckUser {
     async fn get_role(
         &self,
-        request: tonic::Request<RoleRequest>,
-    ) -> Result<Response<RoleReply>, Status> {
+        request: tonic::Request<UserInfoRequest>,
+    ) -> Result<Response<UserInfoReply>, Status> {
         let id = request.into_inner().id;
 
         let user = self
@@ -44,7 +43,7 @@ impl UserControl for CheckUser {
             .await
             .unwrap();
 
-        let reply = RoleReply {
+        let reply = UserInfoReply {
             username: user.username,
             role: user.role.into(),
             resources: user.resources.unwrap(),

@@ -10,6 +10,7 @@ pub enum UploadError {
     Multer(String),
     StorageFull,
     Io(String),
+    BufferNotDefined,
 }
 
 impl From<multer::Error> for UploadError {
@@ -33,6 +34,7 @@ impl std::fmt::Display for UploadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             UploadError::UnexpectedEof => write!(f, "Unexpected EOF"),
+            UploadError::BufferNotDefined => write!(f, "Buffer not defined"),
             UploadError::WriteZero => write!(f, "Write 0 bytes"),
             UploadError::FileNameNotFound => write!(f, "File name not found"),
             UploadError::MimeNotFound { file } => {

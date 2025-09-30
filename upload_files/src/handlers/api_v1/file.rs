@@ -14,6 +14,7 @@ use futures::StreamExt;
 use http::{HeaderMap, Response};
 use http_body_util::{BodyStream, Full};
 use multer::Multipart;
+use tracing::info;
 use std::{path::PathBuf, sync::OnceLock};
 use time::OffsetDateTime;
 use utils::Peer;
@@ -71,7 +72,7 @@ pub async fn upload_video(
             }
         };
         
-        let _new_log = Logs {
+        let new_log = Logs {
             id: None,
             owner: Owner {
                 username: username.clone(),
@@ -91,7 +92,7 @@ pub async fn upload_video(
             },
         };
         
-        // repository.insert(new_log).await?;
+        info!("{:?}", new_log);
     }
 }
 

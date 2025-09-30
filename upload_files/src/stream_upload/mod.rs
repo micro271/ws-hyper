@@ -250,7 +250,12 @@ where
                     }
                 },
                 StateUpload::Flush => {
-                    match ready!(this.buffer.as_mut().map(Pin::new).unwrap().poll_flush(cx)) {
+                    let Some(bufer) = this.buffer.as_mut().map(Pin::new) else {
+                        this.state = StateUpload::Done;
+                        break Poll::Ready(Some(Err(UploadError::BufferNotDefined)));
+                    };
+
+                    match ready!(bufer.poll_flush(cx)) {
                         Ok(()) => {
                             this.state = StateUpload::Reading;
                             let size = this.written;

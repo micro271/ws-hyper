@@ -2,16 +2,15 @@ syntax = "proto3";
 
 package check_user;
 
-service UserControl {
-    rpc GetRole (RoleRequest) returns (RoleReply);
+service UserInfo {
+    rpc GetRole (UserInfoRequest) returns (UserInfoReply);
 }
 
-
-message RoleRequest {
+message UserInfoRequest {
     bytes id = 1;
 }
 
-message RoleReply {
+message UserInfoReply {
     string username = 1;
     Role role = 2;
     string resources = 3;
