@@ -366,3 +366,7 @@ where
         tokio::task::spawn(fut);
     }
 }
+
+pub trait FromPath {
+    fn get(path: &str) -> Self;
+}

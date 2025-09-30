@@ -15,11 +15,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().unwrap();
     tracing_subscriber::fmt().init();
 
-    let socket = SocketAddr::new("0.0.0.0".parse().unwrap(), 4000);
+    let ip_app = std::env::var("IP_APP").unwrap_or("0.0.0.0".to_string());
+    let endpoint_grpc_client_check = std::env::var("GRPC_USER_CHECK").expect("Grpc endpoint for user check is not defined");
+
+    let socket = SocketAddr::new(ip_app.parse().unwrap(), 4000);
     let listen = TcpListener::bind(socket).await?;
 
-    let sender = Arc::new(GrpcClient::new("".to_string()).await);
-
+    let sender = Arc::new(GrpcClient::new(endpoint_grpc_client_check).await);
+    
     tracing::info!("Listening: {:?}", &socket);
     loop {
         let (stream, _) = listen.accept().await?;

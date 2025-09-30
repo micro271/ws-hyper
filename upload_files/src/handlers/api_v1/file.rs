@@ -1,6 +1,6 @@
 use super::{Incoming, Request, ResponseError, ResultResponse, StatusCode, header};
 use crate::{
-    handlers::{utils::get_extention, GrpcCli},
+    handlers::utils::get_extention,
     models::{
         logs::{upload::UploadLog, Logs, Operation, Owner, ResultOperation},
         user::Role,
@@ -14,7 +14,6 @@ use futures::StreamExt;
 use http::{HeaderMap, Response};
 use http_body_util::{BodyStream, Full};
 use multer::Multipart;
-use uuid::Uuid;
 use std::{path::PathBuf, sync::OnceLock};
 use time::OffsetDateTime;
 use utils::Peer;
@@ -26,6 +25,8 @@ pub async fn upload_video(
     req: Request<Incoming>,
     channel: String,
     program_tv: String,
+    username: String,
+    role: Role
 ) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let ip_src = get_extention::<Peer>(&parts.extensions)?;
@@ -69,14 +70,13 @@ pub async fn upload_video(
                     .unwrap_or_default());
             }
         };
-        let info = get_extention::<GrpcCli>(&parts.extensions)?;
-        let user_indo = info.user_info(Uuid::new_v4()).await.unwrap();
+        
         let _new_log = Logs {
             id: None,
             owner: Owner {
-                username: user_indo.username,
+                username: username.clone(),
                 src: ip_src.get_ip_or_unknown(),
-                role: Role::Admin,
+                role,
             },
             at: OffsetDateTime::now_local().unwrap(),
             operation: Operation::Upload {

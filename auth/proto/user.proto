@@ -13,6 +13,13 @@ message RoleRequest {
 
 message RoleReply {
     string username = 1;
-    string role = 2;
+    Role role = 2;
     string resources = 3;
+}
+
+enum Role {
+    SuperUs = 0;
+    Administrator = 1;
+    Operador = 2;
+    Productor = 3;
 }

@@ -46,7 +46,7 @@ impl UserControl for CheckUser {
 
         let reply = RoleReply {
             username: user.username,
-            role: user.role.to_string(),
+            role: user.role.into(),
             resources: user.resources.unwrap(),
         };
 

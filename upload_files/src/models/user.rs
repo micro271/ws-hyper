@@ -45,17 +45,19 @@ pub struct User {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum Role {
-    Admin,
-    Operador,
+    SuperUs,
+    Administrator,
     Productor,
+    Operador,
 }
 
 impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Admin => write!(f, "Admin"),
-            Self::Productor => write!(f, "Productor"),
-            Self::Operador => write!(f, "Operador"),
+            Role::SuperUs => write!(f, "SuperUsuario"),
+            Role::Administrator => write!(f, "Admin"),
+            Role::Productor => write!(f, "Productor"),
+            Role::Operador => write!(f, "Operador"),
         }
     }
 }

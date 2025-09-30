@@ -49,16 +49,24 @@ pub enum UserState {
     Inactive,
 }
 
-#[derive(
-    Debug, Deserialize, Serialize, sqlx::Type, Default, Clone, Copy, PartialEq, PartialOrd,
-)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, Clone, Copy, PartialEq, PartialOrd)]
 #[sqlx(type_name = "ROL")]
 pub enum Role {
     SuperUs,
     Administrator,
     Productor,
-    #[default]
     Operador,
+}
+
+impl From<Role> for i32 {
+    fn from(value: Role) -> Self {
+        match value {
+            Role::SuperUs => 0,
+            Role::Administrator => 1,
+            Role::Productor => 2,
+            Role::Operador => 3,
+        }
+    }
 }
 
 impl std::fmt::Display for Role {
@@ -124,7 +132,7 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
         email: None,
         phone: None,
         role: crate::models::user::Role::SuperUs,
-        resources: Some("/*".to_string()),
+        resources: Some("*".to_string()),
         description: Some("Default account".to_string()),
     };
     user.encrypt_passwd()?;
