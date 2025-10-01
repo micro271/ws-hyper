@@ -11,7 +11,9 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::models::user::{Role, User, UserState};
+use crate::models::{
+    user::{Role, User, UserState},
+};
 
 pub const TABLA_PROGRAMA: &str = "programa";
 pub const TABLA_USER: &str = "users";
@@ -202,6 +204,9 @@ pub trait Table<'a> {
     fn name() -> &'a str;
     fn columns() -> Vec<&'a str>;
     fn values(self) -> Vec<Types>;
+    fn query_select() -> String {
+        format!("SELECT * FROM {}", Self::name())
+    }
 }
 
 pub struct QueryOwn<'a, T> {
@@ -240,7 +245,7 @@ where
     }
 
     pub fn build(&'a mut self) -> Query<'a, Postgres, PgArguments> {
-        self.query = format!("SELECT * FROM {}", T::name());
+        self.query = T::query_select();
 
         if let Some(wheres) = self.wh.take() {
             let mut aux = Vec::new();

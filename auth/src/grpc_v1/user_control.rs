@@ -5,14 +5,15 @@ mod proto {
 use std::sync::Arc;
 
 pub use proto::{
-    UserInfoRequest, UserInfoReply,
+    UserInfoReply, UserInfoRequest,
     user_info_server::{UserInfo, UserInfoServer},
 };
 use tonic::{Response, Status, async_trait};
 use uuid::Uuid;
 
 use crate::{
-    models::user::User, repository::{PgRepository, QueryOwn, Types}
+    models::user::User,
+    repository::{PgRepository, QueryOwn, Types},
 };
 
 #[derive(Debug)]

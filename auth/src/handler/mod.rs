@@ -15,88 +15,59 @@ use uuid::Uuid;
 
 use crate::{
     handler::error::ResponseErr,
-    models::user::{Claim, Role, User},
-    repository::{PgRepository, QueryOwn},
+    models::user::Claim,
+    repository::PgRepository,
 };
 
 type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 type Repo = Arc<PgRepository>;
 
-pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
-
-        (path, _) if path.starts_with("/api/v1/user") => {
+        (path, _) if path.starts_with("/api/v1/") => {
             let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
                 return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
             };
 
-            let id = match JwtHandle::verify_token::<Claim>(&token) {
-                Ok(claim) => claim.sub,
+            let claim = match JwtHandle::verify_token::<Claim>(&token) {
+                Ok(claim) => claim,
                 Err(err) => return Ok(ResponseErr::new(err, StatusCode::UNAUTHORIZED).into()),
             };
 
-            let path = req
-                .uri()
-                .path()
-                .strip_prefix("/api/v1/user/")
-                .map(str::parse::<Uuid>)
-                .map(|x| {
-                    x.map_err(|_| ResponseErr::new("Invalid user type", StatusCode::BAD_REQUEST))
-                });
-            let repo = req.extensions().get::<Repo>().unwrap();
-            let Ok(user) = repo
-                .get(QueryOwn::<User>::builder().wh("id", id.into()))
-                .await
-            else {
-                return Ok(
-                    ResponseErr::new("[101] - User not found", StatusCode::NOT_FOUND).into(),
-                );
-            };
-
-            match (req.method().clone(), path) {
-                (Method::POST, None) => {
-                    if user.role != Role::Administrator {
-                        return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
-                    }
-                    user::new(req).await
-                }
-                (Method::DELETE, Some(Ok(uuid))) => user::delete(req, uuid).await,
-                (Method::PATCH, Some(Ok(uuid))) => {
-                    if uuid != user.id.unwrap() && !user.is_admin() {
-                        return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
-                    }
-
-                    user::update(req, uuid).await
-                }
-                (Method::GET, Some(Ok(uuid))) => {
-                    if uuid != id {
-                        Err(ResponseErr::new(
-                            "You can only see your information",
-                            StatusCode::UNAUTHORIZED,
-                        ))
-                    } else {
-                        user::get(req, id).await
-                    }
-                }
-                (Method::GET, None) if user.role != Role::Productor => {
-                    user::get_many(req, None).await
-                }
-                (_, Some(Err(e))) => Ok(e.into()),
-                _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
-            }
-        }
-        (path, &Method::GET) if path.starts_with("/api/v1/users") => {
-            Err(ResponseErr::status(StatusCode::NOT_IMPLEMENTED))
-        }
-        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+            req.extensions_mut().insert(claim);
+            api(req).await
+        },
+        _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST)),
     };
 
     match resp {
         Ok(e) => Ok(e),
         Err(err) => Ok(err.into()),
+    }
+}
+
+pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
+    let path = req.uri().path().strip_prefix("/api/v1/").unwrap_or_default();
+
+    match (path, req.method()) {
+        ("user", &Method::GET) => {
+            let id = req.extensions().get::<Claim>().unwrap().sub;
+            user::get(req, id).await
+        }
+        ("users", &Method::GET) => user::get_all(req).await,
+        ("users/info", &Method::GET) => user::get_user_info(req, None).await,
+        (path,&Method::GET) if path.starts_with("user/info") => match path.strip_prefix("user/info").map(|x| x.parse::<Uuid>()) {
+            Some(Ok(id)) => user::get_user_info(req, Some(id)).await,
+            Some(Err(err)) => {
+                tracing::error!("{err}");
+                Err(ResponseErr::status(StatusCode::BAD_REQUEST))
+            },
+            _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+        }
+        _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST))
     }
 }
 

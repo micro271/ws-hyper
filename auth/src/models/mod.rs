@@ -1,7 +1,7 @@
 pub mod program;
 pub mod user;
 
-use crate::repository::{TABLA_PROGRAMA, TABLA_USER};
+use crate::repository::{TABLA_PROGRAMA, TABLA_USER, Table};
 use serde::Serialize;
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
@@ -49,5 +49,33 @@ impl From<PgRow> for UserAllInfo {
                     icon: value.get(format!("{TABLA_PROGRAMA}.icon").as_str()),
                 }),
         }
+    }
+}
+
+impl<'a> Table<'a> for UserAllInfo {
+    fn columns() -> Vec<&'a str> {
+        vec![
+            "id",
+            "username",
+            "email",
+            "phone",
+            "user_state",
+            "role",
+            "resources",
+            "desc",
+            "program",
+        ]
+    }
+
+    fn name() -> &'a str {
+        ""
+    }
+
+    fn values(self) -> Vec<crate::repository::Types> {
+        Vec::new()
+    }
+
+    fn query_select() -> String {
+        String::from("SELECT * FROM users FULL JOIN programs ON (users.id = programs.id)")
     }
 }

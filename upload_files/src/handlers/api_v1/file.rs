@@ -73,7 +73,6 @@ pub async fn upload_video(
         };
         
         let new_log = Logs {
-            id: None,
             owner: Owner {
                 username: username.clone(),
                 src: ip_src.get_ip_or_unknown(),

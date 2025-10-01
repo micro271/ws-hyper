@@ -39,7 +39,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user_check = CheckUser::new(repo.clone());
 
     tokio::spawn(async move {
-        println!("iniciamos");
         Server::builder()
             .add_service(UserInfoServer::new(user_check))
             .serve(gprc_ceck_user)

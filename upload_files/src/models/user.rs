@@ -1,4 +1,3 @@
-use mongodb::bson::doc;
 use serde::{Deserialize, Serialize};
 use utils::GetClaim;
 use uuid::Uuid;
