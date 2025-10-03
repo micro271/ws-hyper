@@ -11,9 +11,7 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::models::{
-    user::{Role, User, UserState},
-};
+use crate::models::user::{Role, User, UserState};
 
 pub const TABLA_PROGRAMA: &str = "programa";
 pub const TABLA_USER: &str = "users";

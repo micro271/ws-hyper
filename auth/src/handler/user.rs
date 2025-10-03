@@ -4,8 +4,8 @@ use utils::ParseBodyToJson;
 use uuid::Uuid;
 
 use crate::{
-    handler::{ResponseHandlers, error::ResponseErr},
-    models::{UserAllInfo, user::User},
+    handler::{error::ResponseErr, GetRepo, ResponseHandlers},
+    models::{user::User, UserAllInfo},
     repository::{Insert, InsertOwn, QueryOwn, QueryResult},
 };
 
@@ -55,13 +55,10 @@ pub async fn get_user_info(req: Request<Incoming>, id: Option<Uuid>) -> Response
     }
 }
 
-pub async fn delete(req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
-    let _repo = req
-        .extensions()
-        .get::<Repo>()
-        .ok_or(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))?;
+pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+    let repo = GetRepo::get(req.extensions())?;
 
-    todo!()
+    Ok(repo.delete(id).await?.into())
 }
 
 pub async fn update(_req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
