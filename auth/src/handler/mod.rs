@@ -1,5 +1,5 @@
 mod entry;
-mod error;
+pub mod error;
 pub mod login;
 pub mod user;
 
@@ -63,7 +63,9 @@ pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
             user::get(req, id).await
         }
         ("user", Method::POST) => user::new(req).await,
-        (path, method @ (Method::PATCH | Method::DELETE | Method::GET)) if path.starts_with("user") => {
+        (path, method @ (Method::PATCH | Method::DELETE | Method::GET))
+            if path.starts_with("user") =>
+        {
             let id_to_modify = path
                 .strip_prefix("user/")
                 .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
@@ -112,8 +114,7 @@ struct GetRepo;
 
 impl GetRepo {
     pub fn get(ext: &Extensions) -> Result<&Repo, ResponseErr> {
-        ext
-        .get::<Repo>()
-        .ok_or(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))
+        ext.get::<Repo>()
+            .ok_or(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))
     }
 }

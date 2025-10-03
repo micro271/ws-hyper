@@ -4,26 +4,32 @@ use utils::ParseBodyToJson;
 use uuid::Uuid;
 
 use crate::{
-    handler::{error::ResponseErr, GetRepo, ResponseHandlers},
-    models::{user::User, UserAllInfo},
+    handler::{GetRepo, ResponseHandlers, error::ResponseErr},
+    models::{
+        UserAllInfo,
+        user::{Encrypt, User},
+    },
     repository::{Insert, InsertOwn, QueryOwn, QueryResult},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
-    let (_parts, body) = req.into_parts();
+    let (parts, body) = req.into_parts();
     let mut user = ParseBodyToJson::<User>::get(body)
         .await
         .map_err(|x| ResponseErr::new(x, StatusCode::BAD_REQUEST))?;
+    let pass = user.passwd;
 
-    user.encrypt_passwd()?;
+    user.passwd = tokio::task::spawn_blocking(move || Encrypt::from(&pass))
+        .await
+        .map_err(|_| ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))??;
 
-    let repo = _parts.extensions.get::<Repo>().unwrap();
+    let repo = GetRepo::get(&parts.extensions)?;
 
     Ok(repo.insert_user(InsertOwn::insert(user)).await?.into())
 }
 
 pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
-    let repo = req.extensions().get::<Repo>().unwrap();
+    let repo = GetRepo::get(req.extensions())?;
     let mut user = repo
         .get(QueryOwn::<User>::builder().wh("id", id.into()))
         .await?;
@@ -33,7 +39,7 @@ pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
 }
 
 pub async fn get_all(req: Request<Incoming>) -> ResponseHandlers {
-    let repo = req.extensions().get::<Repo>().unwrap();
+    let repo = GetRepo::get(req.extensions())?;
 
     let mut users = repo.gets(QueryOwn::<User>::builder()).await?;
     users.iter_mut().for_each(|x| x.passwd = "".to_string());

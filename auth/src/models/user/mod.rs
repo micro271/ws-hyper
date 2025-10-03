@@ -20,10 +20,6 @@ pub struct User {
 }
 
 impl User {
-    pub fn encrypt_passwd(&mut self) -> Result<(), EncryptErr> {
-        self.passwd = hash(&self.passwd, DEFAULT_COST).map_err(|_| EncryptErr)?;
-        Ok(())
-    }
     pub fn is_admin(&self) -> bool {
         self.role == Role::Administrator || self.role == Role::SuperUs
     }
@@ -135,7 +131,9 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
         resources: Some("*".to_string()),
         description: Some("Default account".to_string()),
     };
-    user.encrypt_passwd()?;
+
+    user.passwd = Encrypt::from(&user.passwd)?;
+
     Ok(user)
 }
 
@@ -168,5 +166,13 @@ impl<'a> Table<'a> for User {
             self.resources.into(),
             self.description.into(),
         ]
+    }
+}
+
+pub struct Encrypt;
+
+impl Encrypt {
+    pub fn from(str: &str) -> Result<String, EncryptErr> {
+        hash(str, DEFAULT_COST).map_err(|_| EncryptErr)
     }
 }
