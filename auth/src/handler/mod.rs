@@ -59,7 +59,7 @@ pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
         let id = req.extensions().get::<Claim>().unwrap().sub;
 
         return match req.method().clone() {
-            Method::PATCH => user::update_self(req, id).await,
+            Method::PATCH => user::update(req, id).await,
             Method::GET => user::get_user_info(req, Some(id)).await,
             _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
         };

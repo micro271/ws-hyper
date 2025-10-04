@@ -9,7 +9,7 @@ use crate::{
         UserAllInfo,
         user::{Encrypt, User, update::UpdateSelf},
     },
-    repository::{Insert, InsertOwn, QueryOwn, QueryResult},
+    repository::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
@@ -63,14 +63,15 @@ pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     Ok(repo.delete(id).await?.into())
 }
 
-pub async fn update_self(req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
-    let _new = ParseBodyToStruct::<UpdateSelf>::get(req.into_body())
+pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+    let (parts, body) = req.into_parts();
+    let repo = GetRepo::get(&parts.extensions)?;
+    let new = ParseBodyToStruct::<UpdateSelf>::get(body)
         .await
         .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
 
-    todo!()
-}
-
-pub async fn update(_req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
-    todo!()
+    Ok(repo
+        .update(UpdateOwn::<User>::new(id).from(new))
+        .await?
+        .into())
 }

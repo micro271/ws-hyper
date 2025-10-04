@@ -93,8 +93,21 @@ impl PgRepository {
         Ok(QueryResult::Insert(1))
     }
 
-    pub async fn update(&self) -> RepositoryError {
-        todo!()
+    pub async fn update<T>(
+        &self,
+        mut updater: UpdateOwn<T>,
+    ) -> Result<QueryResult<T>, RepositoryError>
+    where
+        T: for<'a> Table<'a>,
+    {
+        Ok(QueryResult::Update(
+            updater
+                .query()
+                .unwrap()
+                .execute(&self.inner)
+                .await?
+                .rows_affected(),
+        ))
     }
 }
 
@@ -329,6 +342,61 @@ impl<T> Insert<Vec<T>> for InsertOwn<Vec<T>> {
     }
 }
 
-pub struct UpdateOwn;
+pub struct UpdateOwn<T> {
+    pub query: String,
+    pub id: Uuid,
+    pub items: Vec<Types>,
+    _priv: PhantomData<T>,
+}
 
-pub trait Update {}
+impl<T> UpdateOwn<T>
+where
+    T: for<'t> Table<'t>,
+{
+    pub fn new(id: Uuid) -> Self {
+        Self {
+            query: String::new(),
+            id,
+            items: Vec::new(),
+            _priv: PhantomData,
+        }
+    }
+
+    pub fn from<U>(mut self, items: U) -> Self
+    where
+        U: Into<HashMap<&'static str, Types>>,
+    {
+        let mut query = format!("UPDATE {} SET", T::name());
+        let mut count = 0;
+        for (k, v) in <U as Into<HashMap<&'static str, Types>>>::into(items) {
+            self.items.push(v);
+            query.push_str(&format!(
+                "{} {k} = ${count}",
+                if count != 0 { "," } else { "" }
+            ));
+            count += 1;
+        }
+        self
+    }
+
+    pub fn query(&mut self) -> Result<Query<'_, Postgres, PgArguments>, UpdateOwnErr> {
+        if self.items.is_empty() {
+            return Err(UpdateOwnErr);
+        }
+
+        Ok(std::mem::take(&mut self.items)
+            .into_iter()
+            .fold(sqlx::query(&self.query), |x, y| bind!(x, y)))
+    }
+}
+
+#[derive(Debug)]
+pub struct UpdateOwnErr;
+
+impl std::fmt::Display for UpdateOwnErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Values not defined")
+    }
+}
+
+impl std::error::Error for UpdateOwnErr {}
