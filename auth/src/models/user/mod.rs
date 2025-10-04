@@ -1,3 +1,5 @@
+pub mod update;
+
 use bcrypt::{DEFAULT_COST, hash};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::FromRow};

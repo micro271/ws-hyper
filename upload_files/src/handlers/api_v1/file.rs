@@ -2,11 +2,12 @@ use super::{Incoming, Request, ResponseError, ResultResponse, StatusCode, header
 use crate::{
     handlers::utils::get_extention,
     models::{
-        logs::{upload::UploadLog, Logs, Operation, Owner, ResultOperation},
+        logs::{Logs, Operation, Owner, ResultOperation, upload::UploadLog},
         user::Role,
     },
     stream_upload::{
-        stream::{MimeAllowed, StreamUpload}, Upload, UploadResult
+        Upload, UploadResult,
+        stream::{MimeAllowed, StreamUpload},
     },
 };
 use bytes::Bytes;
@@ -14,9 +15,9 @@ use futures::StreamExt;
 use http::{HeaderMap, Response};
 use http_body_util::{BodyStream, Full};
 use multer::Multipart;
-use tracing::info;
 use std::{path::PathBuf, sync::OnceLock};
 use time::OffsetDateTime;
+use tracing::info;
 use utils::Peer;
 
 static PATH_PROGRAMS: OnceLock<PathBuf> = OnceLock::new();
@@ -27,7 +28,7 @@ pub async fn upload_video(
     channel: String,
     program_tv: String,
     username: String,
-    role: Role
+    role: Role,
 ) -> ResultResponse {
     let (parts, body) = req.into_parts();
     let ip_src = get_extention::<Peer>(&parts.extensions)?;
@@ -71,7 +72,7 @@ pub async fn upload_video(
                     .unwrap_or_default());
             }
         };
-        
+
         let new_log = Logs {
             owner: Owner {
                 username: username.clone(),
@@ -90,7 +91,7 @@ pub async fn upload_video(
                 result: operation_result,
             },
         };
-        
+
         info!("{:?}", new_log);
     }
 }

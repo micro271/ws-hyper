@@ -15,7 +15,10 @@ use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
 use crate::{
-    handler::error::ResponseErr,
+    handler::{
+        error::ResponseErr,
+        user::{delete, get, get_user_info, update},
+    },
     models::user::{Claim, User},
     repository::{PgRepository, QueryOwn},
 };
@@ -51,57 +54,71 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
 }
 
 pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
-    let path = req
-        .uri()
-        .path()
-        .strip_prefix("/api/v1/")
-        .unwrap_or_default();
+    let path = req.uri().path().strip_prefix("/api/v1/").unwrap();
+    if path == "user/self" {
+        let id = req.extensions().get::<Claim>().unwrap().sub;
+
+        return match req.method().clone() {
+            Method::PATCH => user::update_self(req, id).await,
+            Method::GET => user::get_user_info(req, Some(id)).await,
+            _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+        };
+    }
+
+    middleware_user_admin(req, endpoint_admin).await
+}
+
+pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
+    let path = req.uri().path();
 
     match (path, req.method().clone()) {
-        ("user/self", Method::GET) => {
-            let id = req.extensions().get::<Claim>().unwrap().sub;
-            user::get(req, id).await
-        }
         ("user", Method::POST) => user::new(req).await,
-        (path, method @ (Method::PATCH | Method::DELETE | Method::GET))
-            if path.starts_with("user") =>
-        {
-            let id_to_modify = path
-                .strip_prefix("user/")
-                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
-                .and_then(|x| {
-                    x.parse::<Uuid>()
-                        .map_err(|_| ResponseErr::new("Invalid param", StatusCode::BAD_REQUEST))
-                })?;
-            let id = req.extensions().get::<Claim>().unwrap().sub;
-            let repo = req.extensions().get::<Repo>().unwrap();
-            let user = repo
-                .get::<User>(QueryOwn::builder().wh("id", id.into()))
-                .await?;
-            if !user.is_admin() {
-                return Err(ResponseErr::status(StatusCode::UNAUTHORIZED));
-            }
-            match method {
-                Method::GET => user::get(req, id).await,
-                Method::PATCH => user::update(req, id_to_modify).await,
-                Method::DELETE => user::delete(req, id_to_modify).await,
-                _ => Err(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR)),
-            }
-        }
         ("users", Method::GET) => user::get_all(req).await,
-        ("users/info", Method::GET) => user::get_user_info(req, None).await,
-        (path, Method::GET) if path.starts_with("user/info") => {
-            match path.strip_prefix("user/info").map(|x| x.parse::<Uuid>()) {
-                Some(Ok(id)) => user::get_user_info(req, Some(id)).await,
-                Some(Err(err)) => {
-                    tracing::error!("{err}");
-                    Err(ResponseErr::status(StatusCode::BAD_REQUEST))
-                }
-                _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+        (path, Method::GET) if path.starts_with("user/") && path.ends_with("/detail") => {
+            let path = path
+                .split("user/")
+                .nth(1)
+                .and_then(|x| x.strip_suffix("/detail").and_then(|x| x.parse().ok()))
+                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))?;
+            user::get_user_info(req, Some(path)).await
+        }
+        ("users/detail", Method::GET) => get_user_info(req, None).await,
+        (path, method @ (Method::DELETE | Method::PATCH | Method::GET))
+            if path.starts_with("user/") =>
+        {
+            let id = path
+                .split("user/")
+                .nth(1)
+                .and_then(|x| x.parse::<Uuid>().ok())
+                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))?;
+            if Method::DELETE == method {
+                delete(req, id).await
+            } else if Method::PATCH == method {
+                update(req, id).await
+            } else {
+                get(req, id).await
             }
         }
-        _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST)),
+        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
     }
+}
+
+pub async fn middleware_user_admin<F>(req: Request<Incoming>, next: F) -> ResponseHandlers
+where
+    F: AsyncFnOnce(Request<Incoming>) -> ResponseHandlers,
+{
+    let id = req.extensions().get::<Claim>().unwrap().sub;
+    let repo = GetRepo::get(req.extensions())?;
+
+    if !repo
+        .get::<User>(QueryOwn::builder().wh("id", id.into()))
+        .await?
+        .is_admin()
+    {
+        return Err(ResponseErr::status(StatusCode::UNAUTHORIZED));
+    }
+
+    next(req).await
 }
 
 #[derive(Debug, Deserialize, Serialize)]

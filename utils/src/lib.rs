@@ -319,11 +319,11 @@ impl Peer {
 }
 
 #[derive(Debug)]
-pub struct ParseBodyToJson<T> {
+pub struct ParseBodyToStruct<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T> ParseBodyToJson<T>
+impl<T> ParseBodyToStruct<T>
 where
     T: DeserializeOwned,
 {

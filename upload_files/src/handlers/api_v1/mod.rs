@@ -3,7 +3,10 @@ pub(super) mod file;
 use http::{Method, Request, StatusCode, header};
 use hyper::body::Incoming;
 
-use crate::{handlers::{cors, GrpcCli}, models::user::Claim};
+use crate::{
+    handlers::{GrpcCli, cors},
+    models::user::Claim,
+};
 
 use super::{
     ResultResponse,
@@ -42,13 +45,29 @@ pub async fn upload(req: Request<Incoming>) -> ResultResponse {
         let info = req.extensions().get::<GrpcCli>().unwrap();
 
         let user = info.user_info(id).await.unwrap();
-        
-        if !user.resources.split(',').collect::<Vec<&str>>().chunks(2).filter(|x| x.len() == 2).any(|x| x[0] == ch && x[1] == programa) {
-            Err(ResponseError::new(StatusCode::UNAUTHORIZED, Some("You don't have authority above this resource")))
-        } else {
-            file::upload_video(req, ch, programa, user.username, user.role.try_into().unwrap()).await
-        }
 
+        if !user
+            .resources
+            .split(',')
+            .collect::<Vec<&str>>()
+            .chunks(2)
+            .filter(|x| x.len() == 2)
+            .any(|x| x[0] == ch && x[1] == programa)
+        {
+            Err(ResponseError::new(
+                StatusCode::UNAUTHORIZED,
+                Some("You don't have authority above this resource"),
+            ))
+        } else {
+            file::upload_video(
+                req,
+                ch,
+                programa,
+                user.username,
+                user.role.try_into().unwrap(),
+            )
+            .await
+        }
     } else {
         Err(ResponseError::new(
             StatusCode::NOT_FOUND,

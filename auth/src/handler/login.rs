@@ -6,7 +6,7 @@ use hyper::{
     header,
 };
 use serde_json::json;
-use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToJson};
+use utils::{GenTokenFromEcds, JwtHandle, ParseBodyToStruct};
 
 use crate::{
     Repository,
@@ -19,7 +19,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
     let (parts, body) = req.into_parts();
     let repo = parts.extensions.get::<Repository>().unwrap();
     println!("entro!");
-    match ParseBodyToJson::<Login>::get(body).await {
+    match ParseBodyToStruct::<Login>::get(body).await {
         Ok(login) => {
             let Ok(user) = repo
                 .get(QueryOwn::<User>::builder().wh("username", login.username.into()))

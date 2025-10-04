@@ -1,20 +1,20 @@
 use super::Repo;
 use hyper::{Request, StatusCode, body::Incoming};
-use utils::ParseBodyToJson;
+use utils::ParseBodyToStruct;
 use uuid::Uuid;
 
 use crate::{
     handler::{GetRepo, ResponseHandlers, error::ResponseErr},
     models::{
         UserAllInfo,
-        user::{Encrypt, User},
+        user::{Encrypt, User, update::UpdateSelf},
     },
     repository::{Insert, InsertOwn, QueryOwn, QueryResult},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
     let (parts, body) = req.into_parts();
-    let mut user = ParseBodyToJson::<User>::get(body)
+    let mut user = ParseBodyToStruct::<User>::get(body)
         .await
         .map_err(|x| ResponseErr::new(x, StatusCode::BAD_REQUEST))?;
     let pass = user.passwd;
@@ -34,7 +34,7 @@ pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
         .get(QueryOwn::<User>::builder().wh("id", id.into()))
         .await?;
 
-    user.passwd = "".to_string();
+    user.passwd.clear();
     Ok(QueryResult::SelectOne(user).into())
 }
 
@@ -42,7 +42,7 @@ pub async fn get_all(req: Request<Incoming>) -> ResponseHandlers {
     let repo = GetRepo::get(req.extensions())?;
 
     let mut users = repo.gets(QueryOwn::<User>::builder()).await?;
-    users.iter_mut().for_each(|x| x.passwd = "".to_string());
+    users.iter_mut().for_each(|x| x.passwd.clear());
 
     Ok(QueryResult::Select(users).into())
 }
@@ -54,11 +54,7 @@ pub async fn get_user_info(req: Request<Incoming>, id: Option<Uuid>) -> Response
         .unwrap_or(QueryOwn::builder());
     let resp = repo.gets(query).await?;
 
-    if resp.len() == 1 {
-        Ok(QueryResult::SelectOne(resp).into())
-    } else {
-        Ok(QueryResult::Select(resp).into())
-    }
+    Ok(QueryResult::Select(resp).into())
 }
 
 pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
@@ -67,6 +63,14 @@ pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     Ok(repo.delete(id).await?.into())
 }
 
+pub async fn update_self(req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
+    let _new = ParseBodyToStruct::<UpdateSelf>::get(req.into_body())
+        .await
+        .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
+
+    todo!()
+}
+
 pub async fn update(_req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
-    Err(ResponseErr::status(StatusCode::NOT_IMPLEMENTED))
+    todo!()
 }

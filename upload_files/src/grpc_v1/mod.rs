@@ -12,9 +12,7 @@ pub struct GrpcClient {
 impl GrpcClient {
     pub async fn new(endpoint_check_user: String) -> Self {
         Self {
-            check_user: UserInfoClient::connect(endpoint_check_user)
-                .await
-                .unwrap(),
+            check_user: UserInfoClient::connect(endpoint_check_user).await.unwrap(),
         }
     }
 

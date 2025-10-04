@@ -92,6 +92,10 @@ impl PgRepository {
 
         Ok(QueryResult::Insert(1))
     }
+
+    pub async fn update(&self) -> RepositoryError {
+        todo!()
+    }
 }
 
 impl std::ops::Deref for PgRepository {
@@ -324,3 +328,7 @@ impl<T> Insert<Vec<T>> for InsertOwn<Vec<T>> {
         todo!()
     }
 }
+
+pub struct UpdateOwn;
+
+pub trait Update {}
