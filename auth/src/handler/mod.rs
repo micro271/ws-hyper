@@ -1,6 +1,7 @@
 mod entry;
 pub mod error;
 pub mod login;
+mod programas;
 pub mod user;
 
 use http_body_util::Full;
@@ -26,12 +27,14 @@ use crate::{
 type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 type Repo = Arc<PgRepository>;
 
+const PREFIX_PATH: &str = "/api/v1";
+
 pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
-        (path, _) if path.starts_with("/api/v1/") => {
+        (path, _) if path.starts_with(PREFIX_PATH) => {
             let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
                 return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
             };
@@ -54,8 +57,8 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
 }
 
 pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
-    let path = req.uri().path().strip_prefix("/api/v1/").unwrap();
-    if path == "user/self" {
+    let path = req.uri().path().strip_prefix(PREFIX_PATH).unwrap();
+    if path == "/user/self" {
         let id = req.extensions().get::<Claim>().unwrap().sub;
 
         return match req.method().clone() {
@@ -69,20 +72,20 @@ pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
 }
 
 pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
-    let path = req.uri().path();
+    let path = req.uri().path().strip_prefix(PREFIX_PATH).unwrap();
 
     match (path, req.method().clone()) {
-        ("user", Method::POST) => user::new(req).await,
-        ("users", Method::GET) => user::get_all(req).await,
+        ("/user", Method::POST) => user::new(req).await,
+        ("/users", Method::GET) => user::get_all(req).await,
         (path, Method::GET) if path.starts_with("user/") && path.ends_with("/detail") => {
             let path = path
-                .split("user/")
+                .split("/user/")
                 .nth(1)
                 .and_then(|x| x.strip_suffix("/detail").and_then(|x| x.parse().ok()))
                 .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))?;
             user::get_user_info(req, Some(path)).await
         }
-        ("users/detail", Method::GET) => get_user_info(req, None).await,
+        ("/users/detail", Method::GET) => get_user_info(req, None).await,
         (path, method @ (Method::DELETE | Method::PATCH | Method::GET))
             if path.starts_with("user/") =>
         {
@@ -97,6 +100,21 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 update(req, id).await
             } else {
                 get(req, id).await
+            }
+        }
+        ("/program", Method::POST) => todo!(), /* To excecute this action, it is required que the microservice directory is ready */
+        (program, method @ (Method::PATCH | Method::GET)) if path.starts_with("/program") => {
+            let program = program
+                .strip_prefix("/program/")
+                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
+                .and_then(|x| {
+                    x.parse::<Uuid>()
+                        .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))
+                })?;
+            if Method::PATCH == method {
+                programas::update(req, program).await
+            } else {
+                todo!()
             }
         }
         _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),

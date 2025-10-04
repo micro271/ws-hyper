@@ -1,4 +1,4 @@
-pub mod program;
+pub mod programas;
 pub mod user;
 
 use crate::repository::{TABLA_PROGRAMA, TABLA_USER, Table};

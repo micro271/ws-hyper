@@ -22,7 +22,7 @@ pub struct UpdateSelf {
     pub phone: Option<String>,
 }
 
-impl From<UpdateSelf> for HashMap<&'static str, Types> {
+impl<'a> From<UpdateSelf> for HashMap<&'a str, Types> {
     fn from(value: UpdateSelf) -> Self {
         [
             ("email", value.email),
@@ -30,12 +30,12 @@ impl From<UpdateSelf> for HashMap<&'static str, Types> {
             ("passwd", value.passwd),
         ]
         .into_iter()
-        .filter_map(|(k, v)| v.filter(|x| !x.is_empty()).map(|v| (k, v.into())))
+        .filter_map(|(k, v)| v.map(|x| (k, (!x.is_empty()).then_some(x).into())))
         .collect::<HashMap<&'static str, Types>>()
     }
 }
 
-impl From<UpdateUser> for HashMap<&'static str, Types> {
+impl<'a> From<UpdateUser> for HashMap<&'a str, Types> {
     fn from(value: UpdateUser) -> Self {
         let role = value.role;
         let state = value.user_state;
@@ -48,7 +48,7 @@ impl From<UpdateUser> for HashMap<&'static str, Types> {
             ("description", value.description),
         ]
         .into_iter()
-        .filter_map(|(k, v)| v.filter(|x| !x.is_empty()).map(|v| (k, v.into())))
+        .filter_map(|(k, v)| v.map(|x| (k, (!x.is_empty()).then_some(x).into())))
         .collect::<HashMap<&'static str, Types>>();
 
         if let Some(role) = role {
