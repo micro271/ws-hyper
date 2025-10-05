@@ -22,7 +22,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
     match ParseBodyToStruct::<Login>::get(body).await {
         Ok(login) => {
             let Ok(user) = repo
-                .get(QueryOwn::<User>::builder().wh("username", login.username.into()))
+                .get(QueryOwn::<User>::builder().wh("username", login.username))
                 .await
             else {
                 return Err(ResponseErr::status(StatusCode::NOT_FOUND));

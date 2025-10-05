@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{collections::HashMap, fmt::write, marker::PhantomData};
 
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
@@ -39,15 +39,16 @@ impl PgRepository {
         let repo = PgPoolOptions::new()
             .max_connections(10)
             .connect(&url)
-            .await
-            .map_err(|_| RepositoryError::NotFound)?;
+            .await?;
 
         Ok(Self { inner: repo })
     }
 
     pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
-        _ = repo.insert_user(InsertOwn::insert(user)).await;
+        if let Err(e) = repo.insert_user(InsertOwn::insert(user)).await {
+            tracing::error!("{{ default user creation }} {e}")
+        }
 
         Ok(repo)
     }
@@ -96,7 +97,7 @@ impl PgRepository {
 
     pub async fn update<T>(
         &self,
-        mut updater: UpdateOwn<T>,
+        mut updater: UpdateOwn<'_, T>,
     ) -> Result<QueryResult<T>, RepositoryError>
     where
         T: for<'a> Table<'a>,
@@ -155,27 +156,44 @@ impl<T: Serialize> From<QueryResult<T>> for Response<Full<Bytes>> {
 
 #[derive(Debug)]
 pub enum RepositoryError {
-    NotFound,
+    RowNotFound,
     ManyRows,
+    ColumnNotFound(String),
+    TypeNotFound(String),
+    AlreadyExist(String),
+    SqlxErr(sqlx::error::Error),
 }
 
 impl std::fmt::Display for RepositoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotFound => write!(f, "Row not found"),
+            Self::RowNotFound => write!(f, "Row not found"),
             Self::ManyRows => write!(f, "Many rows"),
+            Self::TypeNotFound(ty) => write!(f, "Type {ty} not found"),
+            Self::ColumnNotFound(e) => write!(f, "Column {e} not found"),
+            Self::AlreadyExist(e) => write!(f, "{e}"),
+            Self::SqlxErr(e) => write!(f, "{e}"),
         }
     }
 }
 
 impl From<sqlx::error::Error> for RepositoryError {
-    fn from(_value: sqlx::error::Error) -> Self {
-        Self::NotFound
+    fn from(value: sqlx::error::Error) -> Self {
+        match value {
+            sqlx::Error::RowNotFound => Self::RowNotFound,
+            sqlx::Error::TypeNotFound { type_name } => Self::TypeNotFound(type_name),
+            sqlx::Error::ColumnNotFound(e) => Self::ColumnNotFound(e),
+            sqlx::Error::Database(err) if err.code().as_deref() == Some("23505") => {
+                Self::AlreadyExist(err.message().to_string())
+            },
+            e => Self::SqlxErr(e),
+        }
     }
 }
 
 impl std::error::Error for RepositoryError {}
 
+#[derive(Debug)]
 pub enum Types {
     Uuid(Uuid),
     String(String),
@@ -261,11 +279,14 @@ where
             query: String::new(),
         }
     }
-    pub fn wh(mut self, index: &'a str, value: Types) -> Self {
+    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self 
+        where 
+            U: Into<Types>
+    {
         if self.wh.is_none() {
-            self.wh = Some(HashMap::from([(index, value)]));
+            self.wh = Some(HashMap::from([(index, value.into())]));
         } else {
-            self.wh.as_mut().unwrap().insert(index, value);
+            self.wh.as_mut().unwrap().insert(index, value.into());
         }
 
         self
@@ -360,21 +381,21 @@ impl<T> Insert<Vec<T>> for InsertOwn<Vec<T>> {
     }
 }
 
-pub struct UpdateOwn<T> {
+pub struct UpdateOwn<'a, T> {
     pub query: String,
-    pub id: Uuid,
+    pub wh: Where<'a>,
     pub items: Vec<Types>,
     _priv: PhantomData<T>,
 }
 
-impl<T> UpdateOwn<T>
+impl<'a, T> UpdateOwn<'a, T>
 where
     T: for<'t> Table<'t>,
 {
-    pub fn new(id: Uuid) -> Self {
+    pub fn new() -> Self {
         Self {
             query: String::new(),
-            id,
+            wh: HashMap::new(),
             items: Vec::new(),
             _priv: PhantomData,
         }
@@ -384,22 +405,36 @@ where
     where
         U: Into<HashMap<&'static str, Types>>,
     {
-        let mut query = format!("UPDATE {} SET", T::name());
-        let mut count = 0;
+        self.query = format!("UPDATE {} SET", T::name());
+        let mut count = 1;
         for (k, v) in <U as Into<HashMap<&'static str, Types>>>::into(items) {
             self.items.push(v);
-            query.push_str(&format!(
+            self.query.push_str(&format!(
                 "{} {k} = ${count}",
-                if count != 0 { "," } else { "" }
+                if count > 1 { "," } else { "" }
             ));
             count += 1;
         }
         self
     }
 
+    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self 
+    where 
+        U: Into<Types>,
+    {
+        self.wh.insert(index, value.into());
+        self
+    }
+
     pub fn query(&mut self) -> Result<Query<'_, Postgres, PgArguments>, UpdateOwnErr> {
         if self.items.is_empty() {
             return Err(UpdateOwnErr);
+        }
+        let len = self.items.len();
+        let count = len + 1;
+        for (k, v) in std::mem::take(&mut self.wh) {
+            self.query.push_str(&format!("{} {k} = ${count}", if count == len + 1 { " WHERE" } else {","}));
+            self.items.push(v);
         }
 
         Ok(std::mem::take(&mut self.items)

@@ -19,7 +19,7 @@ pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let repo = GetRepo::get(&parts.extensions)?;
 
     Ok(repo
-        .update(UpdateOwn::<Programa>::new(id).from(program))
+        .update(UpdateOwn::<'_, Programa>::new().wh("id", id).from(program))
         .await?
         .into())
 }
@@ -28,7 +28,7 @@ pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let repo = GetRepo::get(req.extensions())?;
 
     Ok(QueryResult::SelectOne(
-        repo.get(QueryOwn::<Programa>::builder().wh("id", id.into()))
+        repo.get(QueryOwn::<Programa>::builder().wh("id", id))
             .await?,
     )
     .into())

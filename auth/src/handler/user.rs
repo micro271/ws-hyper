@@ -1,15 +1,17 @@
+use std::collections::HashMap;
+
 use super::Repo;
 use hyper::{Request, StatusCode, body::Incoming};
+use serde::de::DeserializeOwned;
 use utils::ParseBodyToStruct;
 use uuid::Uuid;
 
 use crate::{
-    handler::{GetRepo, ResponseHandlers, error::ResponseErr},
+    handler::{error::ResponseErr, GetRepo, ResponseHandlers},
     models::{
-        UserAllInfo,
-        user::{Encrypt, User, update::UpdateSelf},
+        user::{Encrypt, User}, UserAllInfo
     },
-    repository::{Insert, InsertOwn, QueryOwn, QueryResult, TABLA_USER, UpdateOwn},
+    repository::{Insert, InsertOwn, QueryOwn, QueryResult, Types, UpdateOwn, TABLA_USER},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
@@ -31,7 +33,7 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
 pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let repo = GetRepo::get(req.extensions())?;
     let mut user = repo
-        .get(QueryOwn::<User>::builder().wh("id", id.into()))
+        .get(QueryOwn::<User>::builder().wh("id", id))
         .await?;
 
     user.passwd.clear();
@@ -51,7 +53,7 @@ pub async fn get_user_info(req: Request<Incoming>, id: Option<Uuid>) -> Response
     let repo = req.extensions().get::<Repo>().unwrap();
     let key = format!("{TABLA_USER}.id");
     let query = id
-        .map(|x| QueryOwn::<UserAllInfo>::builder().wh(&key, x.into()))
+        .map(|x| QueryOwn::<UserAllInfo>::builder().wh(&key, x))
         .unwrap_or(QueryOwn::builder());
     let resp = repo.gets(query).await?;
 
@@ -64,15 +66,18 @@ pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     Ok(repo.delete(id).await?.into())
 }
 
-pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+pub async fn update<T>(req: Request<Incoming>, id: Uuid) -> ResponseHandlers 
+where 
+    T: Into<HashMap<&'static str, Types>> + DeserializeOwned,
+{
     let (parts, body) = req.into_parts();
     let repo = GetRepo::get(&parts.extensions)?;
-    let new = ParseBodyToStruct::<UpdateSelf>::get(body)
+    let new = ParseBodyToStruct::<T>::get(body)
         .await
-        .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
+        .map_err(|x| ResponseErr::new(x,StatusCode::BAD_REQUEST))?;
 
     Ok(repo
-        .update(UpdateOwn::<User>::new(id).from(new))
+        .update(UpdateOwn::<'_, User>::new().from(new).wh("id", id))
         .await?
         .into())
 }

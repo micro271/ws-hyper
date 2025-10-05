@@ -20,7 +20,7 @@ use crate::{
         error::ResponseErr,
         user::{delete, get, get_user_info, update},
     },
-    models::user::{Claim, User},
+    models::user::{update::{UpdateSelf, UpdateUser}, Claim, User},
     repository::{PgRepository, QueryOwn},
 };
 
@@ -35,7 +35,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
     let instant = Instant::now();
 
     tracing::info!(
-        "{{ Request HTTP }} [ version {:?}, method {}, path {}, peer {}, content-lenth: {:?} ]",
+        "{{ Request HTTP  }} [ version {:?}, method {}, path {}, peer {}, content-lenth: {:?} ]",
         req.version(),
         req.method(),
         url,
@@ -64,7 +64,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
     match resp {
         Ok(e) => {
             tracing::info!(
-                "{{ Response HTTP }}  [ STATUS {}, latency {}]",
+                "{{ Response HTTP }} [ STATUS {}, latency {}]",
                 e.status(),
                 instant.elapsed().as_millis()
             );
@@ -87,9 +87,9 @@ pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
         let id = req.extensions().get::<Claim>().unwrap().sub;
 
         return match req.method().clone() {
-            Method::PATCH => user::update(req, id).await,
+            Method::PATCH => user::update::<UpdateSelf>(req, id).await,
             Method::GET => user::get_user_info(req, Some(id)).await,
-            _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+            _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST)),
         };
     }
 
@@ -107,22 +107,22 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 .split("/user/")
                 .nth(1)
                 .and_then(|x| x.strip_suffix("/detail").and_then(|x| x.parse().ok()))
-                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))?;
+                .ok_or(ResponseErr::new("Invalid format", StatusCode::BAD_REQUEST))?;
             user::get_user_info(req, Some(path)).await
         }
         ("/users/detail", Method::GET) => get_user_info(req, None).await,
         (path, method @ (Method::DELETE | Method::PATCH | Method::GET))
-            if path.starts_with("user/") =>
+            if path.starts_with("/user/") =>
         {
             let id = path
-                .split("user/")
+                .split("/user/")
                 .nth(1)
                 .and_then(|x| x.parse::<Uuid>().ok())
-                .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))?;
+                .ok_or(ResponseErr::new("Invalid format", StatusCode::BAD_REQUEST))?;
             if Method::DELETE == method {
                 delete(req, id).await
             } else if Method::PATCH == method {
-                update(req, id).await
+                update::<UpdateUser>(req, id).await
             } else {
                 get(req, id).await
             }
@@ -137,7 +137,7 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
                 .and_then(|x| {
                     x.parse::<Uuid>()
-                        .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))
+                        .map_err(|_| ResponseErr::new("Invalid format", StatusCode::BAD_REQUEST))
                 })?;
             if Method::PATCH == method {
                 programas::update(req, program).await
@@ -147,7 +147,7 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 programas::get(req, program).await
             }
         }
-        _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),
+        _ => Err(ResponseErr::new("Path Not Found", StatusCode::BAD_REQUEST)),
     }
 }
 
@@ -159,7 +159,7 @@ where
     let repo = GetRepo::get(req.extensions())?;
 
     if !repo
-        .get::<User>(QueryOwn::builder().wh("id", id.into()))
+        .get::<User>(QueryOwn::builder().wh("id", id))
         .await?
         .is_admin()
     {
@@ -180,6 +180,6 @@ struct GetRepo;
 impl GetRepo {
     pub fn get(ext: &Extensions) -> Result<&Repo, ResponseErr> {
         ext.get::<Repo>()
-            .ok_or(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR))
+            .ok_or(ResponseErr::new( "State not found",StatusCode::INTERNAL_SERVER_ERROR))
     }
 }
