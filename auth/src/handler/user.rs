@@ -28,7 +28,7 @@ pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
 
     let repo = GetRepo::get(&parts.extensions)?;
 
-    Ok(repo.insert_user(InsertOwn::insert(user)).await?.into())
+    Ok(repo.insert(InsertOwn::insert(user)).await?.into())
 }
 
 pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {

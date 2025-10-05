@@ -8,7 +8,7 @@ use crate::repository::{TABLA_PROGRAMA, Table};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Programa {
-    pub id: Uuid,
+    pub id: Option<Uuid>,
     pub icon: Option<String>,
     pub name: String,
     pub description: Option<String>,

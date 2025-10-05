@@ -46,7 +46,7 @@ impl PgRepository {
 
     pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
-        if let Err(e) = repo.insert_user(InsertOwn::insert(user)).await {
+        if let Err(e) = repo.insert(InsertOwn::insert(user)).await {
             tracing::error!("{{ default user creation }} {e}");
         }
 
@@ -83,7 +83,7 @@ impl PgRepository {
         Ok(QueryResult::Delete(ex.rows_affected()))
     }
 
-    pub async fn insert_user<T>(
+    pub async fn insert<T>(
         &self,
         mut insert: InsertOwn<T>,
     ) -> Result<QueryResult<T>, RepositoryError>

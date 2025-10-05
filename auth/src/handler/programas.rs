@@ -1,14 +1,19 @@
 use crate::{
-    handler::{GetRepo, ResponseHandlers, error::ResponseErr},
-    models::programas::{Programa, update::ProgramaUpdate},
-    repository::{QueryOwn, QueryResult, UpdateOwn},
+    handler::{error::ResponseErr, GetRepo, ResponseHandlers},
+    models::programas::{update::ProgramaUpdate, Programa},
+    repository::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
 };
 use hyper::{Request, StatusCode, body::Incoming};
 use utils::ParseBodyToStruct;
 use uuid::Uuid;
 
-pub async fn new(_req: Request<Incoming>) -> ResponseHandlers {
-    unimplemented!()
+pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
+    let (parts, body) = req.into_parts();
+    let programa: Programa = ParseBodyToStruct::get(body).await.map_err(|x| ResponseErr::new(x,StatusCode::BAD_GATEWAY))?;
+    // This action requires creating a new directory to store the videos
+    Ok(
+        GetRepo::get(&parts.extensions)?.insert(InsertOwn::insert(programa)).await?.into()
+    )
 }
 
 pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
@@ -16,7 +21,7 @@ pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let program: ProgramaUpdate = ParseBodyToStruct::get(body)
         .await
         .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
-
+    // This action requires modifying the directory name
     Ok(GetRepo::get(&parts.extensions)?
         .update(UpdateOwn::<'_, Programa>::new().wh("id", id).from(program))
         .await?
