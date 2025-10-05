@@ -11,7 +11,7 @@ pub struct ProgramaUpdate {
     pub description: Option<String>,
 }
 
-impl<'a> From<ProgramaUpdate> for HashMap<&'a str, Types> {
+impl From<ProgramaUpdate> for HashMap<&str, Types> {
     fn from(value: ProgramaUpdate) -> Self {
         [
             ("icon", value.icon),

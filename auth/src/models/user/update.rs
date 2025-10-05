@@ -22,9 +22,9 @@ pub struct UpdateSelf {
     pub phone: Option<String>,
 }
 
-impl<'a> From<UpdateSelf> for HashMap<&'a str, Types> {
+impl From<UpdateSelf> for HashMap<&str, Types> {
     fn from(value: UpdateSelf) -> Self {
-       [
+        [
             ("email", value.email),
             ("phone", value.phone),
             ("passwd", value.passwd),
@@ -35,7 +35,7 @@ impl<'a> From<UpdateSelf> for HashMap<&'a str, Types> {
     }
 }
 
-impl<'a> From<UpdateUser> for HashMap<&'a str, Types> {
+impl From<UpdateUser> for HashMap<&str, Types> {
     fn from(value: UpdateUser) -> Self {
         let role = value.role;
         let state = value.user_state;
@@ -57,7 +57,7 @@ impl<'a> From<UpdateUser> for HashMap<&'a str, Types> {
         if let Some(state) = state {
             resp.insert("user_state", state.into());
         }
-        
+
         resp
     }
 }

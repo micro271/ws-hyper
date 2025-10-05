@@ -30,7 +30,7 @@ impl User {
 
 impl std::cmp::PartialEq<Uuid> for User {
     fn eq(&self, other: &Uuid) -> bool {
-        self.id.map(|x| x.eq(other)).unwrap_or_default()
+        self.id.is_some_and(|x| x.eq(other))
     }
 }
 

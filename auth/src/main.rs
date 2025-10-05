@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await
             {
-                tracing::error!("{err}")
+                tracing::error!("{err}");
             }
         });
     }

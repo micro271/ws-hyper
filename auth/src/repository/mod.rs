@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::write, marker::PhantomData};
+use std::{collections::HashMap, fmt::Write as _, marker::PhantomData};
 
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
@@ -47,7 +47,7 @@ impl PgRepository {
     pub async fn with_default_user(url: String, user: User) -> Result<Self, RepositoryError> {
         let repo = Self::new(url).await?;
         if let Err(e) = repo.insert_user(InsertOwn::insert(user)).await {
-            tracing::error!("{{ default user creation }} {e}")
+            tracing::error!("{{ default user creation }} {e}");
         }
 
         Ok(repo)
@@ -185,7 +185,7 @@ impl From<sqlx::error::Error> for RepositoryError {
             sqlx::Error::ColumnNotFound(e) => Self::ColumnNotFound(e),
             sqlx::Error::Database(err) if err.code().as_deref() == Some("23505") => {
                 Self::AlreadyExist(err.message().to_string())
-            },
+            }
             e => Self::SqlxErr(e),
         }
     }
@@ -279,9 +279,9 @@ where
             query: String::new(),
         }
     }
-    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self 
-        where 
-            U: Into<Types>
+    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self
+    where
+        U: Into<Types>,
     {
         if self.wh.is_none() {
             self.wh = Some(HashMap::from([(index, value.into())]));
@@ -306,14 +306,14 @@ where
             let mut first = true;
             let mut n = 1;
             for (key, value) in wheres {
-                if !first {
-                    self.query.push_str(" AND");
-                } else {
+                if first {
                     first = false;
                     self.query.push_str(" WHERE");
+                } else {
+                    self.query.push_str(" AND");
                 }
 
-                self.query.push_str(&format!(" {key} = ${n}"));
+                _ = write!(self.query, " {key} = ${n}");
                 aux.push(value);
                 n += 1;
             }
@@ -409,17 +409,19 @@ where
         let mut count = 1;
         for (k, v) in <U as Into<HashMap<&'static str, Types>>>::into(items) {
             self.items.push(v);
-            self.query.push_str(&format!(
+            _ = write!(
+                self.query,
                 "{} {k} = ${count}",
                 if count > 1 { "," } else { "" }
-            ));
+            );
+
             count += 1;
         }
         self
     }
 
-    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self 
-    where 
+    pub fn wh<U>(mut self, index: &'a str, value: U) -> Self
+    where
         U: Into<Types>,
     {
         self.wh.insert(index, value.into());
@@ -433,7 +435,12 @@ where
         let len = self.items.len();
         let count = len + 1;
         for (k, v) in std::mem::take(&mut self.wh) {
-            self.query.push_str(&format!("{} {k} = ${count}", if count == len + 1 { " WHERE" } else {","}));
+            _ = write!(
+                self.query,
+                "{} {k} = ${count}",
+                if count == len + 1 { " WHERE" } else { "," }
+            );
+
             self.items.push(v);
         }
 

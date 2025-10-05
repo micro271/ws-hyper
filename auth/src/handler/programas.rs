@@ -16,30 +16,37 @@ pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let program: ProgramaUpdate = ParseBodyToStruct::get(body)
         .await
         .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
-    let repo = GetRepo::get(&parts.extensions)?;
 
-    Ok(repo
+    Ok(GetRepo::get(&parts.extensions)?
         .update(UpdateOwn::<'_, Programa>::new().wh("id", id).from(program))
         .await?
         .into())
 }
 
 pub async fn get(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
-    let repo = GetRepo::get(req.extensions())?;
-
     Ok(QueryResult::SelectOne(
-        repo.get(QueryOwn::<Programa>::builder().wh("id", id))
+        GetRepo::get(req.extensions())?
+            .get(QueryOwn::<Programa>::builder().wh("id", id))
             .await?,
     )
     .into())
 }
 
 pub async fn get_all(req: Request<Incoming>) -> ResponseHandlers {
-    let repo = GetRepo::get(req.extensions())?;
-
-    Ok(QueryResult::Select(repo.gets(QueryOwn::<Programa>::builder()).await?).into())
+    Ok(QueryResult::Select(
+        GetRepo::get(req.extensions())?
+            .gets(QueryOwn::<Programa>::builder())
+            .await?,
+    )
+    .into())
 }
 
-pub async fn delete(_req: Request<Incoming>, _id: Uuid) -> ResponseHandlers {
-    unimplemented!()
+pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
+    // If the directory of the program have elements, we'll need to force to delete all elements even main directory.
+    let _force = url::form_urlencoded::parse(req.uri().query().unwrap_or_default().as_bytes())
+        .find(|(k, _)| k == "force")
+        .and_then(|(_, v)| v.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    Ok(GetRepo::get(req.extensions())?.delete(id).await?.into())
 }

@@ -20,7 +20,10 @@ use crate::{
         error::ResponseErr,
         user::{delete, get, get_user_info, update},
     },
-    models::user::{update::{UpdateSelf, UpdateUser}, Claim, User},
+    models::user::{
+        Claim, User,
+        update::{UpdateSelf, UpdateUser},
+    },
     repository::{PgRepository, QueryOwn},
 };
 
@@ -179,7 +182,9 @@ struct GetRepo;
 
 impl GetRepo {
     pub fn get(ext: &Extensions) -> Result<&Repo, ResponseErr> {
-        ext.get::<Repo>()
-            .ok_or(ResponseErr::new( "State not found",StatusCode::INTERNAL_SERVER_ERROR))
+        ext.get::<Repo>().ok_or(ResponseErr::new(
+            "State not found",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ))
     }
 }
