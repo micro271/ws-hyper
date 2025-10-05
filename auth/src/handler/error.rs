@@ -27,6 +27,12 @@ impl ResponseErr {
     }
 }
 
+impl std::fmt::Display for ResponseErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "STATUS {}, detail: {:?}", self.status, self.detail)
+    }
+}
+
 impl From<ResponseErr> for Response<Full<Bytes>> {
     fn from(value: ResponseErr) -> Self {
         Response::builder()

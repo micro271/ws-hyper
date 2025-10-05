@@ -10,13 +10,18 @@ use grpc_v1::user_control::UserInfoServer;
 use hyper::server::conn::http1;
 use std::sync::Arc;
 use tonic::transport::Server;
-use utils::{GenEcdsa, Io, JwtHandle, service_with_state};
+use tracing_subscriber::{EnvFilter, fmt};
+use utils::{GenEcdsa, Io, JwtHandle, Peer, service_with_state};
 
 type Repository = Arc<PgRepository>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
+    let subscriber = fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let db_host = std::env::var("DB_HOST").expect("Database url is not defined");
     let db_port = std::env::var("DB_PORT").expect("Port is not defined");
@@ -28,15 +33,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repo = Arc::new(PgRepository::with_default_user(uri, default_account_admin()?).await?);
 
-    let app_port = std::env::var("PORT").unwrap_or("2525".to_string());
+    let app_port = std::env::var("PORT").unwrap_or("3000".to_string());
     let app_host = std::env::var("APP_HOST").unwrap_or("0.0.0.0".to_string());
 
     let listener = tokio::net::TcpListener::bind(format!("{app_host}:{app_port}")).await?;
 
     JwtHandle::gen_ecdsa(None)?;
-
     let gprc_ceck_user = "[::]:50051".parse()?;
     let user_check = CheckUser::new(repo.clone());
+
+    tracing::info!("Listening {}:{}", db_host, db_port);
 
     tokio::spawn(async move {
         Server::builder()
@@ -47,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let peer = stream.peer_addr().ok();
+
+        let peer = Peer::new(stream.peer_addr().ok());
         let repo = Arc::clone(&repo);
         let io = Io::new(stream);
         tokio::task::spawn(async move {
@@ -61,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await
             {
-                panic!("{err}")
+                tracing::error!("{err}")
             }
         });
     }

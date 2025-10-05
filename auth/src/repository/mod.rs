@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::models::user::{Role, User, UserState};
 
-pub const TABLA_PROGRAMA: &str = "programa";
+pub const TABLA_PROGRAMA: &str = "programas";
 pub const TABLA_USER: &str = "users";
 
 macro_rules! bind {
@@ -24,6 +24,7 @@ macro_rules! bind {
             Types::OptString(vec) => $q.bind(vec),
             Types::UserState(state) => $q.bind(state),
             Types::Role(role) => $q.bind(role),
+            Types::OptUuid(uuid) => $q.bind(uuid),
         }
     };
 }
@@ -53,14 +54,14 @@ impl PgRepository {
 
     pub async fn get<T>(&self, mut query: QueryOwn<'_, T>) -> Result<T, RepositoryError>
     where
-        T: for<'b> Table<'b> + From<PgRow>,
+        T: QuerySelect + From<PgRow>,
     {
         Ok(query.build().fetch_one(&self.inner).await?.into())
     }
 
     pub async fn gets<T>(&self, mut query: QueryOwn<'_, T>) -> Result<Vec<T>, RepositoryError>
     where
-        T: for<'b> Table<'b> + From<PgRow>,
+        T: QuerySelect + From<PgRow>,
     {
         Ok(query
             .build()
@@ -179,8 +180,15 @@ pub enum Types {
     Uuid(Uuid),
     String(String),
     OptString(Option<String>),
+    OptUuid(Option<Uuid>),
     UserState(UserState),
     Role(Role),
+}
+
+impl From<Option<Uuid>> for Types {
+    fn from(value: Option<Uuid>) -> Self {
+        Self::OptUuid(value)
+    }
 }
 
 impl From<Uuid> for Types {
@@ -219,8 +227,18 @@ pub trait Table<'a> {
     fn name() -> &'a str;
     fn columns() -> Vec<&'a str>;
     fn values(self) -> Vec<Types>;
-    fn query_select() -> String {
-        format!("SELECT * FROM {}", Self::name())
+}
+
+pub trait QuerySelect {
+    fn query() -> String;
+}
+
+impl<T> QuerySelect for T
+where
+    T: for<'a> Table<'a>,
+{
+    fn query() -> String {
+        format!("SELECT * FROM {}", T::name())
     }
 }
 
@@ -233,7 +251,7 @@ pub struct QueryOwn<'a, T> {
 
 impl<'a, T> QueryOwn<'a, T>
 where
-    T: Table<'a>,
+    T: QuerySelect,
 {
     pub fn builder() -> Self {
         Self {
@@ -260,7 +278,7 @@ where
     }
 
     pub fn build(&'a mut self) -> Query<'a, Postgres, PgArguments> {
-        self.query = T::query_select();
+        self.query = T::query();
 
         if let Some(wheres) = self.wh.take() {
             let mut aux = Vec::new();

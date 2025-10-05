@@ -11,8 +11,8 @@ use hyper::{
     http::Extensions,
 };
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc};
-use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
+use std::{convert::Infallible, sync::Arc, time::Instant};
+use utils::{JwtHandle, JwtHeader, Peer, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
 use crate::{
@@ -31,6 +31,17 @@ const PREFIX_PATH: &str = "/api/v1";
 
 pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
+
+    let instant = Instant::now();
+
+    tracing::info!(
+        "{{ Request HTTP }} [ version {:?}, method {}, path {}, peer {}, content-lenth: {:?} ]",
+        req.version(),
+        req.method(),
+        url,
+        req.extensions().get::<Peer>().unwrap().get_ip_or_unknown(),
+        req.headers().get(hyper::http::header::CONTENT_LENGTH),
+    );
 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
@@ -51,8 +62,22 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
     };
 
     match resp {
-        Ok(e) => Ok(e),
-        Err(err) => Ok(err.into()),
+        Ok(e) => {
+            tracing::info!(
+                "{{ Response HTTP }}  [ STATUS {}, latency {}]",
+                e.status(),
+                instant.elapsed().as_millis()
+            );
+            Ok(e)
+        }
+        Err(err) => {
+            tracing::error!(
+                "{{ Response HTTP }} [ {}, latency {} ms ]",
+                err,
+                instant.elapsed().as_millis()
+            );
+            Ok(err.into())
+        }
     }
 }
 
@@ -102,10 +127,13 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 get(req, id).await
             }
         }
-        ("/program", Method::POST) => todo!(), /* To excecute this action, it is required que the microservice directory is ready */
-        (program, method @ (Method::PATCH | Method::GET)) if path.starts_with("/program") => {
+        ("/programa", Method::POST) => programas::new(req).await, /* To excecute this action, it is required que the microservice directory is ready */
+        ("/programas", Method::GET) => programas::get_all(req).await,
+        (program, method @ (Method::PATCH | Method::GET | Method::DELETE))
+            if path.starts_with("/programa") =>
+        {
             let program = program
-                .strip_prefix("/program/")
+                .strip_prefix("/programa/")
                 .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
                 .and_then(|x| {
                     x.parse::<Uuid>()
@@ -113,8 +141,10 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 })?;
             if Method::PATCH == method {
                 programas::update(req, program).await
+            } else if Method::DELETE == method {
+                programas::delete(req, program).await
             } else {
-                todo!()
+                programas::get(req, program).await
             }
         }
         _ => Err(ResponseErr::status(StatusCode::BAD_REQUEST)),

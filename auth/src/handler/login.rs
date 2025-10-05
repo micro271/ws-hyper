@@ -18,7 +18,7 @@ use crate::{
 pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseErr> {
     let (parts, body) = req.into_parts();
     let repo = parts.extensions.get::<Repository>().unwrap();
-    println!("entro!");
+
     match ParseBodyToStruct::<Login>::get(body).await {
         Ok(login) => {
             let Ok(user) = repo

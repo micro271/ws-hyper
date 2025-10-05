@@ -9,7 +9,7 @@ use crate::{
         UserAllInfo,
         user::{Encrypt, User, update::UpdateSelf},
     },
-    repository::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
+    repository::{Insert, InsertOwn, QueryOwn, QueryResult, TABLA_USER, UpdateOwn},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
@@ -49,8 +49,9 @@ pub async fn get_all(req: Request<Incoming>) -> ResponseHandlers {
 
 pub async fn get_user_info(req: Request<Incoming>, id: Option<Uuid>) -> ResponseHandlers {
     let repo = req.extensions().get::<Repo>().unwrap();
+    let key = format!("{TABLA_USER}.id");
     let query = id
-        .map(|x| QueryOwn::<UserAllInfo>::builder().wh("id", x.into()))
+        .map(|x| QueryOwn::<UserAllInfo>::builder().wh(&key, x.into()))
         .unwrap_or(QueryOwn::builder());
     let resp = repo.gets(query).await?;
 

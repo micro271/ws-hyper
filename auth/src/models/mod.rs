@@ -1,7 +1,7 @@
 pub mod programas;
 pub mod user;
 
-use crate::repository::{TABLA_PROGRAMA, TABLA_USER, Table};
+use crate::repository::{QuerySelect, TABLA_PROGRAMA, TABLA_USER};
 use serde::Serialize;
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
@@ -17,7 +17,7 @@ pub struct UserAllInfo {
     pub user_state: UserState,
     pub role: Role,
     pub resources: Option<String>,
-    pub desc: Option<String>,
+    pub description: Option<String>,
     pub program: Option<ProgramInfo>,
 }
 
@@ -25,57 +25,37 @@ pub struct UserAllInfo {
 pub struct ProgramInfo {
     pub id: Uuid,
     pub name: String,
-    pub desc: Option<String>,
+    pub description: Option<String>,
     pub icon: Option<String>,
 }
 
 impl From<PgRow> for UserAllInfo {
     fn from(value: PgRow) -> Self {
         Self {
-            id: value.get(format!("{TABLA_USER}.id").as_str()),
-            username: value.get(format!("{TABLA_USER}.username").as_str()),
-            email: value.get(format!("{TABLA_USER}.email").as_str()),
-            phone: value.get(format!("{TABLA_USER}.phone").as_str()),
-            user_state: value.get(format!("{TABLA_USER}.user_state").as_str()),
-            role: value.get(format!("{TABLA_USER}.role").as_str()),
-            resources: value.get(format!("{TABLA_USER}.resources").as_str()),
-            desc: value.get(format!("{TABLA_USER}.description").as_str()),
+            id: value.get("id"),
+            username: value.get("username"),
+            email: value.get("email"),
+            phone: value.get("phone"),
+            user_state: value.get("user_state"),
+            role: value.get("role"),
+            resources: value.get("resources"),
+            description: value.get("description"),
             program: value
-                .get::<'_, Option<Uuid>, _>(format!("{TABLA_PROGRAMA}.id").as_str())
+                .get::<'_, Option<Uuid>, _>("programa_description")
                 .map(|id| ProgramInfo {
                     id,
-                    name: value.get(format!("{TABLA_PROGRAMA}.name").as_str()),
-                    desc: value.get(format!("{TABLA_PROGRAMA}.description").as_str()),
-                    icon: value.get(format!("{TABLA_PROGRAMA}.icon").as_str()),
+                    name: value.get("name"),
+                    description: value.get("description"),
+                    icon: value.get("icon"),
                 }),
         }
     }
 }
 
-impl<'a> Table<'a> for UserAllInfo {
-    fn columns() -> Vec<&'a str> {
-        vec![
-            "id",
-            "username",
-            "email",
-            "phone",
-            "user_state",
-            "role",
-            "resources",
-            "desc",
-            "program",
-        ]
-    }
-
-    fn name() -> &'a str {
-        ""
-    }
-
-    fn values(self) -> Vec<crate::repository::Types> {
-        Vec::new()
-    }
-
-    fn query_select() -> String {
-        String::from("SELECT * FROM users FULL JOIN programs ON (users.id = programs.id)")
+impl QuerySelect for UserAllInfo {
+    fn query() -> String {
+        format!(
+            "SELECT {TABLA_PROGRAMA}.name, {TABLA_PROGRAMA}.icon, {TABLA_PROGRAMA}.id as programa_id, {TABLA_PROGRAMA}.description as programa_description, {TABLA_USER}.* FROM users FULL JOIN {TABLA_PROGRAMA} ON ({TABLA_USER}.programa = {TABLA_PROGRAMA}.id)"
+        )
     }
 }
