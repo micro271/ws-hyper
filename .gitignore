@@ -18,3 +18,7 @@ auth/pki_auth
 notify/target
 notify/Cargo.lock
 notify/.env
+
+directory/target
+directory/.env
+directory/Cargo.lock
