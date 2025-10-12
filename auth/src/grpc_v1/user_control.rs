@@ -1,35 +1,36 @@
 mod proto {
-    tonic::include_proto!("check_user");
+    tonic::include_proto!("info");
 }
 
 use std::sync::Arc;
-
 pub use proto::{
     UserInfoReply, UserInfoRequest,
-    user_info_server::{UserInfo, UserInfoServer},
+    ProgramInfoRequest, ProgramInfoReply,
+    info_server::{Info, InfoServer},
 };
 use tonic::{Response, Status, async_trait};
 use uuid::Uuid;
 
 use crate::{
-    models::user::User,
+    models::{programas::Programa, user::User},
     repository::{PgRepository, QueryOwn, Types},
 };
 
 #[derive(Debug)]
-pub struct CheckUser {
+pub struct InfoUserProgram {
     repo: Arc<PgRepository>,
 }
 
-impl CheckUser {
+impl InfoUserProgram {
     pub fn new(repo: Arc<PgRepository>) -> Self {
         Self { repo }
     }
 }
 
 #[async_trait]
-impl UserInfo for CheckUser {
-    async fn get_role(
+impl Info for InfoUserProgram {
+
+    async fn user(
         &self,
         request: tonic::Request<UserInfoRequest>,
     ) -> Result<Response<UserInfoReply>, Status> {
@@ -52,4 +53,14 @@ impl UserInfo for CheckUser {
 
         Ok(Response::new(reply))
     }
+
+    async fn program(&self, request: tonic::Request<ProgramInfoRequest>) -> Result<Response<ProgramInfoReply>, Status> {        
+        let id = Uuid::from_bytes(request.into_inner().id.try_into().unwrap());
+        let msg = ProgramInfoReply {
+            name: self.repo.get::<Programa>(QueryOwn::builder().wh("id", id)).await.unwrap().name,
+        };
+        
+        Ok(Response::new(msg))
+    }
+    
 }

@@ -1,9 +1,10 @@
 syntax = "proto3";
 
-package check_user;
+package info;
 
-service UserInfo {
-    rpc GetRole (UserInfoRequest) returns (UserInfoReply);
+service Info {
+    rpc User (UserInfoRequest) returns (UserInfoReply);
+    rpc Program (ProgramInfoRequest) returns (ProgramInfoReply);
 }
 
 message UserInfoRequest {
@@ -21,4 +22,12 @@ enum Role {
     Administrator = 1;
     Operador = 2;
     Productor = 3;
+}
+
+message ProgramInfoRequest {
+    bytes id = 1;
+}
+
+message ProgramInfoReply {
+    string name = 1;
 }
