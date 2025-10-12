@@ -1,25 +1,51 @@
 pub mod file;
-use std::fs::DirEntry;
-use std::borrow::Cow;
+pub mod tree_dir;
+use crate::manager::utils::FromDirEntyAsync;
+use serde::{Deserialize, Serialize};
+use std::{fs::DirEntry, path::PathBuf};
+use tokio::fs;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Directory(String);
 
-#[derive(Debug)]
-pub struct Directory<'a> {
-    path: Cow<'a, str>,
-    len: u64,
+impl Directory {
+    pub fn path(&self) -> PathBuf {
+        PathBuf::from(self.as_ref())
+    }
 }
 
-impl<'a> TryFrom<DirEntry> for Directory<'a> {
+impl Directory {
+    pub fn inner(self) -> String {
+        self.0
+    }
+}
+
+impl FromDirEntyAsync<fs::DirEntry> for Directory {
+    fn from_entry(value: fs::DirEntry) -> impl Future<Output = Self> {
+        async move { Self(value.path().to_str().unwrap().to_string()) }
+    }
+}
+
+impl FromDirEntyAsync<&fs::DirEntry> for Directory {
+    fn from_entry(value: &fs::DirEntry) -> impl Future<Output = Self> {
+        async move { Self(value.path().to_str().unwrap().to_string()) }
+    }
+}
+
+impl TryFrom<DirEntry> for Directory {
     type Error = FromEntryToDirErr;
     fn try_from(value: DirEntry) -> Result<Self, Self::Error> {
         if !value.file_type().unwrap().is_dir() {
             return Err(FromEntryToDirErr);
         }
 
-        Ok(Self {
-            path: Cow::Owned(value.path().to_str().unwrap().to_string()),
-            len: value.metadata().unwrap().len(),
-        })
+        Ok(Self(value.path().to_str().unwrap().to_string()))
+    }
+}
+
+impl From<String> for Directory {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
@@ -34,34 +60,41 @@ impl std::fmt::Display for FromEntryToDirErr {
 
 impl std::error::Error for FromEntryToDirErr {}
 
-impl<'a> AsRef<str> for Directory<'a> {
+impl AsRef<str> for Directory {
     fn as_ref(&self) -> &str {
-        &self.path
+        &self.0
     }
 }
 
-impl<'a, T> std::cmp::PartialEq<T> for Directory<'a> 
-where 
-    T: AsRef<str>
+impl<T> std::cmp::PartialEq<T> for Directory
+where
+    T: AsRef<str>,
 {
     fn eq(&self, other: &T) -> bool {
-        self.path.eq(other.as_ref())
+        self.0.eq(other.as_ref())
     }
 }
 
-impl<'a> std::cmp::Eq for Directory<'a> { }
+impl std::cmp::Eq for Directory {}
 
-impl<'a, T> std::cmp::PartialOrd<T> for Directory<'a> 
-    where 
-        T: AsRef<str>,
+impl<T> std::cmp::PartialOrd<T> for Directory
+where
+    T: AsRef<str>,
 {
     fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
         self.as_ref().partial_cmp(other.as_ref())
     }
 }
 
-impl<'a> std::cmp::Ord for Directory<'a> {
+impl std::cmp::Ord for Directory {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_ref().cmp(other.as_ref())
+    }
+}
+
+impl std::ops::Deref for Directory {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
     }
 }

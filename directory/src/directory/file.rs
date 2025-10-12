@@ -1,20 +1,46 @@
-use std::{borrow::Cow, fs::{DirEntry,FileType as FT}, os::unix::fs::MetadataExt, time::{SystemTime, UNIX_EPOCH}};
+use crate::manager::utils::FromDirEntyAsync;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs::{DirEntry, FileType as FT},
+    os::unix::fs::MetadataExt,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use time::{OffsetDateTime, UtcOffset, serde::rfc3339};
+use tokio::fs;
 
-use serde::Deserialize;
-use time::{format_description::modifier, OffsetDateTime};
-
-
-#[derive(Debug, Deserialize)]
-pub struct File<'a> {
-    name: Cow<'a, str>,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct File {
+    name: String,
     r#type: FileType,
     size: u64,
+
+    #[serde(with = "rfc3339")]
     modified: time::OffsetDateTime,
+    #[serde(with = "rfc3339")]
     accessed: time::OffsetDateTime,
+    #[serde(with = "rfc3339")]
     created: time::OffsetDateTime,
 }
 
-impl<'a> TryFrom<DirEntry> for File<'a> {
+impl FromDirEntyAsync<fs::DirEntry> for File {
+    fn from_entry(value: fs::DirEntry) -> impl Future<Output = Self> {
+        async move {
+            let file_type = value.file_type().await.unwrap();
+            let metadata = value.metadata().await.unwrap();
+
+            Self {
+                name: value.file_name().to_str().unwrap().to_string(),
+                r#type: FileType::from(file_type),
+                size: metadata.size(),
+                modified: from_systemtime(metadata.modified().unwrap()),
+                accessed: from_systemtime(metadata.accessed().unwrap()),
+                created: from_systemtime(metadata.created().unwrap()),
+            }
+        }
+    }
+}
+
+impl TryFrom<DirEntry> for File {
     type Error = FromEntryToFileErr;
     fn try_from(value: DirEntry) -> Result<Self, Self::Error> {
         let file_type = value.file_type().unwrap();
@@ -24,20 +50,18 @@ impl<'a> TryFrom<DirEntry> for File<'a> {
         }
         let metadata = value.metadata().unwrap();
 
-        Ok(
-            Self {
-                name: Cow::Owned(value.file_name().to_str().unwrap().to_string()),
-                r#type: FileType::from(file_type),
-                size: metadata.size(),
-                modified: from_systemtime(metadata.modified().unwrap()),
-                accessed: from_systemtime(metadata.accessed().unwrap()),
-                created: from_systemtime(metadata.created().unwrap()),
-            }
-        )
+        Ok(Self {
+            name: value.file_name().to_str().unwrap().to_string(),
+            r#type: FileType::from(file_type),
+            size: metadata.size(),
+            modified: from_systemtime(metadata.modified().unwrap()),
+            accessed: from_systemtime(metadata.accessed().unwrap()),
+            created: from_systemtime(metadata.created().unwrap()),
+        })
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum FileType {
     SymLink,
     Regular,
@@ -69,5 +93,9 @@ impl std::error::Error for FromEntryToFileErr {}
 
 pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
     let tmp = value.duration_since(UNIX_EPOCH).unwrap();
-    OffsetDateTime::from_unix_timestamp(tmp.as_secs() as i64).unwrap().replace_nanosecond(tmp.subsec_nanos()).unwrap()
+    OffsetDateTime::from_unix_timestamp(tmp.as_secs() as i64)
+        .unwrap()
+        .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap())
+        .replace_nanosecond(tmp.subsec_nanos())
+        .unwrap()
 }
