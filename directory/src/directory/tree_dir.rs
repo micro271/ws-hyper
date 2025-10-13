@@ -3,7 +3,6 @@ use crate::manager::utils::FromDirEntyAsync;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
-    fs::DirEntry,
     path::PathBuf,
 };
 use tokio::fs;
@@ -17,11 +16,18 @@ pub struct TreeDir {
 
     #[serde(skip_serializing)]
     real_path: String,
+
+    #[serde(skip_serializing)]
+    prefix: Option<String>,
 }
 
 impl TreeDir {
     pub fn real_path(&self) -> &str {
         &self.real_path
+    }
+
+    pub fn path_prefix(&self) -> Option<&String> {
+        self.prefix.as_ref()
     }
 
     pub async fn new_async(path: PathBuf) -> std::io::Result<Self> {
@@ -63,63 +69,40 @@ impl TreeDir {
             }
             resp.insert(directory, vec);
         }
-        let realpath = if ["./", "../", "/"].iter().any(|x| path.starts_with(x)) {
-            fs::canonicalize(path)
-                .await
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
-        } else {
-            fs::canonicalize(&path).await.unwrap().to_str().unwrap().to_string().strip_suffix(&format!("/{}", path.to_str().unwrap())).unwrap().to_string()
-        };
+        let (real_path, prefix) =
+            if let Some(e) = ["./", "../"].iter().find(|x| path.starts_with(x)) {
+                (
+                    fs::canonicalize(path)
+                        .await
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                    Some(e.to_string()),
+                )
+            } else {
+                (
+                    fs::canonicalize(&path)
+                        .await
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                        .strip_suffix(&format!("/{}", path.to_str().unwrap()))
+                        .unwrap()
+                        .to_string(),
+                    None,
+                )
+            };
         Ok(TreeDir {
             inner: resp,
-            real_path: realpath,
+            real_path,
+            prefix,
         })
     }
-}
 
-impl FromIterator<DirEntry> for TreeDir {
-    fn from_iter<T: IntoIterator<Item = DirEntry>>(iter: T) -> Self {
-        let mut resp = BTreeMap::new();
-        let mut vec = vec![];
-        fn visit(entry: DirEntry, resp: &mut TreeDirType) {
-            let mut vec = vec![];
-            let path = entry.path().clone();
-            let directory = Directory::try_from(entry).unwrap();
-            let mut dir = std::fs::read_dir(path).unwrap();
-            while let Some(Ok(entry)) = dir.next() {
-                if entry.file_type().map(|x| x.is_dir()).unwrap_or_default() {
-                    visit(entry, resp);
-                } else {
-                    vec.push(File::try_from(entry).unwrap());
-                }
-            }
-            resp.insert(directory, vec);
-        }
-        let mut father = None;
-        for i in iter {
-            if father.is_none() {
-                father = i
-                    .path()
-                    .parent()
-                    .and_then(|x| x.to_str())
-                    .map(ToString::to_string);
-            }
-            if i.file_type().map(|x| x.is_dir()).unwrap_or_default() {
-                visit(i, &mut resp);
-            } else {
-                vec.push(File::try_from(i).unwrap());
-            }
-        }
-        let directory = Directory(father.unwrap());
-        resp.insert(directory, vec);
-
-        Self {
-            inner: resp,
-            real_path: String::new(),
-        }
+    pub fn get_tree(&self) -> &TreeDirType {
+        &self.inner
     }
 }
 
