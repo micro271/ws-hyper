@@ -1,5 +1,6 @@
-use super::{Directory, file::File};
+use super::{Directory, error::TreeDirErr, file::File};
 use crate::manager::utils::FromDirEntyAsync;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -18,7 +19,7 @@ pub struct TreeDir {
     real_path: String,
 
     #[serde(skip_serializing)]
-    prefix: Option<String>,
+    root: String,
 }
 
 impl TreeDir {
@@ -26,30 +27,34 @@ impl TreeDir {
         &self.real_path
     }
 
-    pub fn path_prefix(&self) -> Option<&String> {
-        self.prefix.as_ref()
+    pub fn root(&self) -> &str {
+        self.root.as_ref()
     }
 
-    pub async fn new_async(path: PathBuf) -> std::io::Result<Self> {
-        let mut read_dir = fs::read_dir(&path).await.unwrap();
+    pub async fn new_async(path: &str) -> Result<Self, TreeDirErr> {
+        let path = Self::validate(path).await?;
+
+        let path_buf = PathBuf::from(&path);
+
+        if !path_buf.is_dir() {
+            return Err(TreeDirErr::IsNotADirectory(path_buf));
+        }
+
+        let mut read_dir = fs::read_dir(&path_buf).await?;
+
         let mut vec = vec![];
         let mut queue = VecDeque::new();
         let mut resp = BTreeMap::new();
-        let mut father = None;
+        tracing::info!("Directory: {path}");
+
         while let Ok(Some(entry)) = read_dir.next_entry().await {
-            if father.is_none() {
-                father = entry
-                    .path()
-                    .parent()
-                    .and_then(|x| x.to_str().map(ToString::to_string));
-            }
             if entry.file_type().await.is_ok_and(|x| x.is_dir()) {
                 queue.push_front(Directory::from_entry(&entry).await);
             }
             vec.push(File::from_entry(entry).await);
         }
 
-        let directory = Directory(father.clone().unwrap());
+        let directory = Directory("root".to_string());
         resp.insert(directory, vec);
 
         while let Some(directory) = queue.pop_front() {
@@ -69,40 +74,42 @@ impl TreeDir {
             }
             resp.insert(directory, vec);
         }
-        let (real_path, prefix) =
-            if let Some(e) = ["./", "../"].iter().find(|x| path.starts_with(x)) {
-                (
-                    fs::canonicalize(path)
-                        .await
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string(),
-                    Some(e.to_string()),
-                )
-            } else {
-                (
-                    fs::canonicalize(&path)
-                        .await
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string()
-                        .strip_suffix(&format!("/{}", path.to_str().unwrap()))
-                        .unwrap()
-                        .to_string(),
-                    None,
-                )
-            };
+
         Ok(TreeDir {
             inner: resp,
-            real_path,
-            prefix,
+            real_path: path,
+            root: "root".to_string(),
         })
     }
 
     pub fn get_tree(&self) -> &TreeDirType {
         &self.inner
+    }
+
+    async fn validate(path: &str) -> Result<String, TreeDirErr> {
+        if path == "/" {
+            return Err(TreeDirErr::RootNotAllowed);
+        }
+        
+        let mut path = if path.starts_with("../") || path == "./" {
+            fs::canonicalize(path).await?.to_str().unwrap().to_string()
+        }  else {
+            let re = Regex::new(r"(\./)?(([a-zA-Z0-9]+/?)+)$").unwrap();
+            let path = re.replace_all(path, "$2").to_string();
+            path
+        };
+
+        if !path.ends_with("/") {
+            path.push('/');
+        };
+
+        if !PathBuf::from(&path).is_dir() {
+            return Err(TreeDirErr::IsNotADirectory(PathBuf::from(path)));
+        }
+
+        let path = format!("{}/",fs::canonicalize(path).await?.to_str().map(ToString::to_string).unwrap().to_string());
+        
+        Ok(path)
     }
 }
 

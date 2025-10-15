@@ -8,22 +8,28 @@ use crate::{directory::tree_dir::TreeDir, manager::Schedule};
 use hyper::server::conn::http1;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::RwLock};
+use tracing_subscriber::{EnvFilter, fmt};
 use utils::{Io, Peer, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
+    let tr = fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish();
+    tracing::subscriber::set_global_default(tr)?;
+
     let ip = std::env::var("IP").unwrap_or("0.0.0.0".to_string());
     let port = std::env::var("PORT").unwrap_or("3500".to_string());
-    let root_path = std::env::var("ROOT_PATH").unwrap_or("./".to_string());
+    let root_path = std::env::var("ROOT_PATH").unwrap_or("prueba pr/".to_string());
     let listener = TcpListener::bind(format!("{ip}:{port}")).await?;
+
+    
 
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = Arc::new(RwLock::new(
-        TreeDir::new_async(root_path.clone().into()).await.unwrap(),
-    ));
+    let state = Arc::new(RwLock::new(TreeDir::new_async(&root_path).await?));
 
     let sch = Arc::new(Schedule::new(state.clone(), root_path).await);
 

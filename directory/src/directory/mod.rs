@@ -1,3 +1,4 @@
+pub mod error;
 pub mod file;
 pub mod tree_dir;
 use crate::manager::utils::FromDirEntyAsync;
