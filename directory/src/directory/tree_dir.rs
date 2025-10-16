@@ -1,9 +1,8 @@
 use super::{Directory, error::TreeDirErr, file::File};
-use crate::manager::utils::FromDirEntyAsync;
+use crate::{directory::WithPrefixRoot, manager::utils::FromDirEntyAsync};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque},
-    path::PathBuf,
+    collections::{BTreeMap, VecDeque}, path::PathBuf
 };
 use tokio::fs;
 
@@ -52,17 +51,17 @@ impl TreeDir {
 
         while let Ok(Some(entry)) = read_dir.next_entry().await {
             if entry.file_type().await.is_ok_and(|x| x.is_dir()) {
-                queue.push_front(Directory::from_entry(&entry).await);
+                queue.push_front(entry.path());
             }
             vec.push(File::from_entry(entry).await);
+            println!("{vec:?}, {queue:?}");
         }
-
+        
         let directory = Directory(prefix_root.to_string());
         resp.insert(directory, vec);
 
-        while let Some(directory) = queue.pop_front() {
-            let path = directory.path();
-            let mut read_dir = fs::read_dir(path).await.unwrap();
+        while let Some(dir) = queue.pop_front() {
+            let mut read_dir = fs::read_dir(&dir).await.unwrap();
             let mut vec = vec![];
             while let Ok(Some(entry)) = read_dir.next_entry().await {
                 if entry
@@ -71,13 +70,13 @@ impl TreeDir {
                     .map(|x| x.is_dir())
                     .unwrap_or_default()
                 {
-                    queue.push_back(Directory::from_entry(&entry).await);
+                    queue.push_back(entry.path());
                 }
                 vec.push(File::from_entry(entry).await);
             }
-            resp.insert(directory, vec);
+            resp.insert(Directory::from_entry(WithPrefixRoot::new(dir, &path, &prefix_root)).await, vec);
         }
-
+        
         Ok(TreeDir {
             inner: resp,
             real_path: path,

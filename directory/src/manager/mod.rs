@@ -12,8 +12,8 @@ use regex::Regex;
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc, time::Duration,
+    path::Path,
+    sync::Arc,
 };
 
 use serde_json::json;
@@ -27,7 +27,7 @@ use tokio::{
 };
 
 use crate::{
-    directory::{file::{self, File}, tree_dir::TreeDir},
+    directory::{file::File, tree_dir::TreeDir},
     manager::utils::FromDirEntyAsync,
 };
 
@@ -44,7 +44,6 @@ impl Schedule {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_watcher, rx_watcher) = unbounded_channel::<Change>();
         let own = tx_ws.clone();
-
         tokio::task::spawn(Self::run_watcher_mg(state.clone(), tx_watcher));
         tokio::task::spawn(Self::run_websocker_mg(rx_ws));
         tokio::task::spawn(Self::run_scheduler_mg(state.clone(), tx_ws, rx_watcher));

@@ -40,7 +40,7 @@ impl<'a> FromDirEntyAsync<WithPrefixRoot<'a>> for Directory {
         async move {
             let (entry, realpath, prefix) = value.take();
             
-            let name = entry.path().canonicalize().ok().and_then(|x| x.to_str().map(ToString::to_string)).unwrap();
+            let name = entry.canonicalize().ok().and_then(|x| x.to_str().map(ToString::to_string)).unwrap();
             let name = name.replace(realpath, prefix);
             Self(name)
         }
@@ -104,20 +104,20 @@ impl std::ops::Deref for Directory {
 }
 
 pub struct WithPrefixRoot<'a> {
-    entry: &'a DirEntry,
+    path: PathBuf,
     real_path: &'a str,
     root: &'a str,
 }
 
 impl<'a> WithPrefixRoot<'a> {
-    pub fn new(entry: &'a DirEntry, real_path: &'a str, root: &'a str) -> Self {
+    pub fn new(path: PathBuf, real_path: &'a str, root: &'a str) -> Self {
         Self {
-            entry,
+            path,
             real_path,
             root,
         }
     }
-    pub fn take(self) -> (&'a DirEntry, &'a str, &'a str) {
-        (self.entry, self.real_path, self. root)
+    pub fn take(self) -> (PathBuf, &'a str, &'a str) {
+        (self.path, self.real_path, self. root)
     }
 }
