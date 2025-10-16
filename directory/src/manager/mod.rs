@@ -40,12 +40,12 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    pub async fn new(state: Arc<RwLock<TreeDir>>, path: String) -> Self {
+    pub async fn new(state: Arc<RwLock<TreeDir>>) -> Self {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_watcher, rx_watcher) = unbounded_channel::<Change>();
         let own = tx_ws.clone();
 
-        tokio::task::spawn(Self::run_watcher_mg(state.clone(), tx_watcher, path.into()));
+        tokio::task::spawn(Self::run_watcher_mg(state.clone(), tx_watcher));
         tokio::task::spawn(Self::run_websocker_mg(rx_ws));
         tokio::task::spawn(Self::run_scheduler_mg(state.clone(), tx_ws, rx_watcher));
 
@@ -103,16 +103,17 @@ impl Schedule {
     async fn run_watcher_mg(
         state: Arc<RwLock<TreeDir>>,
         tx_watcher: UnboundedSender<Change>,
-        path: PathBuf,
     ) {
         tracing::debug!("Watcher notify manage init");
+        let real_path = state.read().await.real_path().to_string();
+
         let (tx, mut rx) = unbounded_channel();
         let mut watcher = notify::recommended_watcher(move |x| {
             _ = tx.send(x);
         })
         .unwrap();
         watcher
-            .watch(Path::new(&path), notify::RecursiveMode::Recursive)
+            .watch(Path::new(&real_path), notify::RecursiveMode::Recursive)
             .unwrap();
 
         loop {
@@ -150,9 +151,9 @@ impl Schedule {
 
                             let new_to_file_name = re.replace_all(&to_file_name, |caps: &regex::Captures<'_>|{
                                 if caps.get(1).is_some() {
-                                    "DOT".to_string()
+                                    "[DOT]".to_string()
                                 } else if caps.get(2).is_some() {
-                                    "DOTDOT".to_string()
+                                    "[DOT][DOT]".to_string()
                                 } else if caps.get(3).is_some() {
                                     "_".to_string()
                                 }  else if caps.get(4).is_some() {
@@ -173,11 +174,9 @@ impl Schedule {
                         }
                         
                         let reader = state.read().await;
-                        let real_path = reader.real_path();
-                        tracing::debug!("{real_path}");
                         let root = reader.root();
                         let path = to.parent().and_then(|x| x.to_str().map(|x| format!("{}/", x))).unwrap();
-                        let path = format!("{root}/{}",path.strip_prefix(&real_path).unwrap());
+                        let path = path.replace(&real_path, &root);
                         let from_file_name = from.file_name().and_then(|x| x.to_str()).unwrap();
 
                         if let Err(err) = tx_watcher.send(Change::Name { path, from: from_file_name.to_string(), to: to_file_name.to_string() }) {

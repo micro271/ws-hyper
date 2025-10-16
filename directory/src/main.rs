@@ -4,7 +4,7 @@ pub mod handlers;
 pub mod manager;
 pub mod ws;
 
-use crate::{directory::tree_dir::TreeDir, manager::Schedule};
+use crate::{directory::{tree_dir::TreeDir, WithPrefixRoot}, manager::Schedule};
 use hyper::server::conn::http1;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::RwLock};
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ip = std::env::var("IP").unwrap_or("0.0.0.0".to_string());
     let port = std::env::var("PORT").unwrap_or("3500".to_string());
-    let root_path = std::env::var("ROOT_PATH").unwrap_or("prueba pr/".to_string());
+    let root_path = std::env::var("ROOT_PATH").unwrap_or("./".to_string());
     let listener = TcpListener::bind(format!("{ip}:{port}")).await?;
 
     
@@ -29,9 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = Arc::new(RwLock::new(TreeDir::new_async(&root_path).await?));
-
-    let sch = Arc::new(Schedule::new(state.clone(), root_path).await);
+    let state = Arc::new(RwLock::new(TreeDir::new_async(&root_path, "root/".to_string()).await?));
+    let sch = Arc::new(Schedule::new(state.clone()).await);
 
     loop {
         let (stream, _) = listener.accept().await?;

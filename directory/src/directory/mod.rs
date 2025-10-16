@@ -3,8 +3,8 @@ pub mod file;
 pub mod tree_dir;
 use crate::manager::utils::FromDirEntyAsync;
 use serde::{Deserialize, Serialize};
-use std::{fs::DirEntry, path::PathBuf};
-use tokio::fs;
+use std::path::PathBuf;
+use tokio::fs::DirEntry;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Directory(String);
@@ -21,26 +21,29 @@ impl Directory {
     }
 }
 
-impl FromDirEntyAsync<fs::DirEntry> for Directory {
-    fn from_entry(value: fs::DirEntry) -> impl Future<Output = Self> {
+impl FromDirEntyAsync<DirEntry> for Directory {
+    fn from_entry(value: DirEntry) -> impl Future<Output = Self> {
         async move { Self(value.path().to_str().unwrap().to_string()) }
     }
 }
 
-impl FromDirEntyAsync<&fs::DirEntry> for Directory {
-    fn from_entry(value: &fs::DirEntry) -> impl Future<Output = Self> {
-        async move { Self(value.path().to_str().unwrap().to_string()) }
-    }
-}
-
-impl TryFrom<DirEntry> for Directory {
-    type Error = FromEntryToDirErr;
-    fn try_from(value: DirEntry) -> Result<Self, Self::Error> {
-        if !value.file_type().unwrap().is_dir() {
-            return Err(FromEntryToDirErr);
+impl FromDirEntyAsync<&DirEntry> for Directory {
+    fn from_entry(value: &DirEntry) -> impl Future<Output = Self> {
+        async move {
+            Self(value.path().to_str().unwrap().to_string()) 
         }
+    }
+}
 
-        Ok(Self(value.path().to_str().unwrap().to_string()))
+impl<'a> FromDirEntyAsync<WithPrefixRoot<'a>> for Directory {
+    fn from_entry(value: WithPrefixRoot<'a>) -> impl Future<Output = Self> {
+        async move {
+            let (entry, realpath, prefix) = value.take();
+            
+            let name = entry.path().canonicalize().ok().and_then(|x| x.to_str().map(ToString::to_string)).unwrap();
+            let name = name.replace(realpath, prefix);
+            Self(name)
+        }
     }
 }
 
@@ -97,5 +100,24 @@ impl std::ops::Deref for Directory {
     type Target = str;
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
+    }
+}
+
+pub struct WithPrefixRoot<'a> {
+    entry: &'a DirEntry,
+    real_path: &'a str,
+    root: &'a str,
+}
+
+impl<'a> WithPrefixRoot<'a> {
+    pub fn new(entry: &'a DirEntry, real_path: &'a str, root: &'a str) -> Self {
+        Self {
+            entry,
+            real_path,
+            root,
+        }
+    }
+    pub fn take(self) -> (&'a DirEntry, &'a str, &'a str) {
+        (self.entry, self.real_path, self. root)
     }
 }

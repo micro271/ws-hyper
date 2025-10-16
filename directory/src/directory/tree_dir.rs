@@ -1,6 +1,5 @@
 use super::{Directory, error::TreeDirErr, file::File};
 use crate::manager::utils::FromDirEntyAsync;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -31,10 +30,13 @@ impl TreeDir {
         self.root.as_ref()
     }
 
-    pub async fn new_async(path: &str) -> Result<Self, TreeDirErr> {
+    pub async fn new_async(path: &str, mut prefix_root: String) -> Result<Self, TreeDirErr> {
         let path = Self::validate(path).await?;
-
         let path_buf = PathBuf::from(&path);
+
+        if !prefix_root.ends_with("/") {
+            prefix_root.push('/');
+        }
 
         if !path_buf.is_dir() {
             return Err(TreeDirErr::IsNotADirectory(path_buf));
@@ -45,7 +47,8 @@ impl TreeDir {
         let mut vec = vec![];
         let mut queue = VecDeque::new();
         let mut resp = BTreeMap::new();
-        tracing::info!("Directory: {path}");
+        tracing::info!("Directory: {path:?}");
+        tracing::info!("Root path: {prefix_root:?}");
 
         while let Ok(Some(entry)) = read_dir.next_entry().await {
             if entry.file_type().await.is_ok_and(|x| x.is_dir()) {
@@ -54,7 +57,7 @@ impl TreeDir {
             vec.push(File::from_entry(entry).await);
         }
 
-        let directory = Directory("root".to_string());
+        let directory = Directory(prefix_root.to_string());
         resp.insert(directory, vec);
 
         while let Some(directory) = queue.pop_front() {
@@ -78,7 +81,7 @@ impl TreeDir {
         Ok(TreeDir {
             inner: resp,
             real_path: path,
-            root: "root".to_string(),
+            root: prefix_root,
         })
     }
 
@@ -90,24 +93,20 @@ impl TreeDir {
         if path == "/" {
             return Err(TreeDirErr::RootNotAllowed);
         }
-        
-        let mut path = if path.starts_with("../") || path == "./" {
-            fs::canonicalize(path).await?.to_str().unwrap().to_string()
-        }  else {
-            let re = Regex::new(r"(\./)?(([a-zA-Z0-9]+/?)+)$").unwrap();
-            let path = re.replace_all(path, "$2").to_string();
-            path
-        };
+
+        let path = fs::canonicalize(path).await?;
+
+        if path.metadata().unwrap().permissions().readonly() {
+            return Err(TreeDirErr::ReadOnly(path));
+        } else if !path.is_dir() {
+            return Err(TreeDirErr::IsNotADirectory(PathBuf::from(path)));
+        }
+
+        let mut path = path.to_str().unwrap().to_string();
 
         if !path.ends_with("/") {
             path.push('/');
         };
-
-        if !PathBuf::from(&path).is_dir() {
-            return Err(TreeDirErr::IsNotADirectory(PathBuf::from(path)));
-        }
-
-        let path = format!("{}/",fs::canonicalize(path).await?.to_str().map(ToString::to_string).unwrap().to_string());
         
         Ok(path)
     }

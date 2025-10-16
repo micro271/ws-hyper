@@ -5,6 +5,8 @@ pub enum TreeDirErr {
     IsNotADirectory(PathBuf),
     RootNotAllowed,
     ReadDir(Box<dyn std::error::Error>),
+    ReadOnly(PathBuf),
+    PermissionDenied(PathBuf),
 }
 
 impl std::fmt::Display for TreeDirErr {
@@ -13,6 +15,8 @@ impl std::fmt::Display for TreeDirErr {
             Self::IsNotADirectory(dir) => write!(f, "{dir:?} isn't a directory"),
             Self::RootNotAllowed => write!(f, "You cannot use the root \"/\" directory"),
             Self::ReadDir(e) => write!(f, "ReadDir Error: {e}"),
+            Self::ReadOnly(dir) => write!(f, "The directory {dir:?} is read only"),
+            Self::PermissionDenied(dir) => write!(f, "Permission denied: {dir:?}"),
         }
     }
 }
