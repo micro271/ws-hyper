@@ -1,49 +1,45 @@
 pub mod error;
 pub mod file;
 pub mod tree_dir;
-use crate::manager::utils::FromDirEntyAsync;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tokio::fs::DirEntry;
+use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Directory(String);
 
 impl Directory {
+    pub fn new_from_path<T>(path: T) -> Self 
+    where 
+        T: AsRef<Path>
+    {
+        Self(path.as_ref().to_str().map(ToString::to_string).unwrap())
+    }
+    
     pub fn path(&self) -> PathBuf {
         PathBuf::from(self.as_ref())
     }
-}
 
-impl Directory {
     pub fn inner(self) -> String {
         self.0
     }
 }
 
-impl FromDirEntyAsync<DirEntry> for Directory {
-    fn from_entry(value: DirEntry) -> impl Future<Output = Self> {
-        async move { Self(value.path().to_str().unwrap().to_string()) }
-    }
-}
+impl<'a, T> From<WithPrefixRoot<'a, T>> for Directory
+where
+    T: AsRef<Path>,
+{
+    fn from(value: WithPrefixRoot<'a, T>) -> Self {
+        let (entry, realpath, prefix) = value.take();
+        let no_final_slash = &realpath[..realpath.len()-1];
 
-impl FromDirEntyAsync<&DirEntry> for Directory {
-    fn from_entry(value: &DirEntry) -> impl Future<Output = Self> {
-        async move {
-            Self(value.path().to_str().unwrap().to_string()) 
-        }
-    }
-}
-
-impl<'a> FromDirEntyAsync<WithPrefixRoot<'a>> for Directory {
-    fn from_entry(value: WithPrefixRoot<'a>) -> impl Future<Output = Self> {
-        async move {
-            let (entry, realpath, prefix) = value.take();
-            
-            let name = entry.canonicalize().ok().and_then(|x| x.to_str().map(ToString::to_string)).unwrap();
-            let name = name.replace(realpath, prefix);
-            Self(name)
-        }
+        let name = entry.as_ref()
+            .canonicalize()
+            .ok()
+            .and_then(|x| x.to_str().map(ToString::to_string))
+            .unwrap();
+        let name = name.replace(if entry.as_ref() == Path::new(no_final_slash) { no_final_slash } else { realpath }, prefix);
+        tracing::debug!("From: {name} - realpath: {realpath} - prefix: {prefix}");
+        Self(name)
     }
 }
 
@@ -52,6 +48,7 @@ impl From<String> for Directory {
         Self(value)
     }
 }
+
 
 #[derive(Debug)]
 pub struct FromEntryToDirErr;
@@ -103,21 +100,25 @@ impl std::ops::Deref for Directory {
     }
 }
 
-pub struct WithPrefixRoot<'a> {
-    path: PathBuf,
+pub struct WithPrefixRoot<'a, T> {
+    path: T,
     real_path: &'a str,
     root: &'a str,
 }
 
-impl<'a> WithPrefixRoot<'a> {
-    pub fn new(path: PathBuf, real_path: &'a str, root: &'a str) -> Self {
+impl<'a, T> WithPrefixRoot<'a, T>
+where
+    T: AsRef<Path>,
+{
+    pub fn new(path: T, real_path: &'a str, root: &'a str) -> Self {
+
         Self {
             path,
             real_path,
             root,
         }
     }
-    pub fn take(self) -> (PathBuf, &'a str, &'a str) {
-        (self.path, self.real_path, self. root)
+    pub fn take(self) -> (T, &'a str, &'a str) {
+        (self.path, self.real_path, self.root)
     }
 }

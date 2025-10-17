@@ -5,16 +5,11 @@ use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use notify::{
-    Watcher,
-    event::{ModifyKind, RenameMode},
+    event::{CreateKind, ModifyKind, RemoveKind, RenameMode}, Watcher
 };
 use regex::Regex;
 use serde::Serialize;
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, sync::Arc};
 
 use serde_json::json;
 use tokio::{
@@ -27,8 +22,7 @@ use tokio::{
 };
 
 use crate::{
-    directory::{file::File, tree_dir::TreeDir},
-    manager::utils::FromDirEntyAsync,
+    directory::{Directory, WithPrefixRoot, file::File, tree_dir::TreeDir},
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -94,15 +88,12 @@ impl Schedule {
                 None => {
                     tracing::debug!("Peer tx_ws closed");
                     break;
-                },
+                }
             }
         }
     }
 
-    async fn run_watcher_mg(
-        state: Arc<RwLock<TreeDir>>,
-        tx_watcher: UnboundedSender<Change>,
-    ) {
+    async fn run_watcher_mg(state: Arc<RwLock<TreeDir>>, tx_watcher: UnboundedSender<Change>) {
         tracing::debug!("Watcher notify manage init");
         let real_path = state.read().await.real_path().to_string();
 
@@ -118,25 +109,45 @@ impl Schedule {
         loop {
             while let Some(Ok(event)) = rx.recv().await {
                 match event.kind {
-                    notify::EventKind::Create(_) => {
-                        tracing::debug!("{event:?}");
+                    notify::EventKind::Create(CreateKind::Folder) => {
+                        tracing::trace!("{event:?}");
+                        let rd = state.read().await;
+                        let mut path = event.paths;
+                        let path = path.pop().unwrap();
+
+                        let dir = Directory::from(WithPrefixRoot::new(
+                            path.parent().unwrap(),
+                            rd.real_path(),
+                            rd.root(),
+                        ));
+
+                        if let Err(err) = tx_watcher.send(Change::New {
+                            dir,
+                            file: File::from(&path),
+                        }) {
+                            tracing::error!("New directory nofity error: {err}");
+                        }
+                    }
+                    notify::EventKind::Create(action) => {
+                        tracing::trace!("{event:?}");
+                        tracing::trace!("{action:?}");
+
                         let reader = state.read().await;
                         let mut path = event.paths;
                         let path = path.pop().unwrap();
-                        let name = path
-                            .file_name()
-                            .and_then(|x| x.to_str())
-                            .unwrap()
-                            .to_string();
-                        let path = path.parent().and_then(|x| x.to_str()).unwrap().to_string();
 
-                        
-                        if let Err(err) = tx_watcher.send(Change::New { path, name }) {
-                            tracing::error!("New filt nofity error: {err}");
+                        if let Err(err) = tx_watcher.send(Change::New {
+                            dir: Directory::from(WithPrefixRoot::new(
+                                path.parent().unwrap(),
+                                reader.real_path(),
+                                reader.root(),
+                            )),
+                            file: File::from(&path),
+                        }) {
+                            tracing::error!("New file nofity error: {err}");
                         }
                     }
                     notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-
                         let re = Regex::new(r"(^\.[^.])|(^\.\.)|(\s+)|(^$)").unwrap();
 
                         let mut paths = event.paths;
@@ -146,51 +157,109 @@ impl Schedule {
                         let to_file_name = to.file_name().unwrap().to_str().unwrap();
 
                         if re.is_match(to_file_name) {
-                            tracing::info!("file name: {to_file_name:?} is not valid, auto rename executed");
+                            tracing::info!(
+                                "file name: {to_file_name:?} is not valid, auto rename executed"
+                            );
 
-                            let new_to_file_name = re.replace_all(&to_file_name, |caps: &regex::Captures<'_>|{
-                                if caps.get(1).is_some() {
-                                    "[DOT]".to_string()
-                                } else if caps.get(2).is_some() {
-                                    "[DOT][DOT]".to_string()
-                                } else if caps.get(3).is_some() {
-                                    "_".to_string()
-                                }  else if caps.get(4).is_some() {
-                                    uuid::Uuid::new_v4().to_string()
-                                } else {
-                                    caps.get(0).unwrap().as_str().to_string()
-                                }
-                            }).to_string();
+                            let new_to_file_name = re
+                                .replace_all(&to_file_name, |caps: &regex::Captures<'_>| {
+                                    if caps.get(1).is_some() {
+                                        "[DOT]".to_string()
+                                    } else if caps.get(2).is_some() {
+                                        "[DOT][DOT]".to_string()
+                                    } else if caps.get(3).is_some() {
+                                        "_".to_string()
+                                    } else if caps.get(4).is_some() {
+                                        uuid::Uuid::new_v4().to_string()
+                                    } else {
+                                        caps.get(0).unwrap().as_str().to_string()
+                                    }
+                                })
+                                .to_string();
 
-                            let new_to = format!("{}/{}",to.parent().and_then(|x| x.to_str()).unwrap(), new_to_file_name);
+                            let new_to = format!(
+                                "{}/{}",
+                                to.parent().and_then(|x| x.to_str()).unwrap(),
+                                new_to_file_name
+                            );
                             tracing::debug!("Attempt to rename from: {to:?} - to: {new_to:?}");
-                            
+
                             if let Err(err) = fs::rename(&to, &new_to).await {
-                                tracing::error!("Auto rename error from: {to:?} to: {new_to:?}, error: {err}");
+                                tracing::error!(
+                                    "Auto rename error from: {to:?} to: {new_to:?}, error: {err}"
+                                );
                             }
                             tracing::warn!("Auto rename from: {to:?} - to: {new_to:?}");
                             continue;
                         }
-                        
+
                         let reader = state.read().await;
                         let root = reader.root();
-                        let path = to.parent().and_then(|x| x.to_str().map(|x| format!("{}/", x))).unwrap();
+                        let path = to
+                            .parent()
+                            .and_then(|x| x.to_str().map(|x| format!("{}/", x)))
+                            .unwrap();
                         let path = path.replace(&real_path, &root);
                         let from_file_name = from.file_name().and_then(|x| x.to_str()).unwrap();
 
-                        if let Err(err) = tx_watcher.send(Change::Name { path, from: from_file_name.to_string(), to: to_file_name.to_string() }) {
+                        if let Err(err) = tx_watcher.send(Change::Name {
+                            path,
+                            from: from_file_name.to_string(),
+                            to: to_file_name.to_string(),
+                        }) {
                             tracing::error!("tx_watcher error: {err}");
                         }
                     }
-                    notify::EventKind::Remove(remove_kind) => {
-                        for i in event.paths {
-                            _ = tx_watcher.send(Change::New {
-                                path: i.to_str().unwrap().to_string(),
-                                name: "ALGO".to_string(),
-                            });
+                    notify::EventKind::Remove(RemoveKind::Folder) => {
+                        let mut path = event.paths;
+                        let mut wr = state.write().await;
+                        let path = path.pop().unwrap();
+                        let parent = path.parent().unwrap();
+                        let parent = Directory::from(WithPrefixRoot::new(parent, wr.real_path(), wr.root()));
+                        let mut key_to_delete = parent.path().to_path_buf();
+                        key_to_delete.push(path.file_name().unwrap());
+                        let mut queue = VecDeque::new();
+                        match wr.remove(&Directory::new_from_path(&key_to_delete)) {
+                            Some(files) => {
+                                tracing::info!("Delete directory: {key_to_delete:?} - Files: {files:?}");
+                                for file in files {
+                                    key_to_delete.pop();
+                                    key_to_delete.push(file.file_name());
+                                    queue.push_back(Directory::new_from_path(&key_to_delete));
+                                }
+
+                                while let Some(dir) = queue.pop_front() {
+                                    if let Some(files) = wr.remove(&dir) {
+                                        for file in files {
+                                            if file.id_dir() {
+                                                key_to_delete.pop();
+                                                key_to_delete.push(file.file_name());
+                                                queue.push_back(Directory::new_from_path(&key_to_delete));
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            None => {}
+                        }
+
+                    }
+                    notify::EventKind::Remove(RemoveKind::File) => {
+                        let mut path = event.paths;
+                        let path = path.pop().unwrap();
+                        let parent = path.parent().unwrap();
+                        let file_name = path.file_name().unwrap().to_str().unwrap();
+                        let mut wr = state.write().await;
+                        let key = Directory::new_from_path(parent);
+                        match wr.get_mut(&key) {
+                            Some(files) => {
+                                let pop = files.pop_if(|x| x.file_name() == file_name);
+                                tracing::debug!("{pop:?} deleted");
+                            },
+                            None => tracing::debug!("{:?} Not found", key.path()),
                         }
                     }
-                    _ => {  }
+                    act => tracing::trace!("{act:?}"),
                 }
             }
         }
@@ -204,45 +273,22 @@ impl Schedule {
         tracing::debug!("Scheduler init");
         loop {
             match rx_watcher.recv().await {
-                Some(Change::New { path, name }) => {
-                    let mut tmp = state.write().await;
-                    let directory = path.into();
-                    match tmp.get_mut(&directory) {
-                        Some(file) => {
-                            let mut entry = fs::read_dir(directory.as_ref()).await.unwrap();
-                            loop {
-                                match entry.next_entry().await {
-                                    Ok(Some(entry)) => {
-                                        if entry.file_name().to_str().unwrap() == name {
-                                            file.push(File::from_entry(entry).await);
-                                            let path = directory.inner();
-                                            if let Err(err) = tx_ws
-                                                .send(MsgWs::Change {
-                                                    change: Change::New {
-                                                        path: path.clone(),
-                                                        name,
-                                                    },
-                                                    subscriber: path,
-                                                })
-                                                .await
-                                            {
-                                                tracing::error!("Producer websocket error: {err}");
-                                            } else {
-                                                tracing::debug!("info send to rx_ws")
-                                            }
-                                            break;
-                                        }
-                                    }
-                                    Ok(None) => break,
-                                    Err(_) => todo!(),
-                                }
-                            }
-                        }
-                        None => {}
+                Some(Change::New { dir, file }) => {
+                    let mut wr = state.write().await;
+                    
+                    if file.id_dir() {
+                        let mut path = PathBuf::from(wr.real_path());
+                        path.push(file.file_name());
+                        let dir = Directory::from(WithPrefixRoot::new(path, wr.real_path(), wr.root()));
+                        wr.insert(dir, vec![]);
                     }
+
+                    wr.entry(dir).and_modify(|x| x.push(file));
+                    println!("{:#?}", wr);
                 }
                 Some(Change::Delete { path, name }) => {}
                 Some(Change::Name { path, from, to }) => {
+
                     if let Err(err) = tx_ws
                         .send(MsgWs::Change {
                             subscriber: path.clone(),
@@ -260,7 +306,7 @@ impl Schedule {
                 None => {
                     tracing::error!("Peer: tx_watcher closed");
                     break;
-                },
+                }
             }
         }
     }
@@ -291,8 +337,8 @@ pub enum MsgWs {
 #[derive(Debug, Clone, Serialize)]
 pub enum Change {
     New {
-        path: String,
-        name: String,
+        dir: Directory,
+        file: File,
     },
     Name {
         path: String,

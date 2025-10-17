@@ -1,8 +1,9 @@
 use super::{Directory, error::TreeDirErr, file::File};
-use crate::{directory::WithPrefixRoot, manager::utils::FromDirEntyAsync};
+use crate::{directory::WithPrefixRoot, manager::utils::FromDirEntyAsync as _};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque}, path::PathBuf
+    collections::{BTreeMap, VecDeque},
+    path::PathBuf,
 };
 use tokio::fs;
 
@@ -56,7 +57,7 @@ impl TreeDir {
             vec.push(File::from_entry(entry).await);
             println!("{vec:?}, {queue:?}");
         }
-        
+
         let directory = Directory(prefix_root.to_string());
         resp.insert(directory, vec);
 
@@ -74,9 +75,12 @@ impl TreeDir {
                 }
                 vec.push(File::from_entry(entry).await);
             }
-            resp.insert(Directory::from_entry(WithPrefixRoot::new(dir, &path, &prefix_root)).await, vec);
+            resp.insert(
+                Directory::from(WithPrefixRoot::new(dir, &path, &prefix_root)),
+                vec,
+            );
         }
-        
+
         Ok(TreeDir {
             inner: resp,
             real_path: path,
@@ -106,7 +110,7 @@ impl TreeDir {
         if !path.ends_with("/") {
             path.push('/');
         };
-        
+
         Ok(path)
     }
 }
