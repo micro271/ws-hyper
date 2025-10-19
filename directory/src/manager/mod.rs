@@ -9,7 +9,7 @@ use notify::{
     Event, Watcher,
     event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
 };
-use regex::Regex;
+use utils::validate_name_and_replace;
 use serde::Serialize;
 use std::{
     collections::{HashMap, VecDeque},
@@ -21,7 +21,6 @@ use std::{
 
 use serde_json::json;
 use tokio::{
-    fs,
     sync::{
         Mutex, RwLock,
         broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
@@ -511,48 +510,4 @@ pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>)
             .await
             .unwrap();
     }
-}
-
-pub struct ValidateError;
-
-pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), ValidateError> {
-    let re = Regex::new(r"(^\.[^.])|(^\.\.)|(\s+)|(^$)").map_err(|_| ValidateError)?;
-
-    if !path.exists() {
-        return Err(ValidateError);
-    }
-
-    if re.is_match(to) {
-        tracing::info!("[Validate Task] {{ Auto rename excecuted }} invalid file name: {to:?}");
-        let new_to_file_name = re
-            .replace_all(to, |caps: &regex::Captures<'_>| {
-                if caps.get(1).is_some() {
-                    "[DOT]".to_string()
-                } else if caps.get(2).is_some() {
-                    "[DOT][DOT]".to_string()
-                } else if caps.get(3).is_some() {
-                    "_".to_string()
-                } else if caps.get(4).is_some() {
-                    uuid::Uuid::new_v4().to_string()
-                } else {
-                    caps.get(0).unwrap().as_str().to_string()
-                }
-            })
-            .to_string();
-
-        let mut path_from = PathBuf::from(&path);
-        path_from.push(to);
-        let mut path_to = PathBuf::from(&path);
-        path_to.push(&new_to_file_name);
-
-        tracing::debug!("[Validate Task] Attempt to rename from: {path_from:?} - to: {path_to:?}");
-
-        if let Err(err) = fs::rename(&path_from, &path_to).await {
-            tracing::error!(
-                "[Validate Task] Auto rename error from: {path_from:?} to: {path_to:?}, error: {err}"
-            );
-        }
-        tracing::warn!("[Validate Task] Auto rename from: {path_from:?} - to: {path_to:?}");
-    }
-    Ok(())
 }
