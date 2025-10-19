@@ -2,9 +2,10 @@ pub mod directory;
 pub mod grpc_v1;
 pub mod handlers;
 pub mod manager;
+pub mod state;
 pub mod ws;
 
-use crate::{directory::tree_dir::TreeDir, manager::Schedule};
+use crate::{directory::tree_dir::TreeDir, manager::Schedule, state::State};
 use hyper::server::conn::http1;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::RwLock};
@@ -28,14 +29,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     http.keep_alive(true);
 
     let state = Arc::new(RwLock::new(
-        TreeDir::new_async(&root_path, "".to_string()).await?,
+        TreeDir::new_async(&root_path, String::new()).await?,
     ));
-    let sch = Arc::new(Schedule::new(state.clone()).await);
+
+    _ = Schedule::new(state.clone());
+
+    let state = Arc::new(State::new(state));
 
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
-        let state = sch.clone();
+        let state = state.clone();
         let io = Io::new(stream);
         let conn = http
             .serve_connection(

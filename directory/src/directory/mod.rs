@@ -8,19 +8,30 @@ use std::path::{Path, PathBuf};
 pub struct Directory(String);
 
 impl Directory {
-    pub fn new_from_path<T>(path: T) -> Self 
-    where 
-        T: AsRef<Path>
+    pub fn new_unchk_from_path<T>(path: T) -> Self
+    where
+        T: AsRef<Path>,
     {
         Self(path.as_ref().to_str().map(ToString::to_string).unwrap())
     }
-    
+
     pub fn path(&self) -> PathBuf {
         PathBuf::from(self.as_ref())
     }
 
     pub fn inner(self) -> String {
         self.0
+    }
+
+    pub fn parent(&self) -> Self {
+        let tmp = PathBuf::from(self.as_ref());
+        Self(
+            tmp.parent()
+                .unwrap()
+                .to_str()
+                .map(ToString::to_string)
+                .unwrap(),
+        )
     }
 }
 
@@ -30,15 +41,19 @@ where
 {
     fn from(value: WithPrefixRoot<'a, T>) -> Self {
         let (entry, realpath, prefix) = value.take();
-        let no_final_slash = &realpath[..realpath.len()-1];
+        let no_final_slash = &realpath[..realpath.len() - 1];
 
-        let name = entry.as_ref()
-            .canonicalize()
-            .ok()
-            .and_then(|x| x.to_str().map(ToString::to_string))
-            .unwrap();
-        let name = name.replace(if entry.as_ref() == Path::new(no_final_slash) { no_final_slash } else { realpath }, prefix);
-        tracing::debug!("From: {name} - realpath: {realpath} - prefix: {prefix}");
+        let name = entry.as_ref().to_str().map(ToString::to_string).unwrap();
+
+        let name = name.replace(
+            if entry.as_ref() == Path::new(no_final_slash) {
+                no_final_slash
+            } else {
+                realpath
+            },
+            prefix,
+        );
+        tracing::trace!("From Path {:?} to Directory: {name}", entry.as_ref());
         Self(name)
     }
 }
@@ -48,7 +63,6 @@ impl From<String> for Directory {
         Self(value)
     }
 }
-
 
 #[derive(Debug)]
 pub struct FromEntryToDirErr;
@@ -111,7 +125,6 @@ where
     T: AsRef<Path>,
 {
     pub fn new(path: T, real_path: &'a str, root: &'a str) -> Self {
-
         Self {
             path,
             real_path,

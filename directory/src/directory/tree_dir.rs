@@ -102,7 +102,7 @@ impl TreeDir {
         if path.metadata().unwrap().permissions().readonly() {
             return Err(TreeDirErr::ReadOnly(path));
         } else if !path.is_dir() {
-            return Err(TreeDirErr::IsNotADirectory(PathBuf::from(path)));
+            return Err(TreeDirErr::IsNotADirectory(path));
         }
 
         let mut path = path.to_str().unwrap().to_string();

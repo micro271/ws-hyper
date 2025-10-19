@@ -1,4 +1,4 @@
-use crate::manager::Schedule;
+use crate::{manager::Schedule, state::State};
 use futures::{StreamExt, stream::SplitStream};
 use http::{StatusCode, header};
 use http_body_util::Full;
@@ -9,15 +9,16 @@ use hyper::{
 };
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
-use serde_json::json;
 use std::{convert::Infallible, sync::Arc};
+
+type TypeState = Arc<State>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
-    let repo = req.extensions().get::<Arc<Schedule>>().unwrap();
+    let repo = req.extensions().get::<TypeState>().unwrap();
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Full::from(json!(&*repo.state.read().await).to_string()))
+        .body(Full::from(repo.tree_as_json().await.to_string()))
         .unwrap_or_default())
 }
 
