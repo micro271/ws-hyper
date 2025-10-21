@@ -1,4 +1,4 @@
-use crate::{manager::Schedule, state::State};
+use crate::state::State;
 use futures::{StreamExt, stream::SplitStream};
 use http::{StatusCode, header};
 use http_body_util::Full;
@@ -55,7 +55,7 @@ pub async fn serve_ws(
 }
 
 pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    let state = req.extensions().get::<Arc<Schedule>>().unwrap().clone();
+    let state = req.extensions().get::<TypeState>().unwrap().clone();
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
         let (tx, rx) = ws.await.unwrap().split();

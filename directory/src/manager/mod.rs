@@ -1,60 +1,54 @@
 pub mod new_file_tba;
 pub mod utils;
+pub mod watcher;
 
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
-use notify::{
-    Event, Watcher,
-    event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
-};
-use utils::validate_name_and_replace;
+use notify::{event::RemoveKind, Event};
 use serde::Serialize;
 use std::{
-    collections::{HashMap, VecDeque},
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-    vec,
+    collections::{HashMap, VecDeque}, marker::PhantomData, path::PathBuf, sync::Arc, time::Duration, vec
 };
+use watcher::Watcher;
+use utils::validate_name_and_replace;
 
 use serde_json::json;
-use tokio::{
-    sync::{
-        Mutex, RwLock,
-        broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
-        mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
-    },
+use tokio::sync::{
+    Mutex, RwLock,
+    broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
+    mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
 };
 
-use crate::directory::{Directory, WithPrefixRoot, file::File, tree_dir::TreeDir};
+use crate::{directory::{file::File, tree_dir::TreeDir, Directory}, manager::watcher::{WatcherOwn}};
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
-pub struct Schedule {
+pub struct Schedule<W, T, U> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    rename_control: RenameControl,
+    _phantom: PhantomData<(W,T,U)>,
 }
 
-impl Schedule {
-    pub fn new(state: Arc<RwLock<TreeDir>>) -> Arc<Self> {
+impl<W, U> Schedule<W, Change, U>
+    where 
+        W: WatcherOwn<U> + Send + Sync + 'static,
+        U: Send + Sync + 'static,
+{
+    pub fn new(state: Arc<RwLock<TreeDir>>, mut watcher: Watcher<W, U>) -> Arc<Self> {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_sch, rx_sch) = unbounded_channel::<Change>();
-        let (tx_watcher, rx_watcher) = unbounded_channel();
+
         let myself = Arc::new(Self {
             tx_ws,
             state,
-            rename_control: RenameControl::new(tx_watcher.clone(), 2000),
+            _phantom: PhantomData,
         });
 
-        tokio::task::spawn(
-            myself
-                .clone()
-                .run_watcher_mg(tx_sch, tx_watcher, rx_watcher),
-        );
+        watcher.into_inner().unwrap().run(tx_sch);
+
         tokio::task::spawn(myself.clone().run_websocker_mg(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
 
@@ -101,129 +95,6 @@ impl Schedule {
                 None => {
                     tracing::debug!("Peer tx_ws closed");
                     break;
-                }
-            }
-        }
-    }
-
-    async fn run_watcher_mg(
-        self: Arc<Self>,
-        tx_sch: UnboundedSender<Change>,
-        tx_watcher: UnboundedSender<Result<notify::Event, notify::Error>>,
-        mut rx_watcher: UnboundedReceiver<Result<notify::Event, notify::Error>>,
-    ) {
-        tracing::debug!("Watcher notify manage init");
-        let real_path = self.state.read().await.real_path().to_string();
-
-        let mut watcher = notify::recommended_watcher(move |x| {
-            _ = tx_watcher.send(x);
-        })
-        .unwrap();
-        watcher
-            .watch(Path::new(&real_path), notify::RecursiveMode::Recursive)
-            .unwrap();
-        let tx_rename = self.rename_control.sender();
-
-        loop {
-            while let Some(Ok(event)) = rx_watcher.recv().await {
-                match event.kind {
-                    notify::EventKind::Create(CreateKind::Folder) => {
-                        tracing::trace!("{event:?}");
-                        let rd = self.state.read().await;
-                        let mut path = event.paths;
-                        let path = path.pop().unwrap();
-
-                        let dir = Directory::from(WithPrefixRoot::new(
-                            path.parent().unwrap(),
-                            rd.real_path(),
-                            rd.root(),
-                        ));
-
-                        if let Err(err) = tx_sch.send(Change::New {
-                            dir,
-                            file: File::from(&path),
-                        }) {
-                            tracing::error!("New directory nofity error: {err}");
-                        }
-                    }
-                    notify::EventKind::Create(action) => {
-                        tracing::trace!("Event: {event:?}");
-                        tracing::trace!("File Type: {action:?}");
-
-                        let reader = self.state.read().await;
-                        let mut path = event.paths;
-                        let path = path.pop().unwrap();
-
-                        if let Err(err) = tx_sch.send(Change::New {
-                            dir: Directory::from(WithPrefixRoot::new(
-                                path.parent().unwrap(),
-                                reader.real_path(),
-                                reader.root(),
-                            )),
-                            file: File::from(&path),
-                        }) {
-                            tracing::error!("New file nofity error: {err}");
-                        }
-                    }
-                    notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
-                        let mut path = event.paths;
-                        let path = path.pop().unwrap();
-
-                        tracing::debug!(
-                            "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
-                        );
-                        if let Err(err) = tx_rename.send(Rename::From(RenameFrom(path))) {
-                            tracing::error!("{err}");
-                        }
-                    }
-                    notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                        tracing::trace!("Modify both {:?}", event.paths);
-
-                        let mut paths = event.paths;
-                        let to = paths.pop().unwrap();
-                        let from = paths.pop().unwrap();
-
-                        if let Err(err) = tx_rename.send(Rename::Decline(from.clone())) {
-                            tracing::error!("{err}");
-                        }
-
-                        let reader = self.state.read().await;
-                        let path = to.parent().unwrap();
-                        let dir = Directory::from(WithPrefixRoot::new(
-                            path,
-                            reader.real_path(),
-                            reader.root(),
-                        ));
-
-                        let from_file_name = from.file_name().and_then(|x| x.to_str()).unwrap();
-                        if let Err(err) = tx_sch.send(Change::Name {
-                            dir,
-                            from: from_file_name.to_string(),
-                            to: File::from(&to),
-                        }) {
-                            tracing::error!("tx_watcher error: {err}");
-                        }
-                    }
-                    notify::EventKind::Remove(_) => {
-                        let mut path = event.paths;
-                        let reader = self.state.read().await;
-                        let path = path.pop().unwrap();
-                        let file_name = path
-                            .file_name()
-                            .and_then(|x| x.to_str().map(ToString::to_string))
-                            .unwrap();
-                        let parent = path.parent().unwrap();
-                        let parent = Directory::from(WithPrefixRoot::new(
-                            parent,
-                            reader.real_path(),
-                            reader.root(),
-                        ));
-                        tracing::trace!("[REMOVE] Directory: {parent:?}, file name: {file_name}");
-                        if let Err(e) = tx_sch.send(Change::Delete { parent, file_name }) {
-                            tracing::error!("{e}");
-                        }
-                    }
-                    _ => {}
                 }
             }
         }

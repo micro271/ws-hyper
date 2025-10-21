@@ -5,9 +5,9 @@ pub mod manager;
 pub mod state;
 pub mod ws;
 
-use crate::{directory::tree_dir::TreeDir, manager::Schedule, state::State};
+use crate::{directory::tree_dir::TreeDir, manager::{watcher::{WatchFabric, Watcher}, Schedule}, state::State};
 use hyper::server::conn::http1;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{Io, Peer, service_with_state};
@@ -32,7 +32,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TreeDir::new_async(&root_path, String::new()).await?,
     ));
 
-    _ = Schedule::new(state.clone());
+    let watcher = WatchFabric::event_watcher_builder()
+        .path(PathBuf::from(&root_path))
+        .rename_control_await(2000)
+        .state(state.clone())
+        .build()?;
+    let watcher = Watcher::new(watcher);
+    _ = Schedule::new(state.clone(), watcher);
 
     let state = Arc::new(State::new(state));
 

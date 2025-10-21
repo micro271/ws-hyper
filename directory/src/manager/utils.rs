@@ -1,6 +1,6 @@
+use regex::Regex;
 use std::path::PathBuf;
 use tokio::fs;
-use regex::Regex;
 
 pub trait FromDirEntyAsync<T>
 where
@@ -8,8 +8,6 @@ where
 {
     fn from_entry(value: T) -> impl Future<Output = Self>;
 }
-
-
 
 pub struct ValidateError;
 
@@ -19,7 +17,7 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
     if !path.exists() {
         return Err(ValidateError);
     }
-    
+
     // TODO: We have to verify if the new file name already exists or not
 
     if re.is_match(to) {
