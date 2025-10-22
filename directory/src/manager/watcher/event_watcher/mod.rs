@@ -1,86 +1,25 @@
-use std::{
-    path::PathBuf, sync::{mpsc::{channel, Receiver, Sender}, Arc}, time::Duration
-};
+mod rename_control;
+
+use std::{path::PathBuf, sync::Arc};
 
 use notify::{
-    event::{CreateKind, ModifyKind, RenameMode}, Config, INotifyWatcher, PollWatcher, RecursiveMode, Watcher as _
+    INotifyWatcher, RecursiveMode, Watcher,
+    event::{CreateKind, ModifyKind, RenameMode},
 };
-use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, RwLock};
+use tokio::sync::{
+    RwLock,
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
+
+pub use rename_control::*;
+use super::super::Change;
 
 use crate::{
-    directory::{file::File, tree_dir::TreeDir, Directory, WithPrefixRoot},
-    manager::{Change, Rename, RenameControl, RenameFrom},
+    directory::{Directory, WithPrefixRoot, file::File, tree_dir::TreeDir},
+    manager::{
+        watcher::{WatcherOwn, error::WatcherErr},
+    },
 };
-
-pub trait WatcherOwn<T: Send>: Send + Sync {
-    fn run(self, tx: UnboundedSender<Change>);
-    fn task(self, tx: UnboundedSender<Change>) -> impl std::future::Future<Output = ()>;
-    fn get_send(&self) -> UnboundedSender<T>;
-}
-
-pub struct Watcher<W, R> {
-    inner: Option<W>,
-    tx: UnboundedSender<R>,
-}
-
-impl<W, R> Watcher<W, R> 
-    where 
-        W: WatcherOwn<R>,
-        R: Send + Send,
-{
-    pub fn new(watcher: W) -> Self {
-        let tx = watcher.get_send();
-
-        Self {
-            inner: Some(watcher),
-            tx,
-        }
-    }
-
-    pub fn get_sender(&self) -> UnboundedSender<R> {
-        self.tx.clone()
-    }
-
-    pub fn into_inner(&mut self) -> Result<W, WatcherErr> {
-        self.inner.take().ok_or(WatcherErr("Watcher not defined".to_string()))
-    }
-}
-
-pub struct WatchFabric;
-
-impl WatchFabric {
-    pub fn poll_watcher(interval: u64, path: PathBuf) -> Result<PollWatcherNotify, WatcherErr> {
-        if !path.exists() {
-            return Err(WatcherErr(format!("Path {path:?} not found")));
-        }
-
-        let (tx, rx) = channel();
-        let conf = Config::default().with_poll_interval(Duration::from_micros(interval));
-        let tx_cp = tx.clone();
-        let mut pw = PollWatcher::new(move |x| _ = tx_cp.send(x), conf).map_err(|x| WatcherErr(x.to_string()))?;
-        pw.watch(&path, RecursiveMode::Recursive).map_err(|x| WatcherErr(x.to_string()))?;
-
-        Ok(PollWatcherNotify {
-            path,
-            pool_watcher: pw,
-            tx,
-            rx: Some(rx),
-        })
-    }
-
-    pub fn event_watcher_builder() -> EventWatcherBuilder {
-        EventWatcherBuilder::default()
-    }
-}
-
-
-
-pub struct PollWatcherNotify {
-    path: PathBuf,
-    pool_watcher: PollWatcher,
-    tx: Sender<Result<notify::Event, notify::Error>>,
-    rx: Option<Receiver<Result<notify::Event, notify::Error>>>,
-}
 
 #[derive(Debug, Default)]
 pub struct EventWatcherBuilder {
@@ -90,10 +29,7 @@ pub struct EventWatcherBuilder {
 }
 
 impl EventWatcherBuilder {
-    pub fn rename_control_await(
-        mut self,
-        r#await: u64,
-    ) -> Self {
+    pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
         self
     }
@@ -110,24 +46,27 @@ impl EventWatcherBuilder {
 
     pub fn build(self) -> Result<EventWatcher, WatcherErr> {
         let Some(path) = self.path else {
-            return Err(WatcherErr("Path not defined".to_string()));
-        }; 
-        let r#await = self.r#await.unwrap_or(2000); 
-        
+            return Err(WatcherErr::new("Path not defined"));
+        };
+        let r#await = self.r#await.unwrap_or(2000);
+
         let Some(state) = self.state else {
-            return Err(WatcherErr("State not defined".to_string()));
+            return Err(WatcherErr::new("State not defined"));
         };
 
         if !path.exists() {
-            return Err(WatcherErr(format!("Path {path:?} not exists")));
+            return Err(WatcherErr::new(format!("Path {path:?} not exists")));
         }
+
         let (tx, rx) = unbounded_channel();
         let tx_cp = tx.clone();
         let mut notify_watcher = notify::recommended_watcher(move |event| _ = tx_cp.send(event))
-            .map_err(|x| WatcherErr(x.to_string()))?;
+            .map_err(|x| WatcherErr::new(x.to_string()))?;
 
-        notify_watcher.watch(&path, RecursiveMode::Recursive).map_err(|x| WatcherErr(x.to_string()))?;
-        
+        notify_watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .map_err(|x| WatcherErr::new(x.to_string()))?;
+
         let rename_control = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await));
 
         Ok(EventWatcher {
@@ -148,10 +87,9 @@ pub struct EventWatcher {
     state: Arc<RwLock<TreeDir>>,
 }
 
-impl WatcherOwn<Result<notify::Event, notify::Error>> for EventWatcher {
-
+impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
     fn run(self, tx: UnboundedSender<Change>)
-    where 
+    where
         Self: 'static,
     {
         tokio::task::spawn(self.task(tx));
@@ -205,7 +143,7 @@ impl WatcherOwn<Result<notify::Event, notify::Error>> for EventWatcher {
                     tracing::debug!(
                         "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
                     );
-                    if let Err(err) = tx_rename.send(Rename::From(RenameFrom(path))) {
+                    if let Err(err) = tx_rename.send(Rename::From(RenameFrom::new(path))) {
                         tracing::error!("{err}");
                     }
                 }
@@ -264,14 +202,3 @@ impl WatcherOwn<Result<notify::Event, notify::Error>> for EventWatcher {
         self.tx.clone()
     }
 }
-
-#[derive(Debug)]
-pub struct WatcherErr(String);
-
-impl std::fmt::Display for WatcherErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for WatcherErr {}

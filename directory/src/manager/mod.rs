@@ -6,40 +6,46 @@ use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
-use notify::{event::RemoveKind, Event};
 use serde::Serialize;
 use std::{
-    collections::{HashMap, VecDeque}, marker::PhantomData, path::PathBuf, sync::Arc, time::Duration, vec
+    collections::{HashMap, VecDeque},
+    marker::PhantomData,
+    path::PathBuf,
+    sync::Arc,
+    vec,
 };
-use watcher::Watcher;
 use utils::validate_name_and_replace;
+use watcher::Watcher;
 
 use serde_json::json;
 use tokio::sync::{
-    Mutex, RwLock,
+    RwLock,
     broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
-    mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
+    mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel},
 };
 
-use crate::{directory::{file::File, tree_dir::TreeDir, Directory}, manager::watcher::{WatcherOwn}};
+use crate::{
+    directory::{Directory, file::File, tree_dir::TreeDir},
+    manager::watcher::WatcherOwn,
+};
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
-pub struct Schedule<W, T, U> {
+pub struct Schedule<W, T, R> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    _phantom: PhantomData<(W,T,U)>,
+    _phantom: PhantomData<(W, T, R)>,
 }
 
-impl<W, U> Schedule<W, Change, U>
-    where 
-        W: WatcherOwn<U> + Send + Sync + 'static,
-        U: Send + Sync + 'static,
+impl<W, R> Schedule<W, Change, R>
+where
+    W: WatcherOwn<Change, R> + 'static,
+    R: Send + Sync + 'static,
 {
-    pub fn new(state: Arc<RwLock<TreeDir>>, mut watcher: Watcher<W, U>) -> Arc<Self> {
+    pub fn new(state: Arc<RwLock<TreeDir>>, mut watcher: Watcher<W, Change, R>) -> Arc<Self> {
         let (tx_ws, rx_ws) = channel(256);
-        let (tx_sch, rx_sch) = unbounded_channel::<Change>();
+        let (tx_sch, rx_sch) = unbounded_channel();
 
         let myself = Arc::new(Self {
             tx_ws,
@@ -47,7 +53,7 @@ impl<W, U> Schedule<W, Change, U>
             _phantom: PhantomData,
         });
 
-        watcher.into_inner().unwrap().run(tx_sch);
+        watcher.task().unwrap().run(tx_sch);
 
         tokio::task::spawn(myself.clone().run_websocker_mg(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
@@ -297,82 +303,6 @@ pub enum Change {
         parent: Directory,
         file_name: String,
     },
-}
-
-#[derive(Debug)]
-struct RenameControl {
-    notify: UnboundedSender<Rename>,
-}
-
-impl RenameControl {
-    pub(self) fn new(
-        sender_watcher: UnboundedSender<Result<notify::Event, notify::Error>>,
-        r#await: u64,
-    ) -> Self {
-        let (tx, mut rx) = unbounded_channel();
-        tokio::spawn(async move {
-            let duration = Duration::from_millis(r#await);
-            let files = Arc::new(Mutex::new(
-                HashMap::<PathBuf, UnboundedSender<DropDelete>>::new(),
-            ));
-
-            loop {
-                let files_inner = files.clone();
-                match rx.recv().await {
-                    Some(Rename::From(RenameFrom(from))) => {
-                        let (tx_inner, mut rx_inner) = unbounded_channel::<DropDelete>();
-                        files_inner.lock().await.insert(from.clone(), tx_inner);
-                        let sender_watcher = sender_watcher.clone();
-                        tokio::spawn(async move {
-                            tokio::select! {
-                                () = tokio::time::sleep(duration) => {
-                                    if files_inner.lock().await.remove(&from).is_some() {
-                                        tracing::trace!("[RenameControl] {{ Time expired }} Delete {from:?}");
-                                        let event = Event::new(notify::EventKind::Remove(RemoveKind::Any)).add_path(from);
-                                        if let Err(err) = sender_watcher.send(Ok(event)) {
-                                            tracing::error!("[RenameControl] From tx_watcher {err}");
-                                        }
-                                    }
-                                }
-                                resp = rx_inner.recv() => {
-                                    tracing::trace!("[RenameControl Inner task] Decline {from:?}");
-                                    if resp.is_none() {
-                                        tracing::error!("tx_inner of the RenameControl closed");
-                                    }
-                                }
-                            };
-                        });
-                    }
-                    Some(Rename::Decline(path)) => {
-                        if let Some(sender) = files.lock().await.remove(&path) {
-                            tracing::trace!("[RenameControl] Decline from Watcher, path: {path:?}");
-                            if let Err(err) = sender.send(DropDelete) {
-                                tracing::error!("{err}");
-                            }
-                        }
-                    }
-                    _ => tracing::error!("[RenameControl] Sender was close"),
-                }
-            }
-        });
-
-        Self { notify: tx }
-    }
-
-    pub fn sender(&self) -> UnboundedSender<Rename> {
-        self.notify.clone()
-    }
-}
-
-#[derive(Debug)]
-struct DropDelete;
-
-#[derive(Debug)]
-struct RenameFrom(PathBuf);
-
-enum Rename {
-    From(RenameFrom),
-    Decline(PathBuf),
 }
 
 pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>) {

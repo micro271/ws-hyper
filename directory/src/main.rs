@@ -5,7 +5,13 @@ pub mod manager;
 pub mod state;
 pub mod ws;
 
-use crate::{directory::tree_dir::TreeDir, manager::{watcher::{WatchFabric, Watcher}, Schedule}, state::State};
+use crate::{
+    directory::tree_dir::TreeDir,
+    manager::{
+        watcher::{event_watcher::EventWatcherBuilder, Watcher}, Schedule
+    },
+    state::State,
+};
 use hyper::server::conn::http1;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
@@ -22,17 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ip = std::env::var("IP").unwrap_or("0.0.0.0".to_string());
     let port = std::env::var("PORT").unwrap_or("3500".to_string());
-    let root_path = std::env::var("ROOT_PATH").unwrap_or("prueba".to_string());
+    let root_path = std::env::var("ROOT_PATH").unwrap_or(std::env::current_dir().unwrap().to_str().map(ToString::to_string).unwrap());
     let listener = TcpListener::bind(format!("{ip}:{port}")).await?;
 
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
     let state = Arc::new(RwLock::new(
-        TreeDir::new_async(&root_path, String::new()).await?,
+        TreeDir::new_async(&root_path, ".".to_string()).await?,
     ));
 
-    let watcher = WatchFabric::event_watcher_builder()
+    let watcher = EventWatcherBuilder::default()
         .path(PathBuf::from(&root_path))
         .rename_control_await(2000)
         .state(state.clone())
