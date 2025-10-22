@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let watcher = EventWatcherBuilder::default()
-        .path(PathBuf::from(&root_path))
+        .path(PathBuf::from(&root_path))?
         .rename_control_await(2000)
         .state(state.clone())
         .build()?;

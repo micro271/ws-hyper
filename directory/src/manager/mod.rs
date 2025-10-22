@@ -155,10 +155,8 @@ where
 
                     let mut queue = VecDeque::new();
                     let mut key_to_delete = parent.path().clone();
-                    tracing::trace!("[Scheduler] {{ Some(Change::Delete) }} Directory: {parent:?}");
-                    tracing::trace!(
-                        "[Scheduler] {{ Some(Change::Delete) }} File name: {file_name:?}"
-                    );
+                    tracing::trace!("[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete {{ parent: {parent:?}, file_name: {file_name:?} }}) }}");
+
                     if let Some(files) = wr.get_mut(&parent) {
                         if let Some(file) = files.pop_if(|x| x.file_name() == file_name) {
                             if file.is_dir() {
@@ -166,20 +164,20 @@ where
                                 queue.push_front(Directory::new_unchk_from_path(&key_to_delete));
                             }
 
-                            tracing::info!(
-                                "[Scheduler] Delete file {file:?} - is_dir: {}",
+                            tracing::warn!(
+                                "[Scheduler] {{ Task: Delete }} Delete file {file:?} - is_dir: {}",
                                 file.is_dir()
                             );
                         } else {
-                            tracing::warn!("[Scheduler] File {file_name:?} not found");
+                            tracing::info!("[Scheduler] {{ Task: Delete }} File {file_name:?} not found");
                         }
                     } else {
-                        tracing::warn!("[Scheduler] Directory {parent:?} not found");
+                        tracing::info!("[Scheduler] {{ Task: Delete }} Directory {parent:?} not found");
                     }
 
                     while let Some(dir) = queue.pop_front() {
                         tracing::trace!(
-                            "[Scheduler] {{ Some(Change::Delete)}} Delete dir: {dir:?}"
+                            "[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete)}} Delete dir: {dir:?}"
                         );
                         if let Some(files) = wr.remove(&dir) {
                             queue.extend(
