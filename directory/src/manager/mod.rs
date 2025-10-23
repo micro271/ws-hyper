@@ -2,14 +2,13 @@ pub mod new_file_tba;
 pub mod utils;
 pub mod watcher;
 
-use futures::{SinkExt, stream::SplitSink};
+use futures::{stream::SplitSink, SinkExt};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use std::{
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
     path::PathBuf,
     sync::Arc,
     vec,
@@ -25,8 +24,8 @@ use tokio::sync::{
 };
 
 use crate::{
-    directory::{Directory, file::File, tree_dir::TreeDir},
-    manager::watcher::WatcherOwn,
+    directory::{file::File, tree_dir::TreeDir, Directory},
+    manager::watcher::{Executing, Task, WatcherOwn},
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -35,7 +34,7 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 pub struct Schedule<W, T, R> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    _phantom: PhantomData<(W, T, R)>,
+    watcher: Watcher<Executing, W, T, R>,
 }
 
 impl<W, R> Schedule<W, Change, R>
@@ -43,18 +42,19 @@ where
     W: WatcherOwn<Change, R> + 'static,
     R: Send + Sync + 'static,
 {
-    pub fn new(state: Arc<RwLock<TreeDir>>, mut watcher: Watcher<W, Change, R>) -> Arc<Self> {
+    pub fn new(state: Arc<RwLock<TreeDir>>, watcher: Watcher<Task<W>, W, Change, R>) -> Arc<Self> {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_sch, rx_sch) = unbounded_channel();
+        
+        let (watcher , task) = watcher.task();
 
         let myself = Arc::new(Self {
             tx_ws,
             state,
-            _phantom: PhantomData,
+            watcher,
         });
 
-        watcher.task().unwrap().run(tx_sch);
-
+        task.run(tx_sch);
         tokio::task::spawn(myself.clone().run_websocker_mg(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
 

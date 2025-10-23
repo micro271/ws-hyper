@@ -1,7 +1,6 @@
 mod rename_control;
 
 use std::{path::PathBuf, sync::Arc};
-
 use notify::{
     INotifyWatcher, RecursiveMode, Watcher,
     event::{CreateKind, ModifyKind, RenameMode},
@@ -10,7 +9,6 @@ use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
-
 pub use rename_control::*;
 use super::super::Change;
 
@@ -73,7 +71,6 @@ impl EventWatcherBuilder {
             .map_err(|x| WatcherErr::new(x.to_string()))?;
 
         let rename_control = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await));
-        let path = path.to_str().map(ToString::to_string).ok_or(WatcherErr::new(format!("Error to parse from {path:?} to String")))?;
 
         Ok(EventWatcher {
             _notify_watcher: notify_watcher,
@@ -81,7 +78,6 @@ impl EventWatcherBuilder {
             tx,
             rx,
             state,
-            path,
         })
     }
 }
@@ -92,7 +88,6 @@ pub struct EventWatcher {
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: UnboundedReceiver<Result<notify::Event, notify::Error>>,
     state: Arc<RwLock<TreeDir>>,
-    path: String,
 }
 
 impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
@@ -106,7 +101,6 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
     async fn task(mut self, tx: UnboundedSender<Change>) {
         tracing::debug!("Watcher notify manage init");
         let tx_rename = self.rename_control.sender();
-        let real_path = self.path.as_ref();
         while let Some(Ok(event)) = self.rx.recv().await {
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
@@ -206,7 +200,7 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
         }
     }
 
-    fn get_send(&self) -> UnboundedSender<Result<notify::Event, notify::Error>> {
+    fn tx(&self) -> UnboundedSender<Result<notify::Event, notify::Error>> {
         self.tx.clone()
     }
 }

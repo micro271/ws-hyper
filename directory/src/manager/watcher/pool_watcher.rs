@@ -55,7 +55,7 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for PollWatcherNot
         tracing::error!("[Watcher] {{ Event Loop broken }} rx was close");
     }
 
-    fn get_send(&self) -> UnboundedSender<Result<notify::Event, notify::Error>> {
+    fn tx(&self) -> UnboundedSender<Result<notify::Event, notify::Error>> {
         self.tx.clone()
     }
 }
