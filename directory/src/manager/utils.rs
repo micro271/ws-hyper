@@ -1,6 +1,8 @@
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
+
+use crate::directory::{Directory, WithPrefixRoot};
 
 pub trait FromDirEntyAsync<T>
 where
@@ -53,4 +55,29 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
         tracing::warn!("[Validate Task] Auto rename from: {path_from:?} - to: {path_to:?}");
     }
     Ok(())
+}
+
+#[derive(Debug, Default)]
+pub struct ForDir<T> {
+    root: T,
+    real_path: T,
+}
+
+impl ForDir<String> {
+    pub fn new(root: String, real_path: String) -> Self {
+        Self {
+            real_path,
+            root,
+        }
+    }
+
+    pub fn get(&self) -> ForDir<&str> {
+        ForDir { root: &self.root, real_path: &self.real_path }
+    }
+}
+
+impl ForDir<&str> {
+    pub fn directory<T: AsRef<Path>>(&self, path: T) -> Directory {
+        Directory::from(WithPrefixRoot::new(path, self.real_path, self.root))
+    }
 }

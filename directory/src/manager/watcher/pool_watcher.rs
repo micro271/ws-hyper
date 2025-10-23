@@ -6,7 +6,6 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use crate::manager::{watcher::{error::WatcherErr, WatcherOwn}, Change};
 
 pub struct PollWatcherNotify {
-    path: String,
     _poll_watcher: PollWatcher,
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: Option<UnboundedReceiver<Result<notify::Event, notify::Error>>>,
@@ -29,10 +28,7 @@ impl PollWatcherNotify {
 
         poll.watch(&path, notify::RecursiveMode::Recursive).map_err(|x| WatcherErr::new(x.to_string()))?;
 
-        let path = path.to_str().map(ToString::to_string).ok_or(WatcherErr::new(format!("Error parse from {path:?} to String")))?;
-
         Ok(Self {
-            path,
             tx,
             rx: Some(rx),
             _poll_watcher: poll,

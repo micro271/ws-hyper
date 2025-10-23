@@ -34,7 +34,7 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 pub struct Schedule<W, T, R> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    watcher: Watcher<Executing, W, T, R>,
+    _watcher: Watcher<Executing, W, T, R>,
 }
 
 impl<W, R> Schedule<W, Change, R>
@@ -51,7 +51,7 @@ where
         let myself = Arc::new(Self {
             tx_ws,
             state,
-            watcher,
+            _watcher: watcher,
         });
 
         task.run(tx_sch);

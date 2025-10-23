@@ -8,7 +8,7 @@ pub mod ws;
 use crate::{
     directory::tree_dir::TreeDir,
     manager::{
-        watcher::{event_watcher::EventWatcherBuilder, Watcher}, Schedule
+        watcher::{Watcher, event_watcher::EventWatcherBuilder}, Schedule
     },
     state::State,
 };
@@ -34,15 +34,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = Arc::new(RwLock::new(
-        TreeDir::new_async(&root_path, ".".to_string()).await?,
-    ));
+    let state = TreeDir::new_async(&root_path, ".".to_string()).await?;
 
     let watcher = EventWatcherBuilder::default()
         .path(PathBuf::from(&root_path))?
         .rename_control_await(2000)
-        .state(state.clone())
+        .for_dir(state.real_path().to_string(), state.root().to_string())
         .build()?;
+
+    let state = Arc::new(RwLock::new(state));
+
     let watcher = Watcher::new(watcher);
     _ = Schedule::new(state.clone(), watcher);
 

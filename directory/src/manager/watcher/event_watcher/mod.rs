@@ -1,105 +1,38 @@
 mod rename_control;
+mod builder;
 
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use notify::{
     INotifyWatcher, RecursiveMode, Watcher,
     event::{CreateKind, ModifyKind, RenameMode},
 };
-use tokio::sync::{
-    RwLock,
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
+use tokio::sync::
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub use rename_control::*;
 use super::super::Change;
+pub use builder::*;
 
 use crate::{
-    directory::{Directory, WithPrefixRoot, file::File, tree_dir::TreeDir},
-    manager::{
-        watcher::{WatcherOwn, error::WatcherErr},
-    },
+    directory::file::File,
+    manager::{utils::ForDir, watcher::{error::WatcherErr, WatcherOwn}},
 };
-
-#[derive(Debug, Default)]
-pub struct EventWatcherBuilder {
-    path: Option<PathBuf>,
-    r#await: Option<u64>,
-    state: Option<Arc<RwLock<TreeDir>>>,
-}
-
-impl EventWatcherBuilder {
-    pub fn rename_control_await(mut self, r#await: u64) -> Self {
-        self.r#await = Some(r#await);
-        self
-    }
-
-    pub fn path(mut self, mut path: PathBuf) -> Result<Self, WatcherErr> {
-        if path.is_relative() {
-            path = path.canonicalize().map_err(|x| WatcherErr::new(x.to_string()))?;
-        }
-
-        self.path = Some(path);
-
-        Ok(self)
-    }
-
-    pub fn state(mut self, state: Arc<RwLock<TreeDir>>) -> Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub fn build(self) -> Result<EventWatcher, WatcherErr> {
-        let Some(path) = self.path else {
-            return Err(WatcherErr::new("Path not defined"));
-        };
-        let r#await = self.r#await.unwrap_or(2000);
-
-        let Some(state) = self.state else {
-            return Err(WatcherErr::new("State not defined"));
-        };
-
-        if !path.exists() {
-            return Err(WatcherErr::new(format!("Path {path:?} not exists")));
-        }
-
-        let (tx, rx) = unbounded_channel();
-        let tx_cp = tx.clone();
-        let mut notify_watcher = notify::recommended_watcher(move |event| _ = tx_cp.send(event))
-            .map_err(|x| WatcherErr::new(x.to_string()))?;
-
-        notify_watcher
-            .watch(&path, RecursiveMode::Recursive)
-            .map_err(|x| WatcherErr::new(x.to_string()))?;
-
-        let rename_control = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await));
-
-        Ok(EventWatcher {
-            _notify_watcher: notify_watcher,
-            rename_control,
-            tx,
-            rx,
-            state,
-        })
-    }
-}
 
 pub struct EventWatcher {
     rename_control: RenameControl,
     _notify_watcher: INotifyWatcher,
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: UnboundedReceiver<Result<notify::Event, notify::Error>>,
-    state: Arc<RwLock<TreeDir>>,
+    for_dir: ForDir<String>,
 }
 
 impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
-    fn run(self, tx: UnboundedSender<Change>)
-    where
-        Self: 'static,
-    {
+    fn run(self, tx: UnboundedSender<Change>) {
         tokio::task::spawn(self.task(tx));
     }
 
     async fn task(mut self, tx: UnboundedSender<Change>) {
         tracing::debug!("Watcher notify manage init");
+        let for_dir = self.for_dir;
         let tx_rename = self.rename_control.sender();
         while let Some(Ok(event)) = self.rx.recv().await {
             match event.kind {
@@ -107,15 +40,10 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
                     tracing::trace!("{event:?}");
                     let mut path = event.paths;
                     let path = path.pop().unwrap();
-                    let reader = self.state.read().await;
-                    let dir = Directory::from(WithPrefixRoot::new(
-                        path.parent().unwrap(),
-                        real_path,
-                        reader.root(),
-                    ));
+
 
                     if let Err(err) = tx.send(Change::New {
-                        dir,
+                        dir: for_dir.get().directory(&path),
                         file: File::from(&path),
                     }) {
                         tracing::error!("New directory nofity error: {err}");
@@ -126,13 +54,8 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
                     tracing::trace!("File Type: {action:?}");
                     let mut path = event.paths;
                     let path = path.pop().unwrap();
-                    let reader = self.state.read().await;
                     if let Err(err) = tx.send(Change::New {
-                        dir: Directory::from(WithPrefixRoot::new(
-                            path.parent().unwrap(),
-                            real_path,
-                            reader.root(),
-                        )),
+                        dir: for_dir.get().directory(&path),
                         file: File::from(&path),
                     }) {
                         tracing::error!("New file nofity error: {err}");
@@ -159,17 +82,11 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
                     if let Err(err) = tx_rename.send(Rename::Decline(from.clone())) {
                         tracing::error!("{err}");
                     }
-                    let reader = self.state.read().await;
                     let path = to.parent().unwrap();
-                    let dir = Directory::from(WithPrefixRoot::new(
-                        path,
-                        real_path,
-                        reader.root(),
-                    ));
 
                     let from_file_name = from.file_name().and_then(|x| x.to_str()).unwrap();
                     if let Err(err) = tx.send(Change::Name {
-                        dir,
+                        dir: for_dir.get().directory(path),
                         from: from_file_name.to_string(),
                         to: File::from(&to),
                     }) {
@@ -183,13 +100,9 @@ impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
                         .file_name()
                         .and_then(|x| x.to_str().map(ToString::to_string))
                         .unwrap();
-                    let reader = self.state.read().await;
+                    
                     let parent = path.parent().unwrap();
-                    let parent = Directory::from(WithPrefixRoot::new(
-                        parent,
-                        real_path,
-                        reader.root(),
-                    ));
+                    let parent = for_dir.get().directory(parent);
                     tracing::trace!("[REMOVE] Directory: {parent:?}, file name: {file_name}");
                     if let Err(e) = tx.send(Change::Delete { parent, file_name }) {
                         tracing::error!("{e}");
