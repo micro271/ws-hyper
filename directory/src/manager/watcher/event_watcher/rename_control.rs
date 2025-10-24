@@ -1,7 +1,10 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use notify::{event::RemoveKind, Event};
-use tokio::sync::{mpsc::{unbounded_channel, UnboundedSender}, Mutex};
+use notify::{Event, event::RemoveKind};
+use tokio::sync::{
+    Mutex,
+    mpsc::{UnboundedSender, unbounded_channel},
+};
 
 #[derive(Debug)]
 pub struct RenameControl {

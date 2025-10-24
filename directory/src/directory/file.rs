@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::{FileType as FT, Metadata},
     os::unix::fs::MetadataExt,
-    path::PathBuf,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
@@ -55,8 +55,8 @@ impl FromDirEntyAsync<fs::DirEntry> for File {
     }
 }
 
-impl From<&PathBuf> for File {
-    fn from(value: &PathBuf) -> Self {
+impl From<&Path> for File {
+    fn from(value: &Path) -> Self {
         let meta = value.metadata();
         let file_type = meta
             .map(|x| FileType::from(x.file_type()))

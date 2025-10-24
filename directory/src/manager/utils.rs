@@ -1,8 +1,10 @@
 use regex::Regex;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::fs;
 
-use crate::directory::{Directory, WithPrefixRoot};
+pub trait TakeOwn<T: Send> {
+    fn take(self) -> T;
+}
 
 pub trait FromDirEntyAsync<T>
 where
@@ -11,13 +13,18 @@ where
     fn from_entry(value: T) -> impl Future<Output = Self>;
 }
 
-pub struct ValidateError;
+#[derive(Debug)]
+pub enum ValidateError {
+    RegexError(Box<dyn std::error::Error>),
+    PathNotExist(PathBuf),
+}
 
 pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), ValidateError> {
-    let re = Regex::new(r"(^\.[^.])|(^\.\.)|(\s+)|(^$)").map_err(|_| ValidateError)?;
+    let re = Regex::new(r"(^\.[^.])|(^\.\.)|(\s+)|(^$)")
+        .map_err(|x| ValidateError::RegexError(Box::new(x)))?;
 
     if !path.exists() {
-        return Err(ValidateError);
+        return Err(ValidateError::PathNotExist(path));
     }
 
     // TODO: We have to verify if the new file name already exists or not
@@ -57,27 +64,25 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
     Ok(())
 }
 
-#[derive(Debug, Default)]
-pub struct ForDir<T> {
-    root: T,
-    real_path: T,
-}
-
-impl ForDir<String> {
-    pub fn new(root: String, real_path: String) -> Self {
-        Self {
-            real_path,
-            root,
+macro_rules! match_error {
+    ($e:expr) => {
+        match $e {
+            Ok(e) => (e),
+            Err(err) => {
+                tracing::error!("{err}");
+                continue;
+            }
         }
-    }
-
-    pub fn get(&self) -> ForDir<&str> {
-        ForDir { root: &self.root, real_path: &self.real_path }
-    }
+    };
+    ($e:expr, $prefix: expr) => {
+        match $e {
+            Ok(e) => (e),
+            Err(err) => {
+                tracing::error!("{} {err}", $prefix);
+                continue;
+            }
+        }
+    };
 }
 
-impl ForDir<&str> {
-    pub fn directory<T: AsRef<Path>>(&self, path: T) -> Directory {
-        Directory::from(WithPrefixRoot::new(path, self.real_path, self.root))
-    }
-}
+pub(crate) use match_error;

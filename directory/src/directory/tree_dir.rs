@@ -80,7 +80,7 @@ impl TreeDir {
                 vec,
             );
         }
-
+        tracing::error!("{path:?}, {prefix_root:?}");
         Ok(TreeDir {
             inner: resp,
             real_path: path,

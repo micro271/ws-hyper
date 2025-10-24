@@ -1,45 +1,73 @@
+use crate::manager::utils::TakeOwn;
 
-use crate::manager::utils::ForDir;
+use super::{
+    EventWatcher, ForDir, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr,
+    unbounded_channel,
+};
 
-use super::{PathBuf, WatcherErr, RenameControl, EventWatcher, unbounded_channel, Watcher, RecursiveMode};
-
-#[derive(Debug, Default)]
-pub struct EventWatcherBuilder {
-    path: Option<PathBuf>,
+#[derive(Debug)]
+pub struct EventWatcherBuilder<P, F> {
+    path: P,
     r#await: Option<u64>,
-    for_dir: Option<ForDir<String>>,
+    for_dir: F,
 }
 
-impl EventWatcherBuilder {
+impl<P, F> EventWatcherBuilder<P, F> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
         self
     }
 
-    pub fn path(mut self, mut path: PathBuf) -> Result<Self, WatcherErr> {
+    pub fn path(
+        self,
+        mut path: PathBuf,
+    ) -> Result<EventWatcherBuilder<EventWatcherPath, F>, WatcherErr> {
         if path.is_relative() {
-            path = path.canonicalize().map_err(|x| WatcherErr::new(x.to_string()))?;
+            path = path
+                .canonicalize()
+                .map_err(|x| WatcherErr::new(x.to_string()))?;
         }
 
-        self.path = Some(path);
-
-        Ok(self)
+        Ok(EventWatcherBuilder {
+            path: EventWatcherPath(path),
+            r#await: self.r#await,
+            for_dir: self.for_dir,
+        })
     }
 
-    pub fn for_dir(mut self, real_path: String, root: String) -> Self {
-        self.for_dir = Some(ForDir::new(root, real_path));
-        self
+    pub fn for_dir(
+        self,
+        real_path: String,
+        root: String,
+    ) -> EventWatcherBuilder<P, EventWatcherForDir<String>> {
+        EventWatcherBuilder {
+            path: self.path,
+            r#await: self.r#await,
+            for_dir: EventWatcherForDir(ForDir::new(root, real_path)),
+        }
     }
+}
 
+impl<F> EventWatcherBuilder<EventWatcherPath, F> {
+    pub fn for_dir_root<T: AsRef<str>>(
+        self,
+        root: T,
+    ) -> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>> {
+        let path = self.path.0.to_str().map(ToString::to_string).unwrap();
+
+        EventWatcherBuilder {
+            path: self.path,
+            r#await: self.r#await,
+            for_dir: EventWatcherForDir(ForDir::new(root.as_ref().to_string(), path)),
+        }
+    }
+}
+
+impl EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>> {
     pub fn build(self) -> Result<EventWatcher, WatcherErr> {
-        let Some(path) = self.path else {
-            return Err(WatcherErr::new("Path not defined"));
-        };
+        let path = self.path.take();
+        let for_dir = self.for_dir.take();
         let r#await = self.r#await.unwrap_or(2000);
-
-        let Some(for_dir) = self.for_dir else {
-            return Err(WatcherErr::new("Metadata to create directory type isn't present"));
-        };
 
         if !path.exists() {
             return Err(WatcherErr::new(format!("Path {path:?} not exists")));
@@ -63,5 +91,35 @@ impl EventWatcherBuilder {
             rx,
             for_dir,
         })
+    }
+}
+
+pub struct EventWatcherNoForDir;
+
+pub struct EventWatcherForDir<T>(ForDir<T>);
+
+pub struct EventWatcherNoPath;
+
+pub struct EventWatcherPath(PathBuf);
+
+impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoForDir> {
+    fn default() -> Self {
+        Self {
+            path: EventWatcherNoPath,
+            r#await: None,
+            for_dir: EventWatcherNoForDir,
+        }
+    }
+}
+
+impl TakeOwn<ForDir<String>> for EventWatcherForDir<String> {
+    fn take(self) -> ForDir<String> {
+        self.0
+    }
+}
+
+impl TakeOwn<PathBuf> for EventWatcherPath {
+    fn take(self) -> PathBuf {
+        self.0
     }
 }

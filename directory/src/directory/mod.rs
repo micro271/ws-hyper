@@ -42,15 +42,13 @@ where
     fn from(value: WithPrefixRoot<'a, T>) -> Self {
         let (entry, realpath, prefix) = value.take();
         let no_final_slash = &realpath[..realpath.len() - 1];
+        let parent = entry.as_ref().parent().unwrap();
 
         let name = entry.as_ref().to_str().map(ToString::to_string).unwrap();
 
+        tracing::error!("{:?} {} {}", entry.as_ref(), realpath, no_final_slash);
         let name = name.replace(
-            if entry.as_ref() == Path::new(no_final_slash) {
-                no_final_slash
-            } else {
-                realpath
-            },
+            if parent == Path::new(no_final_slash) { realpath } else { no_final_slash },
             prefix,
         );
         tracing::trace!("From Path {:?} to Directory: {name}", entry.as_ref());

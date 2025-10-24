@@ -2,7 +2,7 @@ pub mod new_file_tba;
 pub mod utils;
 pub mod watcher;
 
-use futures::{stream::SplitSink, SinkExt};
+use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
@@ -24,7 +24,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    directory::{file::File, tree_dir::TreeDir, Directory},
+    directory::{Directory, file::File, tree_dir::TreeDir},
     manager::watcher::{Executing, Task, WatcherOwn},
 };
 
@@ -42,11 +42,11 @@ where
     W: WatcherOwn<Change, R> + 'static,
     R: Send + Sync + 'static,
 {
-    pub fn new(state: Arc<RwLock<TreeDir>>, watcher: Watcher<Task<W>, W, Change, R>) -> Arc<Self> {
+    pub fn run(state: Arc<RwLock<TreeDir>>, watcher: Watcher<Task<W>, W, Change, R>) {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_sch, rx_sch) = unbounded_channel();
-        
-        let (watcher , task) = watcher.task();
+
+        let (watcher, task) = watcher.task();
 
         let myself = Arc::new(Self {
             tx_ws,
@@ -57,8 +57,6 @@ where
         task.run(tx_sch);
         tokio::task::spawn(myself.clone().run_websocker_mg(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
-
-        myself
     }
 
     async fn run_websocker_mg(self: Arc<Self>, mut rx_ws: Receiver<MsgWs>) {
@@ -140,25 +138,26 @@ where
                         tracing::error!("[Scheduler] Sent message to WebSocket manager: {err}");
                     }
 
-                    if validate_name_and_replace(
+                    if let Err(err) = validate_name_and_replace(
                         PathBuf::from(path.replace(wr.root(), wr.real_path())),
                         &file_name,
                     )
                     .await
-                    .is_err()
                     {
-                        tracing::error!("[Scheduler] Validate error");
+                        tracing::error!("[Scheduler] Validate error - {err:?}");
                     }
                 }
-                Some(Change::Delete { parent, file_name }) => {
+                Some(Change::Delete { parent, file }) => {
                     let mut wr = self.state.write().await;
 
                     let mut queue = VecDeque::new();
                     let mut key_to_delete = parent.path().clone();
-                    tracing::trace!("[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete {{ parent: {parent:?}, file_name: {file_name:?} }}) }}");
+                    tracing::trace!(
+                        "[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete {{ parent: {parent:?}, file_name: {file:?} }}) }}"
+                    );
 
                     if let Some(files) = wr.get_mut(&parent) {
-                        if let Some(file) = files.pop_if(|x| x.file_name() == file_name) {
+                        if let Some(file) = files.pop_if(|x| x.file_name() == file.file_name()) {
                             if file.is_dir() {
                                 key_to_delete.push(file.file_name());
                                 queue.push_front(Directory::new_unchk_from_path(&key_to_delete));
@@ -169,10 +168,14 @@ where
                                 file.is_dir()
                             );
                         } else {
-                            tracing::info!("[Scheduler] {{ Task: Delete }} File {file_name:?} not found");
+                            tracing::info!(
+                                "[Scheduler] {{ Task: Delete }} File {file:?} not found"
+                            );
                         }
                     } else {
-                        tracing::info!("[Scheduler] {{ Task: Delete }} Directory {parent:?} not found");
+                        tracing::info!(
+                            "[Scheduler] {{ Task: Delete }} Directory {parent:?} not found"
+                        );
                     }
 
                     while let Some(dir) = queue.pop_front() {
@@ -245,14 +248,13 @@ where
                         eprintln!("{err}");
                     }
 
-                    if validate_name_and_replace(
+                    if let Err(err) = validate_name_and_replace(
                         PathBuf::from(path.replace(wr.root(), wr.real_path())),
                         &file_name,
                     )
                     .await
-                    .is_err()
                     {
-                        tracing::error!("[Scheduler] Validate error");
+                        tracing::error!("[Scheduler] Validate error {path:?} {err:?}");
                     }
                 }
                 None => {
@@ -299,7 +301,7 @@ pub enum Change {
     },
     Delete {
         parent: Directory,
-        file_name: String,
+        file: File,
     },
 }
 

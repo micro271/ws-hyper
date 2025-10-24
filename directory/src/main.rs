@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod directory;
 pub mod grpc_v1;
 pub mod handlers;
@@ -6,46 +7,67 @@ pub mod state;
 pub mod ws;
 
 use crate::{
+    cli::Args,
     directory::tree_dir::TreeDir,
     manager::{
-        watcher::{Watcher, event_watcher::EventWatcherBuilder}, Schedule
+        Schedule,
+        watcher::{Watcher, event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
     },
     state::State,
 };
+use clap::Parser;
 use hyper::server::conn::http1;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing::Level;
+use tracing_subscriber::fmt;
 use utils::{Io, Peer, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
-    let tr = fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .finish();
+    let Args {
+        watcher,
+        watcher_path,
+        listen,
+        port,
+        log_level,
+        prefix_root,
+    } = Args::parse();
+
+    let tr = fmt().with_max_level(Level::from(log_level)).finish();
     tracing::subscriber::set_global_default(tr)?;
 
-    let ip = std::env::var("IP").unwrap_or("0.0.0.0".to_string());
-    let port = std::env::var("PORT").unwrap_or("3500".to_string());
-    let root_path = std::env::var("ROOT_PATH").unwrap_or(std::env::current_dir().unwrap().to_str().map(ToString::to_string).unwrap());
-    let listener = TcpListener::bind(format!("{ip}:{port}")).await?;
+    let listener = TcpListener::bind(format!("{listen}:{port}")).await?;
 
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = TreeDir::new_async(&root_path, ".".to_string()).await?;
-
-    let watcher = EventWatcherBuilder::default()
-        .path(PathBuf::from(&root_path))?
-        .rename_control_await(2000)
-        .for_dir(state.real_path().to_string(), state.root().to_string())
-        .build()?;
+    let state = TreeDir::new_async(&watcher_path, prefix_root).await?;
 
     let state = Arc::new(RwLock::new(state));
 
-    let watcher = Watcher::new(watcher);
-    _ = Schedule::new(state.clone(), watcher);
+    match watcher {
+        cli::TypeWatcher::Poll => {
+            let w = PollWatcherNotify::new(
+                state.read().await.real_path().to_string(),
+                state.read().await.root().to_string(),
+                2000,
+            )
+            .unwrap();
+            Schedule::run(state.clone(), Watcher::new(w));
+        }
+        cli::TypeWatcher::Event => {
+            let w = EventWatcherBuilder::default()
+                .rename_control_await(2000)
+                .path(PathBuf::from(state.read().await.real_path()))
+                .unwrap()
+                .for_dir_root(state.read().await.root())
+                .build()
+                .unwrap();
+            Schedule::run(state.clone(), Watcher::new(w));
+        }
+    }
 
     let state = Arc::new(State::new(state));
 
