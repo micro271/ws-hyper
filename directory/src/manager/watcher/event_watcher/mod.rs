@@ -12,8 +12,8 @@ use std::{marker::PhantomData, path::PathBuf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::manager::{
-    utils::{match_error, OneshotSender},
-    watcher::{error::WatcherErr, WatcherOwn},
+    utils::{OneshotSender, match_error},
+    watcher::{WatcherOwn, error::WatcherErr},
 };
 
 pub struct EventWatcher<Tx> {
@@ -22,12 +22,22 @@ pub struct EventWatcher<Tx> {
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: UnboundedReceiver<Result<notify::Event, notify::Error>>,
     for_dir: ForDir<String>,
-    _pantom: PhantomData<Tx>
+    _pantom: PhantomData<Tx>,
 }
 
-impl<Tx> WatcherOwn<Tx, Result<notify::Event, notify::Error>, Change, Result<(),tokio::sync::mpsc::error::SendError<Change>>> for EventWatcher<Tx> 
-    where 
-        Tx: OneshotSender<Item = Change, Output = Result<(),tokio::sync::mpsc::error::SendError<Change>>> + Send + Sync,
+impl<Tx>
+    WatcherOwn<
+        Tx,
+        Result<notify::Event, notify::Error>,
+        Change,
+        Result<(), tokio::sync::mpsc::error::SendError<Change>>,
+    > for EventWatcher<Tx>
+where
+    Tx: OneshotSender<
+            Item = Change,
+            Output = Result<(), tokio::sync::mpsc::error::SendError<Change>>,
+        > + Send
+        + Sync,
 {
     fn run(self, tx: Tx) {
         tokio::task::spawn(self.task(tx));

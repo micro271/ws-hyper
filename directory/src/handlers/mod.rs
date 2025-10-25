@@ -1,27 +1,21 @@
 use crate::{state::State, user::Claim};
-use futures::{StreamExt, stream::SplitStream};
+
 use http::{StatusCode, header};
 use http_body_util::Full;
 use hyper::{
     Request, Response,
     body::{Bytes, Incoming},
-    upgrade::Upgraded,
 };
-use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
-use hyper_util::rt::TokioIo;
 use std::{convert::Infallible, sync::Arc};
-use utils::{GetToken, JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
+use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 
 type TypeState = Arc<State>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
     let repo = req.extensions().get::<TypeState>().unwrap();
-
-    Ok(Response::builder()
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Full::from(repo.tree_as_json().await.to_string()))
-        .unwrap_or_default())
+    
+    server_upgrade(req).await
 }
 
 pub async fn middleware_jwt<T>(
@@ -31,6 +25,7 @@ pub async fn middleware_jwt<T>(
 where
     T: AsyncFn(Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible>,
 {
+    /*
     let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
         return Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -48,55 +43,20 @@ where
                 .unwrap_or_default());
         }
     };
-
     req.extensions_mut().insert(claims);
+    */
 
     next(req).await
 }
 
-pub async fn serve_ws(
-    mut ws: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
-) -> Result<(), &'static str> {
-    while let Some(Ok(msg)) = ws.next().await {
-        match msg {
-            Message::Text(txt) => {
-                let path = txt.strip_prefix("subscribe: ");
-            }
-            Message::Ping(bytes) => {
-                tracing::debug!("Received ping message: {bytes:02X?}");
-            }
-            Message::Pong(bytes) => {
-                tracing::debug!("Received pong message: {bytes:02X?}");
-            }
-            Message::Close(close_frame) => {
-                if let Some(msg) = close_frame {
-                    tracing::debug!(
-                        "Received close message with code {} and message: {}",
-                        msg.code,
-                        msg.reason
-                    );
-                } else {
-                    tracing::debug!("Received close message");
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let state = req.extensions().get::<TypeState>().unwrap().clone();
+    let path = req.uri().path().strip_prefix("/ws/").unwrap();
+
+    let path = format!("{}{}",state.read().await.root(),path);
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
-        let (tx, rx) = ws.await.unwrap().split();
-        //state.add_cliente("".to_string(), tx);
-        tokio::spawn(async move {
-            if let Err(e) = serve_ws(rx).await {
-                tracing::error!("{e}");
-            }
-        });
+        state.add_client(path,ws).await;
         Ok(res)
     } else {
         Ok(Response::builder()

@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(RwLock::new(state));
 
-    match watcher {
+    let websocker_subscribers = match watcher {
         cli::TypeWatcher::Poll => {
             let w = PollWatcherNotify::new(
                 state.read().await.real_path().to_string(),
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 2000,
             )
             .unwrap();
-            Schedule::run(state.clone(), Watcher::new(w));
+            Schedule::run(state.clone(), Watcher::new(w))
         }
         cli::TypeWatcher::Event => {
             let w = EventWatcherBuilder::default()
@@ -66,11 +66,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .for_dir_root(state.read().await.root())
                 .build()
                 .unwrap();
-            Schedule::run(state.clone(), Watcher::new(w));
+            Schedule::run(state.clone(), Watcher::new(w))
         }
-    }
+    };
 
-    let state = Arc::new(State::new(state));
+    let state = Arc::new(State::new(state, websocker_subscribers));
 
     loop {
         let (stream, _) = listener.accept().await?;

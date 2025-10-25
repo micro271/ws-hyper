@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::{error::SendError, Receiver, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, UnboundedReceiver, UnboundedSender, error::SendError};
 
 use crate::manager::utils::{AsyncRecv, OneshotSender};
 

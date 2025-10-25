@@ -6,7 +6,7 @@ pub mod websocker;
 
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
-use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
+use hyper_tungstenite::{HyperWebsocket, WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, vec};
@@ -23,7 +23,10 @@ use utils::{Executing, Task};
 
 use crate::{
     directory::{Directory, file::File, tree_dir::TreeDir},
-    manager::{watcher::WatcherOwn, websocker::WebSocker},
+    manager::{
+        watcher::WatcherOwn,
+        websocker::{MsgWs, WebSocker},
+    },
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -62,10 +65,10 @@ where
             Change,
             Result<(), tokio::sync::mpsc::error::SendError<Change>>,
         >,
-    ) {
+    ) -> Sender<MsgWs>{
         let (tx_ws, rx_ws) = channel(256);
         let (tx_sch, rx_sch) = unbounded_channel();
-
+        let resp = tx_ws.clone();
         let (watcher, task) = watcher.task();
 
         let myself = Arc::new(Self {
@@ -77,6 +80,7 @@ where
         task.run(tx_sch);
         tokio::task::spawn(WebSocker::task(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
+        resp
     }
 
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
@@ -240,7 +244,7 @@ where
         }
     }
 
-    pub async fn add_cliente(&mut self, path: String, ws: WsSenderType) {
+    pub async fn add_cliente(&mut self, path: String, ws: HyperWebsocket) {
         _ = self
             .tx_ws
             .send(MsgWs::NewUser {
@@ -249,18 +253,6 @@ where
             })
             .await;
     }
-}
-
-#[derive(Debug)]
-pub enum MsgWs {
-    NewUser {
-        subscriber: String,
-        sender: WsSenderType,
-    },
-    Change {
-        subscriber: String,
-        change: Change,
-    },
 }
 
 #[derive(Debug, Clone, Serialize)]
