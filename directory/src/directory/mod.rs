@@ -48,7 +48,11 @@ where
 
         tracing::error!("{:?} {} {}", entry.as_ref(), realpath, no_final_slash);
         let name = name.replace(
-            if parent == Path::new(no_final_slash) { realpath } else { no_final_slash },
+            if parent == Path::new(no_final_slash) {
+                realpath
+            } else {
+                no_final_slash
+            },
             prefix,
         );
         tracing::trace!("From Path {:?} to Directory: {name}", entry.as_ref());

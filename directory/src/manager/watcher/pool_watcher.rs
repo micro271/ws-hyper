@@ -1,10 +1,11 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, process::Output, time::Duration};
 
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::manager::{
     Change,
+    utils::OneshotSender,
     watcher::{WatcherOwn, error::WatcherErr, for_dir::ForDir},
 };
 
@@ -49,15 +50,18 @@ impl PollWatcherNotify {
     }
 }
 
-impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for PollWatcherNotify {
-    fn run(self, tx: UnboundedSender<Change>) {
+impl<T: OneshotSender<Item = SI, Output = SO>, SI: Send + 'static, SO: Send + 'static>
+    WatcherOwn<T, Result<notify::Event, notify::Error>, SI, SO> for PollWatcherNotify
+{
+    fn run(self, tx: T) {
         todo!()
     }
 
-    async fn task(mut self, tx: UnboundedSender<Change>) {
+    async fn task(mut self, tx: T) {
         let mut rx = self.rx.take().unwrap();
 
         while let Some(inc) = rx.recv().await {
+            // TODO
             tracing::info!("{inc:?}");
         }
 

@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::{state::State, user::Claim};
 use futures::{StreamExt, stream::SplitStream};
 use http::{StatusCode, header};
 use http_body_util::Full;
@@ -10,16 +10,48 @@ use hyper::{
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use std::{convert::Infallible, sync::Arc};
+use utils::{GetToken, JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 
 type TypeState = Arc<State>;
 
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
     let repo = req.extensions().get::<TypeState>().unwrap();
+
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/json")
         .body(Full::from(repo.tree_as_json().await.to_string()))
         .unwrap_or_default())
+}
+
+pub async fn middleware_jwt<T>(
+    mut req: Request<Incoming>,
+    next: T,
+) -> Result<Response<Full<Bytes>>, Infallible>
+where
+    T: AsyncFn(Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible>,
+{
+    let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
+        return Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(Full::default())
+            .unwrap_or_default());
+    };
+
+    let claims = match JwtHandle::verify_token::<Claim>(&token) {
+        Ok(claims) => claims,
+        Err(err) => {
+            tracing::error!("[Midleware jwt] {err}");
+            return Ok(Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .body(Full::default())
+                .unwrap_or_default());
+        }
+    };
+
+    req.extensions_mut().insert(claims);
+
+    next(req).await
 }
 
 pub async fn serve_ws(

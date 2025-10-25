@@ -4,6 +4,7 @@ pub mod grpc_v1;
 pub mod handlers;
 pub mod manager;
 pub mod state;
+pub mod user;
 pub mod ws;
 
 use crate::{
@@ -81,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 io,
                 service_with_state(state, move |mut req| {
                     req.extensions_mut().insert(peer);
-                    handlers::entry(req)
+                    handlers::middleware_jwt(req, handlers::entry)
                 }),
             )
             .with_upgrades();

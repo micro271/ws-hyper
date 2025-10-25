@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::manager::utils::TakeOwn;
 
 use super::{
@@ -6,13 +8,14 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct EventWatcherBuilder<P, F> {
+pub struct EventWatcherBuilder<P, F, Tx> {
     path: P,
     r#await: Option<u64>,
     for_dir: F,
+    _phantom: PhantomData<Tx>,
 }
 
-impl<P, F> EventWatcherBuilder<P, F> {
+impl<P, F, Tx> EventWatcherBuilder<P, F, Tx> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
         self
@@ -21,7 +24,7 @@ impl<P, F> EventWatcherBuilder<P, F> {
     pub fn path(
         self,
         mut path: PathBuf,
-    ) -> Result<EventWatcherBuilder<EventWatcherPath, F>, WatcherErr> {
+    ) -> Result<EventWatcherBuilder<EventWatcherPath, F, Tx>, WatcherErr> {
         if path.is_relative() {
             path = path
                 .canonicalize()
@@ -32,6 +35,7 @@ impl<P, F> EventWatcherBuilder<P, F> {
             path: EventWatcherPath(path),
             r#await: self.r#await,
             for_dir: self.for_dir,
+            _phantom: self._phantom,
         })
     }
 
@@ -39,32 +43,34 @@ impl<P, F> EventWatcherBuilder<P, F> {
         self,
         real_path: String,
         root: String,
-    ) -> EventWatcherBuilder<P, EventWatcherForDir<String>> {
+    ) -> EventWatcherBuilder<P, EventWatcherForDir<String>, Tx> {
         EventWatcherBuilder {
             path: self.path,
             r#await: self.r#await,
             for_dir: EventWatcherForDir(ForDir::new(root, real_path)),
+            _phantom: self._phantom,
         }
     }
 }
 
-impl<F> EventWatcherBuilder<EventWatcherPath, F> {
+impl<F, Tx> EventWatcherBuilder<EventWatcherPath, F, Tx> {
     pub fn for_dir_root<T: AsRef<str>>(
         self,
         root: T,
-    ) -> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>> {
+    ) -> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>, Tx> {
         let path = self.path.0.to_str().map(ToString::to_string).unwrap();
 
         EventWatcherBuilder {
             path: self.path,
             r#await: self.r#await,
             for_dir: EventWatcherForDir(ForDir::new(root.as_ref().to_string(), path)),
+            _phantom: self._phantom,
         }
     }
 }
 
-impl EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>> {
-    pub fn build(self) -> Result<EventWatcher, WatcherErr> {
+impl<Tx> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>, Tx> {
+    pub fn build(self) -> Result<EventWatcher<Tx>, WatcherErr> {
         let path = self.path.take();
         let for_dir = self.for_dir.take();
         let r#await = self.r#await.unwrap_or(2000);
@@ -90,6 +96,7 @@ impl EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>> {
             tx,
             rx,
             for_dir,
+            _pantom: self._phantom,
         })
     }
 }
@@ -102,12 +109,15 @@ pub struct EventWatcherNoPath;
 
 pub struct EventWatcherPath(PathBuf);
 
-impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoForDir> {
+impl<Tx> std::default::Default
+    for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoForDir, Tx>
+{
     fn default() -> Self {
         Self {
             path: EventWatcherNoPath,
             r#await: None,
             for_dir: EventWatcherNoForDir,
+            _phantom: PhantomData,
         }
     }
 }

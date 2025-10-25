@@ -8,28 +8,32 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::path::PathBuf;
+use std::{marker::PhantomData, path::PathBuf};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::manager::{
-    utils::match_error,
-    watcher::{WatcherOwn, error::WatcherErr},
+    utils::{match_error, OneshotSender},
+    watcher::{error::WatcherErr, WatcherOwn},
 };
 
-pub struct EventWatcher {
+pub struct EventWatcher<Tx> {
     rename_control: RenameControl,
     _notify_watcher: INotifyWatcher,
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: UnboundedReceiver<Result<notify::Event, notify::Error>>,
     for_dir: ForDir<String>,
+    _pantom: PhantomData<Tx>
 }
 
-impl WatcherOwn<Change, Result<notify::Event, notify::Error>> for EventWatcher {
-    fn run(self, tx: UnboundedSender<Change>) {
+impl<Tx> WatcherOwn<Tx, Result<notify::Event, notify::Error>, Change, Result<(),tokio::sync::mpsc::error::SendError<Change>>> for EventWatcher<Tx> 
+    where 
+        Tx: OneshotSender<Item = Change, Output = Result<(),tokio::sync::mpsc::error::SendError<Change>>> + Send + Sync,
+{
+    fn run(self, tx: Tx) {
         tokio::task::spawn(self.task(tx));
     }
 
-    async fn task(mut self, tx: UnboundedSender<Change>) {
+    async fn task(mut self, tx: Tx) {
         tracing::debug!("Watcher notify manage init");
         let for_dir = self.for_dir;
         let tx_rename = self.rename_control.sender();

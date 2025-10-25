@@ -2,13 +2,33 @@ use regex::Regex;
 use std::path::PathBuf;
 use tokio::fs;
 
-pub trait TakeOwn<T: Send> {
+pub trait AsyncRecv: Send {
+    type Item;
+
+    fn recv(&mut self) -> impl Future<Output = Option<Self::Item>> + Send;
+}
+
+pub trait AsyncSender: Send + 'static {
+    type Item;
+    type Output;
+
+    fn sent(&mut self, item: Self::Item) -> impl Future<Output = Self::Output>;
+}
+
+pub trait OneshotSender: Send + 'static {
+    type Item;
+    type Output;
+
+    fn send(&self, item: Self::Item) -> Self::Output;
+}
+
+pub trait TakeOwn<T: Send + 'static> {
     fn take(self) -> T;
 }
 
 pub trait FromDirEntyAsync<T>
 where
-    Self: Sized + Sync + Send,
+    Self: Sized + Send,
 {
     fn from_entry(value: T) -> impl Future<Output = Self>;
 }
@@ -86,3 +106,21 @@ macro_rules! match_error {
 }
 
 pub(crate) use match_error;
+
+#[derive(Debug, Clone)]
+pub struct Task<W: Send>(W);
+
+impl<W: Send + Sync + 'static> Task<W> {
+    pub fn new(inner: W) -> Self {
+        Self(inner)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Executing;
+
+impl<W: Send + Sync + 'static> TakeOwn<W> for Task<W> {
+    fn take(self) -> W {
+        self.0
+    }
+}

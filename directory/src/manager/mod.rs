@@ -1,31 +1,29 @@
+pub mod channels_types;
 pub mod new_file_tba;
 pub mod utils;
 pub mod watcher;
+pub mod websocker;
 
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
-use std::{
-    collections::{HashMap, VecDeque},
-    path::PathBuf,
-    sync::Arc,
-    vec,
-};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc, vec};
 use utils::validate_name_and_replace;
 use watcher::Watcher;
 
 use serde_json::json;
 use tokio::sync::{
     RwLock,
-    broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
-    mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel},
+    broadcast::Receiver as ReceivedBr,
+    mpsc::{Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
 };
+use utils::{Executing, Task};
 
 use crate::{
     directory::{Directory, file::File, tree_dir::TreeDir},
-    manager::watcher::{Executing, Task, WatcherOwn},
+    manager::{watcher::WatcherOwn, websocker::WebSocker},
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -34,15 +32,37 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 pub struct Schedule<W, T, R> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    _watcher: Watcher<Executing, W, T, R>,
+    _watcher: Watcher<
+        Executing,
+        W,
+        T,
+        R,
+        Change,
+        Result<(), tokio::sync::mpsc::error::SendError<Change>>,
+    >,
 }
 
-impl<W, R> Schedule<W, Change, R>
+impl<W, R> Schedule<W, UnboundedSender<Change>, R>
 where
-    W: WatcherOwn<Change, R> + 'static,
+    W: WatcherOwn<
+            UnboundedSender<Change>,
+            R,
+            Change,
+            Result<(), tokio::sync::mpsc::error::SendError<Change>>,
+        > + 'static,
     R: Send + Sync + 'static,
 {
-    pub fn run(state: Arc<RwLock<TreeDir>>, watcher: Watcher<Task<W>, W, Change, R>) {
+    pub fn run(
+        state: Arc<RwLock<TreeDir>>,
+        watcher: Watcher<
+            Task<W>,
+            W,
+            UnboundedSender<Change>,
+            R,
+            Change,
+            Result<(), tokio::sync::mpsc::error::SendError<Change>>,
+        >,
+    ) {
         let (tx_ws, rx_ws) = channel(256);
         let (tx_sch, rx_sch) = unbounded_channel();
 
@@ -55,57 +75,12 @@ where
         });
 
         task.run(tx_sch);
-        tokio::task::spawn(myself.clone().run_websocker_mg(rx_ws));
+        tokio::task::spawn(WebSocker::task(rx_ws));
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
     }
 
-    async fn run_websocker_mg(self: Arc<Self>, mut rx_ws: Receiver<MsgWs>) {
-        let mut users = HashMap::<String, SenderBr<Change>>::new();
-        tracing::debug!("Web socket manage init");
-        loop {
-            let msg = rx_ws.recv().await;
-            tracing::trace!("{msg:?}");
-            match msg {
-                Some(MsgWs::Change { subscriber, change }) => {
-                    if let Some(send) = users.get(&subscriber)
-                        && let Err(err) = send.send(change)
-                    {
-                        tracing::error!("{err}");
-                        _ = users.remove(&subscriber);
-                    }
-                }
-                Some(MsgWs::NewUser {
-                    subscriber,
-                    mut sender,
-                }) => {
-                    let mut rx = if let Some(subs) = users.get(&subscriber) {
-                        subs.subscribe()
-                    } else {
-                        let (tx, rx) = broadcast::channel(256);
-                        users.insert(subscriber, tx);
-                        rx
-                    };
-                    tokio::spawn(async move {
-                        while let Ok(change) = rx.recv().await {
-                            if let Err(err) = sender
-                                .send(Message::Text(json!(change).to_string().into()))
-                                .await
-                            {
-                                tracing::error!("{err}");
-                            }
-                        }
-                    });
-                }
-                None => {
-                    tracing::debug!("Peer tx_ws closed");
-                    break;
-                }
-            }
-        }
-    }
-
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
-        tracing::debug!("Scheduler init");
+        tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.clone();
         loop {
             match rx_watcher.recv().await {
