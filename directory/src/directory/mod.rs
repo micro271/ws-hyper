@@ -10,13 +10,22 @@ pub struct Directory(String);
 
 impl Directory {
     pub fn all_superpaths(self) -> Vec<Directory> {
-        let reg = Regex::new(r"(/.+$)").unwrap();
-        let main = &self.0[..];
+        let reg = Regex::new(r"/([^/]+)").unwrap();
+        let path = self.as_ref();
+        tracing::trace!("{path:?}");
         let mut resp = Vec::new();
-        while let Some(path) = reg.find(&main) {
-            todo!()
+
+        for mt in reg.find_iter(path) {
+            let aux = &path[..mt.start()];
+            tracing::trace!("[All superpaths] match: {mt:?}");
+            if !aux.contains('/') || aux.is_empty() {
+                resp.push(Directory::new_unchk(format!("{aux}/")));
+            } else {
+                resp.push(Directory::new_unchk(aux.to_string()));
+            }
         }
         resp.push(self);
+        tracing::trace!("[All superpaths] result {resp:?}");
         resp
     }
 
@@ -34,6 +43,10 @@ impl Directory {
         T: AsRef<Path>,
     {
         Self(path.as_ref().to_str().map(ToString::to_string).unwrap())
+    }
+
+    pub fn new_unchk(path: String) -> Self {
+        Self(path)
     }
 
     pub fn path(&self) -> PathBuf {

@@ -30,8 +30,7 @@ impl State {
         if let Err(er) = self
             .tx_subs
             .send(MsgWs::NewUser {
-                subscriber: Directory::new_unchk_from_path(subscriber)
-                    .with_prefix(self.read().await.root()),
+                subscriber: Directory::new_unchk_from_path(subscriber),
                 sender,
             })
             .await
