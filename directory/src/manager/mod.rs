@@ -19,11 +19,12 @@ use tokio::sync::{
     broadcast::Receiver as ReceivedBr,
     mpsc::{Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
 };
-use utils::{Executing, Task};
+use utils::Executing;
 
 use crate::{
     directory::{Directory, file::File, tree_dir::TreeDir},
     manager::{
+        utils::{OneshotSender, Task},
         watcher::WatcherOwn,
         websocker::{MsgWs, WebSocker},
     },
@@ -32,41 +33,23 @@ use crate::{
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
-pub struct Schedule<W, T, R> {
+pub struct Schedule<W, T, TxInner> {
     tx_ws: Sender<MsgWs>,
     pub state: Arc<RwLock<TreeDir>>,
-    _watcher: Watcher<
-        Executing,
-        W,
-        T,
-        R,
-        Change,
-        Result<(), tokio::sync::mpsc::error::SendError<Change>>,
-    >,
+    _watcher: Watcher<Executing, W, T, TxInner>,
 }
 
-impl<W, R> Schedule<W, UnboundedSender<Change>, R>
+impl<W, TxInner> Schedule<W, UnboundedSender<Change>, TxInner>
 where
-    W: WatcherOwn<
-            UnboundedSender<Change>,
-            R,
-            Change,
-            Result<(), tokio::sync::mpsc::error::SendError<Change>>,
-        > + 'static,
-    R: Send + Sync + 'static,
+    W: WatcherOwn<UnboundedSender<Change>, TxInner> + 'static,
+    TxInner: OneshotSender + Clone,
 {
     pub fn run(
         state: Arc<RwLock<TreeDir>>,
-        watcher: Watcher<
-            Task<W>,
-            W,
-            UnboundedSender<Change>,
-            R,
-            Change,
-            Result<(), tokio::sync::mpsc::error::SendError<Change>>,
-        >,
-    ) -> Sender<MsgWs>{
-        let (tx_ws, rx_ws) = channel(256);
+        watcher: Watcher<Task<W>, W, UnboundedSender<Change>, TxInner>,
+    ) -> Sender<MsgWs> {
+        let (tx_ws, rx_ws) = channel(128);
+
         let (tx_sch, rx_sch) = unbounded_channel();
         let resp = tx_ws.clone();
         let (watcher, task) = watcher.task();
@@ -78,7 +61,7 @@ where
         });
 
         task.run(tx_sch);
-        tokio::task::spawn(WebSocker::task(rx_ws));
+        WebSocker::run(rx_ws);
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
         resp
     }
@@ -109,7 +92,7 @@ where
 
                     if let Err(err) = tx_ws
                         .send(MsgWs::Change {
-                            subscriber: dir.to_string(),
+                            subscriber: dir.clone(),
                             change: Change::New { dir, file },
                         })
                         .await
@@ -219,7 +202,7 @@ where
 
                     if let Err(err) = tx_ws
                         .send(MsgWs::Change {
-                            subscriber: dir.path().to_str().unwrap().to_string(),
+                            subscriber: dir.clone(),
                             change: Change::Name { dir, from, to },
                         })
                         .await
@@ -249,7 +232,7 @@ where
             .tx_ws
             .send(MsgWs::NewUser {
                 sender: ws,
-                subscriber: path,
+                subscriber: Directory::new_unchk_from_path(path),
             })
             .await;
     }

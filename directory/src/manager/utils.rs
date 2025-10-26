@@ -1,8 +1,8 @@
 use regex::Regex;
 use std::path::PathBuf;
-use tokio::fs;
+use tokio::{fs, sync::mpsc::error::SendError};
 
-pub trait AsyncRecv: Send {
+pub trait AsyncRecv: Send + Sync {
     type Item;
 
     fn recv(&mut self) -> impl Future<Output = Option<Self::Item>> + Send;
@@ -10,16 +10,17 @@ pub trait AsyncRecv: Send {
 
 pub trait AsyncSender: Send + 'static {
     type Item;
-    type Output;
 
-    fn sent(&mut self, item: Self::Item) -> impl Future<Output = Self::Output>;
+    fn send(
+        &mut self,
+        item: Self::Item,
+    ) -> impl Future<Output = Result<(), SendError<Self::Item>>> + Send;
 }
 
-pub trait OneshotSender: Send + 'static {
+pub trait OneshotSender: Send + Sync + 'static {
     type Item;
-    type Output;
 
-    fn send(&self, item: Self::Item) -> Self::Output;
+    fn send(&self, item: Self::Item) -> Result<(), SendError<Self::Item>>;
 }
 
 pub trait TakeOwn<T: Send + 'static> {

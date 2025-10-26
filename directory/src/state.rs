@@ -1,8 +1,11 @@
-use crate::{directory::tree_dir::TreeDir, manager::{new_file_tba::CreateRateLimit, websocker::MsgWs}};
+use crate::{
+    directory::{Directory, tree_dir::TreeDir},
+    manager::{new_file_tba::CreateRateLimit, websocker::MsgWs},
+};
 use hyper_tungstenite::HyperWebsocket;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::sync::{mpsc::Sender, RwLock, RwLockReadGuard};
+use tokio::sync::{RwLock, RwLockReadGuard, mpsc::Sender};
 
 pub struct State {
     tree: Arc<RwLock<TreeDir>>,
@@ -18,11 +21,21 @@ impl State {
             tx_subs: new_subs,
         }
     }
+
     pub async fn read(&self) -> RwLockReadGuard<'_, TreeDir> {
         self.tree.read().await
     }
+
     pub async fn add_client(&self, subscriber: String, sender: HyperWebsocket) {
-        if let Err(er) = self.tx_subs.send(MsgWs::NewUser { subscriber, sender, }).await {
+        if let Err(er) = self
+            .tx_subs
+            .send(MsgWs::NewUser {
+                subscriber: Directory::new_unchk_from_path(subscriber)
+                    .with_prefix(self.read().await.root()),
+                sender,
+            })
+            .await
+        {
             tracing::error!("[State] new subscriber error {er}");
         }
     }

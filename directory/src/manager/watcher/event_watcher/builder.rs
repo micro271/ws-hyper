@@ -1,4 +1,6 @@
+use notify::{Error, Event};
 use std::marker::PhantomData;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::manager::utils::TakeOwn;
 
@@ -70,7 +72,16 @@ impl<F, Tx> EventWatcherBuilder<EventWatcherPath, F, Tx> {
 }
 
 impl<Tx> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>, Tx> {
-    pub fn build(self) -> Result<EventWatcher<Tx>, WatcherErr> {
+    pub fn build(
+        self,
+    ) -> Result<
+        EventWatcher<
+            Tx,
+            UnboundedSender<Result<Event, Error>>,
+            UnboundedReceiver<Result<Event, Error>>,
+        >,
+        WatcherErr,
+    > {
         let path = self.path.take();
         let for_dir = self.for_dir.take();
         let r#await = self.r#await.unwrap_or(2000);
@@ -81,8 +92,12 @@ impl<Tx> EventWatcherBuilder<EventWatcherPath, EventWatcherForDir<String>, Tx> {
 
         let (tx, rx) = unbounded_channel();
         let tx_cp = tx.clone();
-        let mut notify_watcher = notify::recommended_watcher(move |event| _ = tx_cp.send(event))
-            .map_err(|x| WatcherErr::new(x.to_string()))?;
+        let mut notify_watcher = notify::recommended_watcher(move |event| {
+            if let Err(err) = tx_cp.send(event) {
+                tracing::error!("[Inner Task Notify] err {err}");
+            }
+        })
+        .map_err(|x| WatcherErr::new(x.to_string()))?;
 
         notify_watcher
             .watch(&path, RecursiveMode::Recursive)

@@ -10,7 +10,10 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tokio::sync::{Mutex, broadcast::Sender as SenderBr};
 
-use crate::manager::{Change, utils::AsyncRecv};
+use crate::{
+    directory::Directory,
+    manager::{Change, utils::AsyncRecv},
+};
 
 #[derive(Debug, Clone)]
 pub struct WebSocker<Rx> {
@@ -21,31 +24,36 @@ impl<Rx: AsyncRecv<Item = MsgWs>> WebSocker<Rx>
 where
     Self: Send + 'static,
 {
-    pub async fn run(rx: Rx) {
+    pub fn run(rx: Rx) {
         tokio::spawn(Self::task(rx));
     }
     pub async fn task(mut rx: Rx) {
-        let mut users = HashMap::<String, SenderBr<Change>>::new();
+        let mut users = HashMap::<Directory, SenderBr<Change>>::new();
         tracing::debug!("Web socket manage init");
+
         loop {
             let msg = rx.recv().await;
             tracing::trace!("{msg:?}");
             match msg {
                 Some(MsgWs::Change { subscriber, change }) => {
-                    if let Some(send) = users.get(&subscriber) {
-                        match send.send(change) {
-                            Ok(n) => {
-                                if n == 0 {
-                                    users.remove(&subscriber);
+                    let all_subs = subscriber.all_superpaths();
+                    tracing::trace!("[WehSocket Task] All subscriber to notify: {:?} ", all_subs);
+                    for sub in all_subs {
+                        if let Some(send) = users.get(&sub) {
+                            match send.send(change.clone()) {
+                                Ok(n) => {
+                                    if n == 0 {
+                                        users.remove(&sub);
+                                    }
                                 }
-                            }
-                            Err(err) => {
-                                tracing::error!("{err}");
+                                Err(err) => {
+                                    tracing::error!("{err}");
+                                }
                             }
                         }
                     }
                 }
-                Some(MsgWs::NewUser { subscriber, sender })  => {
+                Some(MsgWs::NewUser { subscriber, sender }) => {
                     let mut rx = if let Some(subs) = users.get(&subscriber) {
                         subs.subscribe()
                     } else {
@@ -85,9 +93,7 @@ where
     ) -> Result<(), &'static str> {
         while let Some(Ok(msg)) = ws.next().await {
             match msg {
-                Message::Text(txt) => {
-                    let path = txt.strip_prefix("subscribe: ");
-                }
+                Message::Text(txt) => { /* ... */ }
                 Message::Ping(bytes) => {
                     tracing::debug!("Received ping message: {bytes:02X?}");
                     if let Err(er) = tx.lock().await.send(Message::Pong(bytes)).await {
@@ -119,11 +125,11 @@ where
 #[derive(Debug)]
 pub enum MsgWs {
     NewUser {
-        subscriber: String,
+        subscriber: Directory,
         sender: HyperWebsocket,
     },
     Change {
-        subscriber: String,
+        subscriber: Directory,
         change: Change,
-    }
+    },
 }

@@ -14,8 +14,16 @@ type TypeState = Arc<State>;
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
     let repo = req.extensions().get::<TypeState>().unwrap();
-    
-    server_upgrade(req).await
+
+    if path.starts_with("/monitor") {
+        server_upgrade(req).await
+    } else {
+        Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Full::default())
+            .unwrap_or_default())
+    }
+
 }
 
 pub async fn middleware_jwt<T>(
@@ -51,12 +59,12 @@ where
 
 pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let state = req.extensions().get::<TypeState>().unwrap().clone();
-    let path = req.uri().path().strip_prefix("/ws/").unwrap();
+    let path = req.uri().path().strip_prefix("/monitor/").unwrap();
 
-    let path = format!("{}{}",state.read().await.root(),path);
+    let path = format!("{}{}", state.read().await.root(), path);
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
-        state.add_client(path,ws).await;
+        state.add_client(path, ws).await;
         Ok(res)
     } else {
         Ok(Response::builder()

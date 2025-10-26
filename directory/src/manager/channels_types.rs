@@ -1,6 +1,6 @@
-use tokio::sync::mpsc::{Receiver, UnboundedReceiver, UnboundedSender, error::SendError};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender, error::SendError};
 
-use crate::manager::utils::{AsyncRecv, OneshotSender};
+use crate::manager::utils::{AsyncRecv, AsyncSender, OneshotSender};
 
 impl<T: Send + Sync> AsyncRecv for Receiver<T> {
     type Item = T;
@@ -12,10 +12,17 @@ impl<T: Send + Sync> AsyncRecv for Receiver<T> {
 
 impl<T: Send + 'static> OneshotSender for UnboundedSender<T> {
     type Item = T;
-    type Output = Result<(), SendError<T>>;
 
-    fn send(&self, item: Self::Item) -> Self::Output {
+    fn send(&self, item: Self::Item) -> Result<(), SendError<T>> {
         Self::send(self, item)
+    }
+}
+
+impl<T: Send + 'static> AsyncSender for Sender<T> {
+    type Item = T;
+
+    fn send(&mut self, item: Self::Item) -> impl Future<Output = Result<(), SendError<T>>> {
+        Sender::send(self, item)
     }
 }
 
