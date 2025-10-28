@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::models::user::{Role, User, UserState};
 
-pub const TABLA_PROGRAMA: &str = "programas";
+pub const TABLA_BUCKET: &str = "buckets";
 pub const TABLA_USER: &str = "users";
 
 macro_rules! bind {
@@ -90,9 +90,9 @@ impl PgRepository {
     where
         T: for<'b> Table<'b>,
     {
-        let _res = insert.query().execute(&self.inner).await?;
+        let res = insert.query().execute(&self.inner).await?;
 
-        Ok(QueryResult::Insert(1))
+        Ok(QueryResult::Insert(res.rows_affected()))
     }
 
     pub async fn update<T>(

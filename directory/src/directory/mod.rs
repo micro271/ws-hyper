@@ -18,7 +18,7 @@ impl Directory {
         for mt in reg.find_iter(path) {
             let aux = &path[..mt.start()];
             tracing::trace!("[All superpaths] match: {mt:?}");
-            if !aux.contains('/') || aux.is_empty() {
+            if !aux.contains('/') {
                 resp.push(Directory::new_unchk(format!("{aux}/")));
             } else {
                 resp.push(Directory::new_unchk(aux.to_string()));

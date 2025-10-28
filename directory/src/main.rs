@@ -34,6 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port,
         log_level,
         prefix_root,
+        grpc_auth_server
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -70,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let state = Arc::new(State::new(state, websocker_subscribers));
+    let state = Arc::new(State::new(state, websocker_subscribers, grpc_auth_server));
 
     loop {
         let (stream, _) = listener.accept().await?;

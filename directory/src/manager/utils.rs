@@ -2,7 +2,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use tokio::{fs, sync::mpsc::error::SendError};
 
-pub trait AsyncRecv: Send + Sync {
+pub trait AsyncRecv: Send {
     type Item;
 
     fn recv(&mut self) -> impl Future<Output = Option<Self::Item>> + Send;
@@ -17,7 +17,7 @@ pub trait AsyncSender: Send + 'static {
     ) -> impl Future<Output = Result<(), SendError<Self::Item>>> + Send;
 }
 
-pub trait OneshotSender: Send + Sync + 'static {
+pub trait OneshotSender: Send + 'static {
     type Item;
 
     fn send(&self, item: Self::Item) -> Result<(), SendError<Self::Item>>;
@@ -109,9 +109,9 @@ macro_rules! match_error {
 pub(crate) use match_error;
 
 #[derive(Debug, Clone)]
-pub struct Task<W: Send>(W);
+pub struct Task<W: Send + 'static>(W);
 
-impl<W: Send + Sync + 'static> Task<W> {
+impl<W: Send + 'static> Task<W> {
     pub fn new(inner: W) -> Self {
         Self(inner)
     }
@@ -120,7 +120,7 @@ impl<W: Send + Sync + 'static> Task<W> {
 #[derive(Debug, Clone)]
 pub struct Executing;
 
-impl<W: Send + Sync + 'static> TakeOwn<W> for Task<W> {
+impl<W: Send + 'static> TakeOwn<W> for Task<W> {
     fn take(self) -> W {
         self.0
     }

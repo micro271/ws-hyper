@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum, command};
+use tonic::transport::Endpoint;
 use std::net::Ipv4Addr;
 use tracing::Level;
 
@@ -27,6 +28,9 @@ pub struct Args {
         help = "Prefix of the root directory"
     )]
     pub prefix_root: String,
+
+    #[arg(long = "grpc-auth-server", env = "GRPC_AUTH_SERVER", help = "Endpoint to auth server")]
+    pub grpc_auth_server: Endpoint,
 }
 
 #[derive(Clone, ValueEnum)]

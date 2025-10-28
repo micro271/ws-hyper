@@ -17,8 +17,6 @@ pub struct User {
     pub phone: Option<String>,
     pub user_state: UserState,
     pub role: Role,
-    pub programa: Option<Uuid>,
-    pub resources: Option<String>,
     pub description: Option<String>,
 }
 
@@ -84,14 +82,12 @@ impl From<PgRow> for User {
         User {
             id: value.get("id"),
             username: value.get("username"),
-            programa: value.get("programa"),
             passwd: value.get("passwd"),
             description: value.get("description"),
             email: value.get("email"),
             phone: value.get("phone"),
             user_state: value.get("user_state"),
             role: value.get("role"),
-            resources: value.get("resources"),
         }
     }
 }
@@ -127,13 +123,11 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
     let mut user = User {
         user_state: UserState::Active,
         id: None,
-        programa: None,
         username: "admin".to_string(),
         passwd: "admin".to_string(),
         email: None,
         phone: None,
         role: crate::models::user::Role::SuperUs,
-        resources: Some("*".to_string()),
         description: Some("Default account".to_string()),
     };
 
@@ -169,8 +163,6 @@ impl<'a> Table<'a> for User {
             self.phone.into(),
             self.user_state.into(),
             self.role.into(),
-            self.resources.into(),
-            self.programa.into(),
             self.description.into(),
         ]
     }

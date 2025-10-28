@@ -15,13 +15,12 @@ impl InfoUserProgram {
             inner: InfoClient::connect(endpoint).await.unwrap(),
         }
     }
-    pub async fn program_name(&self, id: Uuid) -> String {
+    pub async fn program_name(&self, id: Uuid) -> ProgramInfoReply {
         self.inner
             .clone()
             .program(ProgramInfoRequest { id: id.into() })
             .await
             .unwrap()
             .into_inner()
-            .name
     }
 }

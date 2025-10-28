@@ -27,7 +27,7 @@ pub struct EventWatcher<Tx, TxInner, RxInner> {
 
 impl<T, TxInner, RxInner> WatcherOwn<T, TxInner> for EventWatcher<T, TxInner, RxInner>
 where
-    T: OneshotSender<Item = Change> + Send + Sync + Clone,
+    T: OneshotSender<Item = Change> + Send + Clone + 'static,
     TxInner: OneshotSender<Item = Result<notify::Event, notify::Error>> + Send + 'static + Clone,
     RxInner: AsyncRecv<Item = Result<notify::Event, notify::Error>> + Send + 'static,
 {

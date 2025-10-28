@@ -1,4 +1,6 @@
-use crate::{state::State, user::Claim};
+pub mod error;
+
+use crate::{handlers::error::ResponseError, state::State, user::Claim};
 
 use http::{StatusCode, header};
 use http_body_util::Full;
@@ -15,13 +17,18 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let path = req.uri().path();
     let repo = req.extensions().get::<TypeState>().unwrap();
 
-    if path.starts_with("/monitor") {
+    let response = if path.starts_with("/monitor") {
         server_upgrade(req).await
     } else {
         Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Full::default())
             .unwrap_or_default())
+    };
+
+    match response {
+        Err(er) => Ok(er.into()),
+        Ok(ok) => Ok(ok),
     }
 
 }
@@ -57,11 +64,10 @@ where
     next(req).await
 }
 
-pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseError> {
     let state = req.extensions().get::<TypeState>().unwrap().clone();
-    let path = req.uri().path().strip_prefix("/monitor/").unwrap();
+    let path = req.uri().path().strip_prefix("/monitor").ok_or(ResponseError::new(format!("{} not found", req.uri().path()), StatusCode::BAD_REQUEST))?.to_string();
 
-    let path = format!("{}{}", state.read().await.root(), path);
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
         state.add_client(path, ws).await;

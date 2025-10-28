@@ -1,6 +1,8 @@
 mod proto {
-    tonic::include_proto!("check_user");
+    tonic::include_proto!("info");
 }
+
+
 use crate::models::user::Role;
 pub use proto::{UserInfoReply, UserInfoRequest, user_info_client::UserInfoClient};
 

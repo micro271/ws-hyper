@@ -10,6 +10,7 @@ use uuid::Uuid;
 const MAX_CREATE_TOKENS: u8 = 2;
 const RATE_REFIL: f64 = 1.0;
 
+#[derive(Debug)]
 pub struct CreateRateLimit {
     inner: RwLock<HashMap<Uuid, Bucket>>,
 }
@@ -25,6 +26,7 @@ impl CreateRateLimit {
     }
 }
 
+#[derive(Debug)]
 pub struct Bucket {
     capacity: AtomicU8,
     token: AtomicU8,

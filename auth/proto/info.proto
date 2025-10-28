@@ -4,7 +4,7 @@ package info;
 
 service Info {
     rpc User (UserInfoRequest) returns (UserInfoReply);
-    rpc Program (ProgramInfoRequest) returns (ProgramInfoReply);
+    rpc Bucket (AllowedBucketReq) returns (AllowedBucketReply);
 }
 
 message UserInfoRequest {
@@ -14,20 +14,27 @@ message UserInfoRequest {
 message UserInfoReply {
     string username = 1;
     Role role = 2;
-    string resources = 3;
+    repeated string buckets = 3;
 }
 
 enum Role {
-    SuperUs = 0;
-    Administrator = 1;
-    Operador = 2;
-    Productor = 3;
+    SUPER_US = 0;
+    ADMINISTRATOR = 1;
+    OPERATOR = 2;
 }
 
-message ProgramInfoRequest {
+enum Permissions {
+    PUT = 0;
+    GET = 1;
+    DELETE = 2;
+}
+
+message AllowedBucketReq {
     bytes id = 1;
+    string name = 2;
+    Permissions permissions = 3;
 }
 
-message ProgramInfoReply {
-    string name = 1;
+message AllowedBucketReply {
+    bool allowed = 1;
 }

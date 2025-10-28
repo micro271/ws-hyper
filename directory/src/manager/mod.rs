@@ -41,8 +41,8 @@ pub struct Schedule<W, T, TxInner> {
 
 impl<W, TxInner> Schedule<W, UnboundedSender<Change>, TxInner>
 where
-    W: WatcherOwn<UnboundedSender<Change>, TxInner> + 'static,
-    TxInner: OneshotSender + Clone,
+    W: WatcherOwn<UnboundedSender<Change>, TxInner> + Send + 'static + Sync,
+    TxInner: OneshotSender + Clone + Sync,
 {
     pub fn run(
         state: Arc<RwLock<TreeDir>>,

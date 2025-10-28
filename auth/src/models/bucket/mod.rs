@@ -2,32 +2,27 @@ pub mod update;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow};
-use uuid::Uuid;
 
-use crate::repository::{TABLA_PROGRAMA, Table};
+use crate::repository::{TABLA_BUCKET, Table};
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Programa {
-    pub id: Option<Uuid>,
-    pub icon: Option<String>,
+pub struct Buckets {
     pub name: String,
     pub description: Option<String>,
 }
 
-impl From<PgRow> for Programa {
+impl From<PgRow> for Buckets {
     fn from(value: PgRow) -> Self {
         Self {
-            id: value.get("id"),
-            icon: value.get("icon"),
             name: value.get("name"),
             description: value.get("description"),
         }
     }
 }
 
-impl<'a> Table<'a> for Programa {
+impl<'a> Table<'a> for Buckets {
     fn name() -> &'a str {
-        TABLA_PROGRAMA
+        TABLA_BUCKET
     }
 
     fn columns() -> Vec<&'a str> {
@@ -36,8 +31,6 @@ impl<'a> Table<'a> for Programa {
 
     fn values(self) -> Vec<crate::repository::Types> {
         vec![
-            self.id.into(),
-            self.icon.into(),
             self.name.into(),
             self.description.into(),
         ]

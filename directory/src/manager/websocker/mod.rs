@@ -93,7 +93,7 @@ where
     ) -> Result<(), &'static str> {
         while let Some(Ok(msg)) = ws.next().await {
             match msg {
-                Message::Text(txt) => { /* ... */ }
+                Message::Text(txt) => { tracing::debug!("{txt:?}") }
                 Message::Ping(bytes) => {
                     tracing::debug!("Received ping message: {bytes:02X?}");
                     if let Err(er) = tx.lock().await.send(Message::Pong(bytes)).await {

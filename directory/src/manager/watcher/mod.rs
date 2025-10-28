@@ -1,13 +1,12 @@
 pub mod error;
 pub mod event_watcher;
 mod for_dir;
-pub mod parser;
 pub mod pool_watcher;
 use std::marker::PhantomData;
 
 use crate::manager::utils::{Executing, OneshotSender, TakeOwn, Task};
 
-pub trait WatcherOwn<T, TxInner>: Send + Sync
+pub trait WatcherOwn<T, TxInner>: Send + 'static
 where
     Self: Sized,
     T: OneshotSender + Send,
@@ -39,9 +38,9 @@ where
 
 impl<W, T, TxInner> Watcher<Task<W>, W, T, TxInner>
 where
-    W: WatcherOwn<T, TxInner> + 'static,
-    T: OneshotSender + Send + Clone,
-    TxInner: OneshotSender + Clone + Send,
+    W: WatcherOwn<T, TxInner> + Send + 'static,
+    T: OneshotSender + Send + Clone + 'static,
+    TxInner: OneshotSender + Clone + Send + 'static,
 {
     pub fn new(watcher: W) -> Self {
         let tx = watcher.tx();

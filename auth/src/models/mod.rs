@@ -1,12 +1,26 @@
-pub mod programas;
+pub mod bucket;
 pub mod user;
 
-use crate::repository::{QuerySelect, TABLA_PROGRAMA, TABLA_USER};
-use serde::Serialize;
-use sqlx::{Row, postgres::PgRow};
+use crate::{grpc_v1::user_control::UserInfoReply, repository::{QuerySelect, TABLA_BUCKET, TABLA_USER}};
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, postgres::PgRow, prelude::Type};
 use uuid::Uuid;
 
 use crate::models::user::{Role, UserState};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UsersBuckets {
+    pub bucket: String,
+    pub user_id: Uuid,
+    pub permissions: Vec<Permissions>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Type, PartialEq)]
+pub enum Permissions {
+    Put,
+    Get,
+    Delete
+}
 
 #[derive(Debug, Serialize)]
 pub struct UserAllInfo {
@@ -52,10 +66,38 @@ impl From<PgRow> for UserAllInfo {
     }
 }
 
+impl From<PgRow> for UserInfoReply {
+    fn from(value: PgRow) -> Self {
+        Self { username: value.get("username"), role: value.get("role"), buckets: value.get("buckets") }
+    }
+}
+
+impl From<PgRow> for UsersBuckets {
+    fn from(value: PgRow) -> Self {
+        Self { user_id: value.get("user_id"), permissions: value.get("permissions"), bucket: value.get("buckets") }
+    }
+}
+
 impl QuerySelect for UserAllInfo {
     fn query() -> String {
         format!(
-            "SELECT {TABLA_PROGRAMA}.name, {TABLA_PROGRAMA}.icon, {TABLA_PROGRAMA}.id as programa_id, {TABLA_PROGRAMA}.description as programa_description, {TABLA_USER}.* FROM users FULL JOIN {TABLA_PROGRAMA} ON ({TABLA_USER}.programa = {TABLA_PROGRAMA}.id)"
+            "SELECT {TABLA_BUCKET}.name, {TABLA_BUCKET}.icon, {TABLA_BUCKET}.id as programa_id, {TABLA_BUCKET}.description as programa_description, {TABLA_USER}.* FROM users FULL JOIN {TABLA_BUCKET} ON ({TABLA_USER}.programa = {TABLA_BUCKET}.id)"
+        )
+    }
+}
+
+impl QuerySelect for UserInfoReply {
+    fn query() -> String {
+        format!(
+            "SELECT user_id, permissions, array_agg(bucket) as buckets FROM {TABLA_BUCKET} INNER JOIN users ON ({TABLA_USER}.id = {TABLA_BUCKET}.user_id) GROUB BY buckets"
+        )
+    }
+}
+
+impl QuerySelect for UsersBuckets {
+    fn query() -> String {
+        format!(
+            "SELECT * FROM {TABLA_BUCKET}"
         )
     }
 }
