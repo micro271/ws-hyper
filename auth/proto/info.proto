@@ -5,6 +5,37 @@ package info;
 service Info {
     rpc User (UserInfoRequest) returns (UserInfoReply);
     rpc Bucket (AllowedBucketReq) returns (AllowedBucketReply);
+    rpc MessageForConsistency (stream BucketSync) returns (stream BucketSync);
+}
+
+message NotFound {
+    string name = 1;
+}
+
+message NotEmpty {
+    string name = 1;
+}
+
+message Error {
+    oneof kind {
+        NotFound not_found = 1;
+        NotEmpty not_empty = 2;
+    }
+}
+
+message RenameBucket {
+    string from = 1;
+    string to = 2;
+}
+
+message BucketSync {
+    bytes operation_id = 4;
+    oneof msg {
+        string create_bucket = 1;
+        string delete_bucket = 2;
+        RenameBucket rename_bucket = 3;
+        Error error = 5;
+    }
 }
 
 message UserInfoRequest {

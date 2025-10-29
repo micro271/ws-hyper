@@ -1,11 +1,24 @@
 use std::path::{Path, PathBuf};
 
-use crate::directory::{Directory, WithPrefixRoot, file::File};
+use crate::bucket::{Bucket, WithPrefixRoot, key::Object};
 
 #[derive(Debug, Default)]
 pub struct ForDir<T> {
     root: T,
     real_path: T,
+}
+
+impl<T> ForDir<T> 
+where 
+    T: AsRef<str>
+{
+    pub fn real_path(&self) -> &str {
+        self.real_path.as_ref()
+    }
+
+    pub fn root(&self) -> &str {
+        self.real_path.as_ref()
+    }
 }
 
 impl ForDir<String> {
@@ -24,41 +37,41 @@ impl ForDir<String> {
 }
 
 impl ForDir<&str> {
-    pub fn directory<T: AsRef<Path>>(&self, path: T) -> Result<Directory, ForDirErr> {
+    pub fn directory<T: AsRef<Path>>(&self, path: T) -> Result<Bucket, ForDirErr> {
         let path = path.as_ref();
         if !path.exists() {
-            return Err(ForDirErr::FileNotFound(path.to_path_buf()));
+            return Err(ForDirErr::ObjectNotFound(path.to_path_buf()));
         }
 
-        Ok(Directory::from(WithPrefixRoot::new(
+        Ok(Bucket::from(WithPrefixRoot::new(
             path,
             self.real_path,
             self.root,
         )))
     }
 
-    pub fn dir_and_file<T: AsRef<Path>>(&self, path: T) -> Result<(Directory, File), ForDirErr> {
+    pub fn dir_and_file<T: AsRef<Path>>(&self, path: T) -> Result<(Bucket, Object), ForDirErr> {
         let path = path.as_ref();
 
         let parent = path
             .parent()
             .ok_or(ForDirErr::ParentNotFound(path.to_path_buf()))?;
 
-        Ok((self.directory(parent)?, File::from(path)))
+        Ok((self.directory(parent)?, Object::from(path)))
     }
 }
 
 #[derive(Debug)]
 pub enum ForDirErr {
     ParentNotFound(PathBuf),
-    FileNotFound(PathBuf),
+    ObjectNotFound(PathBuf),
 }
 
 impl std::fmt::Display for ForDirErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ForDirErr::ParentNotFound(path_buf) => write!(f, " Parent {path_buf:?} not found"),
-            ForDirErr::FileNotFound(path_buf) => write!(f, "File {path_buf:?} not found"),
+            ForDirErr::ObjectNotFound(path_buf) => write!(f, "Object {path_buf:?} not found"),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    directory::{Directory, tree_dir::TreeDir}, grpc_v1::{InfoClient, ProgramInfoRequest}, manager::{new_file_tba::CreateRateLimit, websocker::MsgWs}
+    bucket::{Bucket, bucket_map::BucketMap}, grpc_v1::{AllowedBucketReq, InfoClient, Permissions}, manager::{new_file_tba::CreateRateLimit, websocker::MsgWs}
 };
 use hyper_tungstenite::HyperWebsocket;
 use serde_json::{Value, json};
@@ -22,14 +22,14 @@ impl Connection {
 
 #[derive(Debug)]
 pub struct State {
-    tree: Arc<RwLock<TreeDir>>,
+    tree: Arc<RwLock<BucketMap>>,
     create_limit: CreateRateLimit,
     tx_subs: Sender<MsgWs>,
     info_user_connection: RwLock<Connection>,
 }
 
 impl State {
-    pub async fn new(tree: Arc<RwLock<TreeDir>>, new_subs: Sender<MsgWs>, endpoint: Endpoint) -> Self {
+    pub async fn new(tree: Arc<RwLock<BucketMap>>, new_subs: Sender<MsgWs>, endpoint: Endpoint) -> Self {
         Self {
             tree,
             create_limit: CreateRateLimit::new(),
@@ -38,11 +38,11 @@ impl State {
         }
     }
 
-    pub async fn read(&self) -> RwLockReadGuard<'_, TreeDir> {
+    pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap> {
         self.tree.read().await
     }
 
-    pub async fn bucket(&self, id: Uuid) -> Result<String, String> {
+    pub async fn bucket(&self, user_id: Uuid, bucket_name: String, permission: Permissions) -> Result<bool, String> {
         
         let mut clone = self.info_user_connection.read().await.clone();
 
@@ -68,11 +68,11 @@ impl State {
         }
 
         if let Connection::Connected(mut con) = clone {
-            let req = ProgramInfoRequest{id: id.as_bytes().to_vec()};
+            let req = AllowedBucketReq{id: user_id.as_bytes().to_vec(), name: bucket_name, permissions: i32::try_from(permission).unwrap()};
             
-            match con.program(req).await {
+            match con.bucket(req).await {
                 Ok(ok) => {
-                    Ok(ok.into_inner().name)
+                    Ok(ok.into_inner().allowed)
                 },
                 Err(err) => Err(err.message().to_string()),
             }
@@ -82,12 +82,11 @@ impl State {
     }
 
     pub async fn add_client(&self, subscriber: String, sender: HyperWebsocket) {
-
         tracing::error!("{subscriber}");
         if let Err(er) = self
             .tx_subs
             .send(MsgWs::NewUser {
-                subscriber: Directory::new_unchk_from_path(subscriber).with_prefix(self.read().await.root()),
+                subscriber: Bucket::new_unchk_from_path(subscriber).with_prefix(self.read().await.root()),
                 sender,
             })
             .await

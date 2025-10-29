@@ -22,7 +22,7 @@ use tokio::sync::{
 use utils::Executing;
 
 use crate::{
-    directory::{Directory, file::File, tree_dir::TreeDir},
+    bucket::{Bucket, key::Object, bucket_map::BucketMap},
     manager::{
         utils::{OneshotSender, Task},
         watcher::WatcherOwn,
@@ -35,7 +35,7 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 #[derive(Debug)]
 pub struct Schedule<W, T, TxInner> {
     tx_ws: Sender<MsgWs>,
-    pub state: Arc<RwLock<TreeDir>>,
+    pub state: Arc<RwLock<BucketMap>>,
     _watcher: Watcher<Executing, W, T, TxInner>,
 }
 
@@ -45,7 +45,7 @@ where
     TxInner: OneshotSender + Clone + Sync,
 {
     pub fn run(
-        state: Arc<RwLock<TreeDir>>,
+        state: Arc<RwLock<BucketMap>>,
         watcher: Watcher<Task<W>, W, UnboundedSender<Change>, TxInner>,
     ) -> Sender<MsgWs> {
         let (tx_ws, rx_ws) = channel(128);
@@ -75,11 +75,11 @@ where
                     tracing::trace!("[Scheduler] Input dir: {dir:?} - file: {file}");
                     let mut wr = self.state.write().await;
                     let path = dir.as_ref().to_string();
-                    let file_name = file.file_name().to_string();
+                    let file_name = file.key().to_string();
                     if file.is_dir() {
                         let mut path = dir.path();
-                        path.push(file.file_name());
-                        let dir = Directory::new_unchk_from_path(path);
+                        path.push(file.key());
+                        let dir = Bucket::new_unchk_from_path(path);
                         tracing::trace!("[Watch Manager]: New dir {dir:?}");
                         wr.insert(dir, vec![]);
                     }
@@ -119,10 +119,10 @@ where
                     );
 
                     if let Some(files) = wr.get_mut(&parent) {
-                        if let Some(file) = files.pop_if(|x| x.file_name() == file.file_name()) {
+                        if let Some(file) = files.pop_if(|x| x.key() == file.key()) {
                             if file.is_dir() {
-                                key_to_delete.push(file.file_name());
-                                queue.push_front(Directory::new_unchk_from_path(&key_to_delete));
+                                key_to_delete.push(file.key());
+                                queue.push_front(Bucket::new_unchk_from_path(&key_to_delete));
                             }
 
                             tracing::warn!(
@@ -131,12 +131,12 @@ where
                             );
                         } else {
                             tracing::info!(
-                                "[Scheduler] {{ Task: Delete }} File {file:?} not found"
+                                "[Scheduler] {{ Task: Delete }} Object {file:?} not found"
                             );
                         }
                     } else {
                         tracing::info!(
-                            "[Scheduler] {{ Task: Delete }} Directory {parent:?} not found"
+                            "[Scheduler] {{ Task: Delete }} Bucket {parent:?} not found"
                         );
                     }
 
@@ -148,13 +148,13 @@ where
                             queue.extend(
                                 files
                                     .into_iter()
-                                    .filter(File::is_dir)
+                                    .filter(Object::is_dir)
                                     .map(|x| {
                                         key_to_delete.pop();
-                                        key_to_delete.push(x.file_name());
-                                        Directory::new_unchk_from_path(&key_to_delete)
+                                        key_to_delete.push(x.key());
+                                        Bucket::new_unchk_from_path(&key_to_delete)
                                     })
-                                    .collect::<VecDeque<Directory>>(),
+                                    .collect::<VecDeque<Bucket>>(),
                             );
                         }
                     }
@@ -165,15 +165,15 @@ where
                         "[Scheduler] {{ Some(Change::Name {{ dir: {dir:?}, from: {from:?}, to: {to:?} }}) }}"
                     );
                     let path = dir.as_ref().to_string();
-                    let file_name = to.file_name().to_string();
+                    let file_name = to.key().to_string();
                     let is_dir = to.is_dir();
 
                     if let Some(files) = wr.get_mut(&dir) {
-                        if let Some(file) = files.iter_mut().find(|x| x.file_name() == from) {
+                        if let Some(file) = files.iter_mut().find(|x| x.key() == from) {
                             *file = to.clone();
                         } else {
-                            tracing::info!("[Scheduler] File {} not found", to.file_name());
-                            tracing::info!("[Scheduler] Inser File {}", to.file_name());
+                            tracing::info!("[Scheduler] Object {} not found", to.key());
+                            tracing::info!("[Scheduler] Inser Object {}", to.key());
                             files.push(to.clone());
                         }
                     }
@@ -182,21 +182,21 @@ where
                         let mut path = dir.path();
                         path.push(&from);
                         tracing::trace!("[Scheduler] IS DIR RENAME: {path:?}");
-                        let dir = Directory::new_unchk_from_path(&path);
+                        let dir = Bucket::new_unchk_from_path(&path);
                         let files = if let Some(files) = wr.remove(&dir) {
                             files
                         } else {
-                            tracing::debug!("[Scheduler] Directory {dir:?} is empty");
+                            tracing::debug!("[Scheduler] Bucket {dir:?} is empty");
                             Vec::new()
                         };
                         path.pop();
-                        path.push(to.file_name());
+                        path.push(to.key());
                         tracing::trace!(
                             "[Scheduler] {{ Rename directory }} from: {:?} to: {:?}",
                             dir.path(),
                             path
                         );
-                        let dir = Directory::new_unchk_from_path(&path);
+                        let dir = Bucket::new_unchk_from_path(&path);
                         wr.insert(dir, files);
                     }
 
@@ -232,7 +232,7 @@ where
             .tx_ws
             .send(MsgWs::NewUser {
                 sender: ws,
-                subscriber: Directory::new_unchk_from_path(path),
+                subscriber: Bucket::new_unchk_from_path(path),
             })
             .await;
     }
@@ -241,17 +241,17 @@ where
 #[derive(Debug, Clone, Serialize)]
 pub enum Change {
     New {
-        dir: Directory,
-        file: File,
+        dir: Bucket,
+        file: Object,
     },
     Name {
-        dir: Directory,
+        dir: Bucket,
         from: String,
-        to: File,
+        to: Object,
     },
     Delete {
-        parent: Directory,
-        file: File,
+        parent: Bucket,
+        file: Object,
     },
 }
 

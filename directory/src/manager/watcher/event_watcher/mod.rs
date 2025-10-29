@@ -55,7 +55,7 @@ where
                 }
                 notify::EventKind::Create(action) => {
                     tracing::trace!("Event: {event:?}");
-                    tracing::trace!("File Type: {action:?}");
+                    tracing::trace!("Object Type: {action:?}");
                     let mut path = event.paths;
                     let path = path.pop().unwrap();
 
@@ -104,7 +104,7 @@ where
                     let path = path.pop().unwrap();
 
                     let (dir, file) = match_error!(for_dir.get().dir_and_file(path), prefix_log);
-                    tracing::trace!("[REMOVE] Directory: {dir:?}, file name: {file:?}");
+                    tracing::trace!("[REMOVE] Bucket: {dir:?}, file name: {file:?}");
                     if let Err(e) = tx.send(Change::Delete { parent: dir, file }) {
                         tracing::error!("{e}");
                     }

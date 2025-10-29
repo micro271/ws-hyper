@@ -1,20 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{FileType as FT, Metadata},
-    os::unix::fs::MetadataExt,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
+    fs::{FileType as FT, Metadata}, io::Read, os::unix::fs::MetadataExt, path::Path, time::{SystemTime, UNIX_EPOCH}
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
 use tokio::fs;
-
+use sha2::{Sha256, Digest};
 use crate::manager::utils::FromDirEntyAsync;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
-pub struct File {
-    name: String,
-    r#type: FileType,
+pub struct Object {
+    key: String,
+    r#type: ObjectType,
     size: u64,
+    checksum: String,
 
     #[serde(with = "option")]
     modified: Option<time::OffsetDateTime>,
@@ -24,30 +22,31 @@ pub struct File {
     created: Option<time::OffsetDateTime>,
 }
 
-impl File {
+impl Object {
     pub fn is_dir(&self) -> bool {
-        self.r#type == FileType::Dir
+        self.r#type == ObjectType::Dir
     }
 
-    pub fn file_name(&self) -> &str {
-        &self.name
+    pub fn key(&self) -> &str {
+        &self.key
     }
 
-    pub fn file_type(&self) -> FileType {
+    pub fn file_type(&self) -> ObjectType {
         self.r#type
     }
 }
 
-impl FromDirEntyAsync<fs::DirEntry> for File {
+impl FromDirEntyAsync<fs::DirEntry> for Object {
     async fn from_entry(value: fs::DirEntry) -> Self {
         let file_type = value.file_type().await.unwrap();
 
         let (modified, accessed, created, size) = get_info_metadata(value.metadata().await.ok());
 
         Self {
-            name: value.file_name().to_str().unwrap().to_string(),
-            r#type: FileType::from(file_type),
+            key: value.file_name().to_str().unwrap().to_string(),
+            r#type: ObjectType::from(file_type),
             size: size.unwrap_or_default(),
+            checksum: CheckSum::new(value.path()).check_sum_async().await,
             modified,
             accessed,
             created,
@@ -55,20 +54,21 @@ impl FromDirEntyAsync<fs::DirEntry> for File {
     }
 }
 
-impl From<&Path> for File {
+impl From<&Path> for Object {
     fn from(value: &Path) -> Self {
         let meta = value.metadata();
         let file_type = meta
-            .map(|x| FileType::from(x.file_type()))
+            .map(|x| ObjectType::from(x.file_type()))
             .unwrap_or_default();
         let (modified, accessed, created, size) = get_info_metadata(value.metadata().ok());
 
         Self {
-            name: value
+            key: value
                 .file_name()
                 .and_then(|x| x.to_str().map(ToString::to_string))
                 .unwrap(),
             r#type: file_type,
+            checksum: CheckSum::new(value).check_sum(),
             size: size.unwrap_or_default(),
             modified,
             accessed,
@@ -78,7 +78,7 @@ impl From<&Path> for File {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, PartialOrd, Default)]
-pub enum FileType {
+pub enum ObjectType {
     SymLink,
     Regular,
     Dir,
@@ -86,7 +86,7 @@ pub enum FileType {
     Unknown,
 }
 
-impl From<FT> for FileType {
+impl From<FT> for ObjectType {
     fn from(value: FT) -> Self {
         if value.is_dir() {
             Self::Dir
@@ -99,15 +99,15 @@ impl From<FT> for FileType {
 }
 
 #[derive(Debug)]
-pub struct FromEntryToFileErr;
+pub struct FromEntryToObjectErr;
 
-impl std::fmt::Display for FromEntryToFileErr {
+impl std::fmt::Display for FromEntryToObjectErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "This is not a file")
     }
 }
 
-impl std::error::Error for FromEntryToFileErr {}
+impl std::error::Error for FromEntryToObjectErr {}
 
 pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
     let tmp = value.duration_since(UNIX_EPOCH).unwrap();
@@ -118,9 +118,9 @@ pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
         .unwrap()
 }
 
-impl std::fmt::Display for File {
+impl std::fmt::Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.key)
     }
 }
 
@@ -140,5 +140,45 @@ fn get_info_metadata(
             Some(meta.size()),
         ),
         _ => (None, None, None, None),
+    }
+}
+
+pub struct CheckSum<T>{
+    path: T
+}
+
+impl<T: AsRef<Path>> CheckSum<T> {
+    
+    pub fn new(path: T) -> Self {
+        Self {
+            path: path,
+        }
+    }
+
+    fn check_sum(self) -> String {
+    let file = std::fs::File::open(self.path).unwrap();
+        let mut reader = std::io::BufReader::new(file);
+        let mut buffer = [0u8; 8192];
+        let mut sha = Sha256::new();
+        loop {
+            let bits_r = reader.read(&mut buffer);
+            match bits_r {
+                Ok(0) => { break ; },
+                Ok(bits) => {
+                    sha.update(&buffer[..bits]);
+                },
+                Err(er) => {
+                    tracing::error!("{er}");
+                    return "".to_string();
+                },
+            }
+        }
+        format!("{:x}",sha.finalize())
+    }
+}
+
+impl<T: AsRef<Path> + Send + 'static> CheckSum<T> {
+    pub async fn check_sum_async(self) -> String {
+        tokio::task::spawn_blocking(|| self.check_sum()).await.unwrap()
     }
 }

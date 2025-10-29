@@ -1,5 +1,5 @@
 pub mod cli;
-pub mod directory;
+pub mod bucket;
 pub mod grpc_v1;
 pub mod handlers;
 pub mod manager;
@@ -9,7 +9,7 @@ pub mod ws;
 
 use crate::{
     cli::Args,
-    directory::tree_dir::TreeDir,
+    bucket::bucket_map::BucketMap,
     manager::{
         Schedule,
         watcher::{Watcher, event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = TreeDir::new_async(&watcher_path, prefix_root).await?;
+    let state = BucketMap::new_async(&watcher_path, prefix_root).await?;
 
     let state = Arc::new(RwLock::new(state));
 
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let state = Arc::new(State::new(state, websocker_subscribers, grpc_auth_server));
+    let state = Arc::new(State::new(state, websocker_subscribers, grpc_auth_server).await);
 
     loop {
         let (stream, _) = listener.accept().await?;

@@ -1,18 +1,18 @@
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub enum TreeDirErr {
-    IsNotADirectory(PathBuf),
+pub enum BucketMapErr {
+    IsNotABucket(PathBuf),
     RootNotAllowed,
     ReadDir(Box<dyn std::error::Error>),
     ReadOnly(PathBuf),
     PermissionDenied(PathBuf),
 }
 
-impl std::fmt::Display for TreeDirErr {
+impl std::fmt::Display for BucketMapErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IsNotADirectory(dir) => write!(f, "{dir:?} isn't a directory"),
+            Self::IsNotABucket(dir) => write!(f, "{dir:?} isn't a directory"),
             Self::RootNotAllowed => write!(f, "You cannot use the root \"/\" directory"),
             Self::ReadDir(e) => write!(f, "ReadDir Error: {e}"),
             Self::ReadOnly(dir) => write!(f, "The directory {dir:?} is read only"),
@@ -21,9 +21,9 @@ impl std::fmt::Display for TreeDirErr {
     }
 }
 
-impl std::error::Error for TreeDirErr {}
+impl std::error::Error for BucketMapErr {}
 
-impl From<std::io::Error> for TreeDirErr {
+impl From<std::io::Error> for BucketMapErr {
     fn from(value: std::io::Error) -> Self {
         Self::ReadDir(Box::new(value))
     }

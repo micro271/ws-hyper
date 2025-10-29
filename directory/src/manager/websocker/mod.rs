@@ -11,7 +11,7 @@ use serde_json::json;
 use tokio::sync::{Mutex, broadcast::Sender as SenderBr};
 
 use crate::{
-    directory::Directory,
+    bucket::Bucket,
     manager::{Change, utils::AsyncRecv},
 };
 
@@ -28,7 +28,7 @@ where
         tokio::spawn(Self::task(rx));
     }
     pub async fn task(mut rx: Rx) {
-        let mut users = HashMap::<Directory, SenderBr<Change>>::new();
+        let mut users = HashMap::<Bucket, SenderBr<Change>>::new();
         tracing::debug!("Web socket manage init");
 
         loop {
@@ -125,11 +125,11 @@ where
 #[derive(Debug)]
 pub enum MsgWs {
     NewUser {
-        subscriber: Directory,
+        subscriber: Bucket,
         sender: HyperWebsocket,
     },
     Change {
-        subscriber: Directory,
+        subscriber: Bucket,
         change: Change,
     },
 }

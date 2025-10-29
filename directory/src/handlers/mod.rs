@@ -30,7 +30,6 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
         Err(er) => Ok(er.into()),
         Ok(ok) => Ok(ok),
     }
-
 }
 
 pub async fn middleware_jwt<T>(

@@ -1,15 +1,15 @@
 pub mod error;
-pub mod file;
-pub mod tree_dir;
+pub mod key;
+pub mod bucket_map;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
-pub struct Directory(String);
+pub struct Bucket(String);
 
-impl Directory {
-    pub fn all_superpaths(self) -> Vec<Directory> {
+impl Bucket {
+    pub fn all_superpaths(self) -> Vec<Bucket> {
         let reg = Regex::new(r"/([^/]+)").unwrap();
         let path = self.as_ref();
         tracing::trace!("{path:?}");
@@ -19,9 +19,9 @@ impl Directory {
             let aux = &path[..mt.start()];
             tracing::trace!("[All superpaths] match: {mt:?}");
             if !aux.contains('/') {
-                resp.push(Directory::new_unchk(format!("{aux}/")));
+                resp.push(Bucket::new_unchk(format!("{aux}/")));
             } else {
-                resp.push(Directory::new_unchk(aux.to_string()));
+                resp.push(Bucket::new_unchk(aux.to_string()));
             }
         }
         resp.push(self);
@@ -69,7 +69,7 @@ impl Directory {
     }
 }
 
-impl<'a, T> From<WithPrefixRoot<'a, T>> for Directory
+impl<'a, T> From<WithPrefixRoot<'a, T>> for Bucket
 where
     T: AsRef<Path>,
 {
@@ -79,7 +79,7 @@ where
 
         let name = entry.as_ref().to_str().map(ToString::to_string).unwrap();
 
-        tracing::trace!("{{From<WithPrefixRoot<'a,T>> for Directory}} entry: {:?} real_path: {} no_final_slah_real_path: {}", entry.as_ref(), realpath, no_final_slash);
+        tracing::trace!("{{From<WithPrefixRoot<'a,T>> for Bucket}} entry: {:?} real_path: {} no_final_slah_real_path: {}", entry.as_ref(), realpath, no_final_slash);
         let name = name.replace(
             if name == no_final_slash {
                 no_final_slash
@@ -88,31 +88,31 @@ where
             },
             prefix,
         );
-        tracing::trace!("{{From<WithPrefixRoot<'a,T>> for Directory}} From Path {:?} to Directory: {name}", entry.as_ref());
+        tracing::trace!("{{From<WithPrefixRoot<'a,T>> for Bucket}} From Path {:?} to Bucket: {name}", entry.as_ref());
         Self(name)
     }
 }
 
-impl std::fmt::Display for Directory {
+impl std::fmt::Display for Bucket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<String> for Directory {
+impl From<String> for Bucket {
     fn from(value: String) -> Self {
         Self(value)
     }
 }
 
 
-impl AsRef<str> for Directory {
+impl AsRef<str> for Bucket {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
-impl<T> std::cmp::PartialEq<T> for Directory
+impl<T> std::cmp::PartialEq<T> for Bucket
 where
     T: AsRef<str>,
 {
@@ -121,9 +121,9 @@ where
     }
 }
 
-impl std::cmp::Eq for Directory {}
+impl std::cmp::Eq for Bucket {}
 
-impl<T> std::cmp::PartialOrd<T> for Directory
+impl<T> std::cmp::PartialOrd<T> for Bucket
 where
     T: AsRef<str>,
 {
@@ -132,13 +132,13 @@ where
     }
 }
 
-impl std::cmp::Ord for Directory {
+impl std::cmp::Ord for Bucket {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_ref().cmp(other.as_ref())
     }
 }
 
-impl std::ops::Deref for Directory {
+impl std::ops::Deref for Bucket {
     type Target = str;
     fn deref(&self) -> &Self::Target {
         self.as_ref()
