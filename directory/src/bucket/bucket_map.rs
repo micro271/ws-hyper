@@ -1,13 +1,13 @@
-use super::{Bucket, error::BucketMapErr, key::Object};
-use crate::{bucket::WithPrefixRoot, manager::{utils::FromDirEntyAsync as _, watcher::for_dir::ForDir}};
+use super::{Bucket, error::BucketMapErr, object::Object};
+use crate::{bucket::{WithPrefixRoot, key::Key}, manager::{utils::FromDirEntyAsync as _, watcher::for_dir::ForDir}};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::PathBuf,
 };
 use tokio::fs;
 
-type BucketMapType = BTreeMap<Bucket, Vec<Object>>;
+type BucketMapType = HashMap<Bucket, BTreeMap<Key, Vec<Object>>>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BucketMap {
@@ -82,7 +82,7 @@ impl BucketMap {
         }
         tracing::error!("{path:?}, {prefix_root:?}");
         Ok(BucketMap {
-            inner: resp,
+            inner: todo!(),
             real_path: path,
             root: prefix_root,
         })

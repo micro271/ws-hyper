@@ -22,7 +22,7 @@ use tokio::sync::{
 use utils::Executing;
 
 use crate::{
-    bucket::{Bucket, key::Object, bucket_map::BucketMap},
+    bucket::{Bucket, object::Object, bucket_map::BucketMap},
     manager::{
         utils::{OneshotSender, Task},
         watcher::WatcherOwn,

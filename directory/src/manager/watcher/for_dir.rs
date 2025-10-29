@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::bucket::{Bucket, WithPrefixRoot, key::Object};
+use crate::bucket::{Bucket, WithPrefixRoot, object::Object};
 
 #[derive(Debug, Default)]
 pub struct ForDir<T> {

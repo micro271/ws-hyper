@@ -1,6 +1,8 @@
 pub mod error;
-pub mod key;
+pub mod object;
 pub mod bucket_map;
+pub mod key;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
