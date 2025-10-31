@@ -85,29 +85,6 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
     Ok(())
 }
 
-macro_rules! match_error {
-    ($e:expr) => {
-        match $e {
-            Ok(e) => (e),
-            Err(err) => {
-                tracing::error!("{err}");
-                continue;
-            }
-        }
-    };
-    ($e:expr, $prefix: expr) => {
-        match $e {
-            Ok(e) => (e),
-            Err(err) => {
-                tracing::error!("{} {err}", $prefix);
-                continue;
-            }
-        }
-    };
-}
-
-pub(crate) use match_error;
-
 #[derive(Debug, Clone)]
 pub struct Task<W: Send + 'static>(W);
 

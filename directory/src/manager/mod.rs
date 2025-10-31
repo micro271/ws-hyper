@@ -22,7 +22,7 @@ use tokio::sync::{
 use utils::Executing;
 
 use crate::{
-    bucket::{Bucket, object::Object, bucket_map::BucketMap},
+    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
     manager::{
         utils::{OneshotSender, Task},
         watcher::WatcherOwn,
@@ -69,12 +69,13 @@ where
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
         tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.clone();
+        
         loop {
             match rx_watcher.recv().await {
-                Some(Change::New { dir, file }) => {
-                    tracing::trace!("[Scheduler] Input dir: {dir:?} - file: {file}");
+                Some(Change::New { bucket, key, object }) => {
+                    tracing::trace!("[Scheduler] New element: {bucket:?} - key: {key} - object: {object?}");
                     let mut wr = self.state.write().await;
-                    let path = dir.as_ref().to_string();
+                    
                     let file_name = file.key().to_string();
                     if file.is_dir() {
                         let mut path = dir.path();
@@ -109,7 +110,7 @@ where
                         tracing::error!("[Scheduler] Validate error - {err:?}");
                     }
                 }
-                Some(Change::Delete { parent, file }) => {
+                Some(Change::Delete { bucket, key, object }) => {
                     let mut wr = self.state.write().await;
 
                     let mut queue = VecDeque::new();
@@ -159,7 +160,7 @@ where
                         }
                     }
                 }
-                Some(Change::Name { dir, from, to }) => {
+                Some(Change::Name { bucket, key, from, to }) => {
                     let mut wr = self.state.write().await;
                     tracing::trace!(
                         "[Scheduler] {{ Some(Change::Name {{ dir: {dir:?}, from: {from:?}, to: {to:?} }}) }}"
@@ -240,18 +241,37 @@ where
 
 #[derive(Debug, Clone, Serialize)]
 pub enum Change {
-    New {
-        dir: Bucket,
-        file: Object,
+    NewObject {
+        bucket: Bucket,
+        key: Key,
+        object: Object,
     },
-    Name {
-        dir: Bucket,
-        from: String,
+    NewKey {
+        bucket: Bucket,
+        key: Key,
+    },
+    NewBucket {
+        bucket: Bucket,
+    },
+    NameObject {
+        bucket: Bucket,
+        key: Key,
+        from: Object,
         to: Object,
     },
+    NameBucket {
+        from: Bucket,
+        to: Bucket,
+    },
+    NameKey {
+        bucket: Bucket,
+        from: Key,
+        to: Key,
+    },
     Delete {
-        parent: Bucket,
-        file: Object,
+        bucket: Bucket,
+        key: Key,
+        object: Object,
     },
 }
 

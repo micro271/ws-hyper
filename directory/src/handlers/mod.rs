@@ -63,9 +63,19 @@ where
     next(req).await
 }
 
-pub async fn server_upgrade(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseError> {
+pub async fn server_upgrade(
+    req: Request<Incoming>,
+) -> Result<Response<Full<Bytes>>, ResponseError> {
     let state = req.extensions().get::<TypeState>().unwrap().clone();
-    let path = req.uri().path().strip_prefix("/monitor").ok_or(ResponseError::new(format!("{} not found", req.uri().path()), StatusCode::BAD_REQUEST))?.to_string();
+    let path = req
+        .uri()
+        .path()
+        .strip_prefix("/monitor")
+        .ok_or(ResponseError::new(
+            format!("{} not found", req.uri().path()),
+            StatusCode::BAD_REQUEST,
+        ))?
+        .to_string();
 
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();

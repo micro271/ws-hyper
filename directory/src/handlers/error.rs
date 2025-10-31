@@ -1,6 +1,6 @@
 use http::StatusCode;
 use http_body_util::Full;
-use hyper::{body::Bytes, Response};
+use hyper::{Response, body::Bytes};
 
 pub struct ResponseError {
     detail: String,
@@ -9,10 +9,7 @@ pub struct ResponseError {
 
 impl ResponseError {
     pub fn new(detail: String, status: StatusCode) -> Self {
-        Self {
-            detail,
-            status,
-        }
+        Self { detail, status }
     }
 }
 

@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum, command};
-use tonic::transport::Endpoint;
 use std::net::Ipv4Addr;
+use tonic::transport::Endpoint;
 use tracing::Level;
 
 #[derive(Parser)]
@@ -29,7 +29,11 @@ pub struct Args {
     )]
     pub prefix_root: String,
 
-    #[arg(long = "grpc-auth-server", env = "GRPC_AUTH_SERVER", help = "Endpoint to auth server")]
+    #[arg(
+        long = "grpc-auth-server",
+        env = "GRPC_AUTH_SERVER",
+        help = "Endpoint to auth server"
+    )]
     pub grpc_auth_server: Endpoint,
 }
 

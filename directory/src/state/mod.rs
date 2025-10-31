@@ -1,22 +1,32 @@
 use crate::{
-    bucket::{Bucket, bucket_map::BucketMap}, grpc_v1::{AllowedBucketReq, InfoClient, Permissions}, manager::{new_file_tba::CreateRateLimit, websocker::MsgWs}
+    bucket::{Bucket, bucket_map::BucketMap},
+    grpc_v1::{AllowedBucketReq, InfoClient, Permissions},
+    manager::{new_file_tba::CreateRateLimit, websocker::MsgWs},
 };
 use hyper_tungstenite::HyperWebsocket;
 use serde_json::{Value, json};
-use tonic::transport::Endpoint;
-use uuid::Uuid;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{RwLock, RwLockReadGuard, mpsc::Sender};
+use tonic::transport::Endpoint;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 enum Connection {
-    Not{ retry_ms: u64, attempt: u8, endpoint: Endpoint },
+    Not {
+        retry_ms: u64,
+        attempt: u8,
+        endpoint: Endpoint,
+    },
     Connected(InfoClient<tonic::transport::Channel>),
 }
 
 impl Connection {
     fn default_param(endpoint: Endpoint) -> Self {
-        Self::Not { retry_ms: 2000, attempt: 3, endpoint }
+        Self::Not {
+            retry_ms: 2000,
+            attempt: 3,
+            endpoint,
+        }
     }
 }
 
@@ -29,12 +39,22 @@ pub struct State {
 }
 
 impl State {
-    pub async fn new(tree: Arc<RwLock<BucketMap>>, new_subs: Sender<MsgWs>, endpoint: Endpoint) -> Self {
+    pub async fn new(
+        tree: Arc<RwLock<BucketMap>>,
+        new_subs: Sender<MsgWs>,
+        endpoint: Endpoint,
+    ) -> Self {
         Self {
             tree,
             create_limit: CreateRateLimit::new(),
             tx_subs: new_subs,
-            info_user_connection: RwLock::new(InfoClient::connect(endpoint.clone()).await.ok().map(Connection::Connected).unwrap_or(Connection::default_param(endpoint))),
+            info_user_connection: RwLock::new(
+                InfoClient::connect(endpoint.clone())
+                    .await
+                    .ok()
+                    .map(Connection::Connected)
+                    .unwrap_or(Connection::default_param(endpoint)),
+            ),
         }
     }
 
@@ -42,11 +62,21 @@ impl State {
         self.tree.read().await
     }
 
-    pub async fn bucket(&self, user_id: Uuid, bucket_name: String, permission: Permissions) -> Result<bool, String> {
-        
+    pub async fn bucket(
+        &self,
+        user_id: Uuid,
+        bucket_name: String,
+        permission: Permissions,
+    ) -> Result<bool, String> {
         let mut clone = self.info_user_connection.read().await.clone();
 
-        while let Connection::Not{retry_ms, attempt  , endpoint} = &mut clone && *attempt > 0 {
+        while let Connection::Not {
+            retry_ms,
+            attempt,
+            endpoint,
+        } = &mut clone
+            && *attempt > 0
+        {
             tokio::select! {
                 () = tokio::time::sleep(Duration::from_millis(*retry_ms)) => {
                     tracing::error!("[Attempt {}] Connection timeout {}", *attempt, *retry_ms);
@@ -68,12 +98,14 @@ impl State {
         }
 
         if let Connection::Connected(mut con) = clone {
-            let req = AllowedBucketReq{id: user_id.as_bytes().to_vec(), name: bucket_name, permissions: i32::try_from(permission).unwrap()};
-            
+            let req = AllowedBucketReq {
+                id: user_id.as_bytes().to_vec(),
+                name: bucket_name,
+                permissions: i32::try_from(permission).unwrap(),
+            };
+
             match con.bucket(req).await {
-                Ok(ok) => {
-                    Ok(ok.into_inner().allowed)
-                },
+                Ok(ok) => Ok(ok.into_inner().allowed),
                 Err(err) => Err(err.message().to_string()),
             }
         } else {
@@ -83,16 +115,7 @@ impl State {
 
     pub async fn add_client(&self, subscriber: String, sender: HyperWebsocket) {
         tracing::error!("{subscriber}");
-        if let Err(er) = self
-            .tx_subs
-            .send(MsgWs::NewUser {
-                subscriber: Bucket::new_unchk_from_path(subscriber).with_prefix(self.read().await.root()),
-                sender,
-            })
-            .await
-        {
-            tracing::error!("[State] new subscriber error {er}");
-        }
+        todo!()
     }
 
     pub fn create_rate_limit(&self) -> &CreateRateLimit {

@@ -8,10 +8,10 @@ use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
-use tokio::sync::{Mutex, broadcast::Sender as SenderBr};
+use tokio::sync::{Mutex, broadcast::{self, Receiver, Sender as SenderBr}};
 
 use crate::{
-    bucket::Bucket,
+    bucket::{Bucket, key::Key},
     manager::{Change, utils::AsyncRecv},
 };
 
@@ -28,39 +28,27 @@ where
         tokio::spawn(Self::task(rx));
     }
     pub async fn task(mut rx: Rx) {
-        let mut users = HashMap::<Bucket, SenderBr<Change>>::new();
+        let mut users = ListToNotification::<Change>::new();
         tracing::debug!("Web socket manage init");
 
         loop {
             let msg = rx.recv().await;
             tracing::trace!("{msg:?}");
             match msg {
-                Some(MsgWs::Change { subscriber, change }) => {
-                    let all_subs = subscriber.all_superpaths();
-                    tracing::trace!("[WehSocket Task] All subscriber to notify: {:?} ", all_subs);
-                    for sub in all_subs {
-                        if let Some(send) = users.get(&sub) {
-                            match send.send(change.clone()) {
-                                Ok(n) => {
-                                    if n == 0 {
-                                        users.remove(&sub);
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!("{err}");
-                                }
-                            }
-                        }
+                Some(MsgWs::Change { bucket, key, change }) => {
+                    let Some(sender) = users.get_sender(&bucket, &key) else {
+                        tracing::error!("Nobody is listening the bucket");
+                        continue;
+                    };
+
+                    if let Err(er) = sender.send(change) {
+                        tracing::error!("[Error to notification] {er}");
                     }
                 }
-                Some(MsgWs::NewUser { subscriber, sender }) => {
-                    let mut rx = if let Some(subs) = users.get(&subscriber) {
-                        subs.subscribe()
-                    } else {
-                        let (tx, rx) = tokio::sync::broadcast::channel(256);
-                        users.insert(subscriber, tx.clone());
-                        rx
-                    };
+                Some(MsgWs::NewUser { bucket, key, sender }) => {
+                    
+                    let mut rx = users.rcv_or_create(bucket, key);
+
                     let (tx_client, rx_client) = sender.await.unwrap().split();
                     let tx_client = Arc::new(Mutex::new(tx_client));
                     let tx_client_clone = tx_client.clone();
@@ -93,7 +81,9 @@ where
     ) -> Result<(), &'static str> {
         while let Some(Ok(msg)) = ws.next().await {
             match msg {
-                Message::Text(txt) => { tracing::debug!("{txt:?}") }
+                Message::Text(txt) => {
+                    tracing::debug!("{txt:?}")
+                }
                 Message::Ping(bytes) => {
                     tracing::debug!("Received ping message: {bytes:02X?}");
                     if let Err(er) = tx.lock().await.send(Message::Pong(bytes)).await {
@@ -125,11 +115,35 @@ where
 #[derive(Debug)]
 pub enum MsgWs {
     NewUser {
-        subscriber: Bucket,
+        bucket: Bucket,
+        key: Key,
         sender: HyperWebsocket,
     },
     Change {
-        subscriber: Bucket,
+        bucket: Bucket,
+        key: Key,
         change: Change,
     },
 }
+
+
+struct ListToNotification<T>(HashMap::<Bucket, HashMap<Key, SenderBr<T>>>);
+
+impl<T: Clone + Send + 'static> ListToNotification<T> {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn get_sender(&self, bucket: &Bucket, key: &Key) -> Option<SenderBr<T>> {
+        self.0.get(bucket).and_then(|x| x.get(key).map(|x| x.clone()))
+    }
+
+    fn rcv_or_create(&mut self, bucket: Bucket, key: Key) -> Receiver<T> {
+        let bucket = self.0.entry(bucket).or_insert(HashMap::new());
+        let key = bucket.entry(key).or_insert_with(|| { 
+            let (tx, _) = broadcast::channel::<T>(128);
+            tx
+         });
+        key.subscribe()
+    }
+} 

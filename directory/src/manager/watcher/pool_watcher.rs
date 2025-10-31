@@ -3,16 +3,16 @@ use std::{path::PathBuf, time::Duration};
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::manager::{
+use crate::{manager::{
     utils::OneshotSender,
-    watcher::{WatcherOwn, error::WatcherErr, for_dir::ForDir},
-};
+    watcher::{WatcherOwn, error::WatcherErr},
+}, state};
 
 pub struct PollWatcherNotify {
     _poll_watcher: PollWatcher,
     tx: UnboundedSender<Result<notify::Event, notify::Error>>,
     rx: Option<UnboundedReceiver<Result<notify::Event, notify::Error>>>,
-    for_dir: ForDir<String>,
+    path: String,
 }
 
 impl PollWatcherNotify {
@@ -44,7 +44,7 @@ impl PollWatcherNotify {
             tx,
             rx: Some(rx),
             _poll_watcher: poll,
-            for_dir: ForDir::new(root.as_ref().to_string(), real_path.as_ref().to_string()),
+            path: real_path.as_ref().to_string(),
         })
     }
 }

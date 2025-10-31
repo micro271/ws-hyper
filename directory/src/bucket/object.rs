@@ -1,11 +1,15 @@
+use crate::manager::utils::FromDirEntyAsync;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
-    fs::{FileType as FT, Metadata}, io::Read, os::unix::fs::MetadataExt, path::Path, time::{SystemTime, UNIX_EPOCH}
+    fs::{FileType as FT, Metadata},
+    io::Read,
+    os::unix::fs::MetadataExt,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
 use tokio::fs;
-use sha2::{Sha256, Digest};
-use crate::manager::utils::FromDirEntyAsync;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
 pub struct Object {
@@ -54,8 +58,9 @@ impl FromDirEntyAsync<fs::DirEntry> for Object {
     }
 }
 
-impl From<&Path> for Object {
-    fn from(value: &Path) -> Self {
+impl<T: AsRef<Path>> From<T> for Object {
+    fn from(value: T) -> Self {
+        let value = value.as_ref();
         let meta = value.metadata();
         let file_type = meta
             .map(|x| ObjectType::from(x.file_type()))
@@ -143,42 +148,43 @@ fn get_info_metadata(
     }
 }
 
-pub struct CheckSum<T>{
-    path: T
+pub struct CheckSum<T> {
+    path: T,
 }
 
 impl<T: AsRef<Path>> CheckSum<T> {
-    
     pub fn new(path: T) -> Self {
-        Self {
-            path: path,
-        }
+        Self { path: path }
     }
 
     fn check_sum(self) -> String {
-    let file = std::fs::File::open(self.path).unwrap();
+        let file = std::fs::File::open(self.path).unwrap();
         let mut reader = std::io::BufReader::new(file);
         let mut buffer = [0u8; 8192];
         let mut sha = Sha256::new();
         loop {
             let bits_r = reader.read(&mut buffer);
             match bits_r {
-                Ok(0) => { break ; },
+                Ok(0) => {
+                    break;
+                }
                 Ok(bits) => {
                     sha.update(&buffer[..bits]);
-                },
+                }
                 Err(er) => {
                     tracing::error!("{er}");
                     return "".to_string();
-                },
+                }
             }
         }
-        format!("{:x}",sha.finalize())
+        format!("{:x}", sha.finalize())
     }
 }
 
 impl<T: AsRef<Path> + Send + 'static> CheckSum<T> {
     pub async fn check_sum_async(self) -> String {
-        tokio::task::spawn_blocking(|| self.check_sum()).await.unwrap()
+        tokio::task::spawn_blocking(|| self.check_sum())
+            .await
+            .unwrap()
     }
 }

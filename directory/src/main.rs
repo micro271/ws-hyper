@@ -1,5 +1,5 @@
-pub mod cli;
 pub mod bucket;
+pub mod cli;
 pub mod grpc_v1;
 pub mod handlers;
 pub mod manager;
@@ -8,8 +8,8 @@ pub mod user;
 pub mod ws;
 
 use crate::{
-    cli::Args,
     bucket::bucket_map::BucketMap,
+    cli::Args,
     manager::{
         Schedule,
         watcher::{Watcher, event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port,
         log_level,
         prefix_root,
-        grpc_auth_server
+        grpc_auth_server,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = BucketMap::new_async(&watcher_path, prefix_root).await?;
+    let state = BucketMap::new(watcher_path)?;
 
     let state = Arc::new(RwLock::new(state));
 

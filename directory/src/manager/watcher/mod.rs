@@ -1,6 +1,5 @@
 pub mod error;
 pub mod event_watcher;
-pub mod for_dir;
 pub mod pool_watcher;
 use std::marker::PhantomData;
 
