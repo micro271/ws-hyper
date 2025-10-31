@@ -3,10 +3,13 @@ use std::{path::PathBuf, time::Duration};
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::{manager::{
-    utils::OneshotSender,
-    watcher::{WatcherOwn, error::WatcherErr},
-}, state};
+use crate::{
+    manager::{
+        utils::OneshotSender,
+        watcher::{WatcherOwn, error::WatcherErr},
+    },
+    state,
+};
 
 pub struct PollWatcherNotify {
     _poll_watcher: PollWatcher,

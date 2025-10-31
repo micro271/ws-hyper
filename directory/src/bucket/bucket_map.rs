@@ -1,7 +1,5 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
-use crate::{
-    bucket::key::Key,
-};
+use crate::bucket::key::Key;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
@@ -26,31 +24,68 @@ impl BucketMap {
 
     pub fn new(mut path: String) -> Result<Self, BucketMapErr> {
         Self::validate(&mut path)?;
-        let path_buf = PathBuf::from(&path);
+        let mut root_path = PathBuf::from(&path);
 
-        if !path_buf.is_dir() {
-            return Err(BucketMapErr::IsNotABucket(path_buf));
-        }
-        if !path.ends_with('/') {
-            path.push('/');
-        }
-
-        let mut buckets = std::fs::read_dir(&path_buf)?
+        let mut buckets = std::fs::read_dir(&root_path)?
             .filter_map(|x| {
                 x.ok()
                     .filter(|x| x.file_type().map(|x| x.is_dir()).unwrap_or_default())
-                    .and_then(|x| {
-                        Some(
-                            (x.path()
-                                .strip_prefix(&path)
-                                .ok()
-                                .and_then(|x| Some(Bucket::new_unchk(x.to_str()?.to_string())))?,
-                                BTreeMap::<Key, Vec<Object>>::new()
-                            )
+                    .map(|entry| {
+                        (
+                            entry
+                                .path()
+                                .file_name()
+                                .map(|x| Bucket::new_unchk(x.to_string_lossy().into_owned()))
+                                .unwrap(),
+                            BTreeMap::<Key, Vec<Object>>::new(),
                         )
                     })
             })
-            .collect::<HashMap<_,_>>();
+            .collect::<HashMap<_, _>>();
+
+        let bk_keys = buckets.keys().cloned().collect::<Vec<_>>();
+        for bks in bk_keys {
+            root_path.push(bks.as_ref());
+            let mut list = VecDeque::new();
+            let mut objs = Vec::new();
+            let mut reader = root_path.read_dir()?;
+            while let Some(Ok(dir)) = reader.next() {
+                if dir.file_type().is_ok_and(|x| x.is_dir()) {
+                    list.push_back(dir.path());
+                } else {
+                    objs.push(Object::from(dir.path()));
+                }
+            }
+
+            buckets
+                .get_mut(&bks)
+                .unwrap()
+                .entry(Key::new(""))
+                .or_default()
+                .extend(objs);
+
+            while let Some(path) = list.pop_front() {
+                let key = 
+                    path.strip_prefix(&root_path)
+                        .map(|x| Key::new(x.to_string_lossy().into_owned()))
+                        .unwrap();
+                
+                let mut inner_keys = path.read_dir()?;
+                let mut objs = Vec::new();
+                while let Some(Ok(inner)) = inner_keys.next() {
+                    if inner.file_type().unwrap().is_dir() {
+                        list.push_back(inner.path());
+                    }
+                    objs.push(Object::from(inner.path()));
+                }
+                buckets
+                    .get_mut(&bks)
+                    .unwrap()
+                    .entry(key)
+                    .or_default()
+                    .extend(objs);
+            }
+        }
 
         Ok(BucketMap {
             inner: buckets,
@@ -71,7 +106,11 @@ impl BucketMap {
             return Err(BucketMapErr::IsNotABucket(_path));
         }
 
-        *path = _path.to_str().unwrap().to_string();
+        if !path.ends_with('/') {
+            path.push('/');
+        }
+
+        *path = _path.to_string_lossy().into_owned();
 
         Ok(())
     }

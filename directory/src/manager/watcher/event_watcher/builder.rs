@@ -5,8 +5,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::manager::utils::TakeOwn;
 
 use super::{
-    EventWatcher, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr,
-    unbounded_channel,
+    EventWatcher, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr, unbounded_channel,
 };
 
 #[derive(Debug)]
@@ -39,7 +38,6 @@ impl<P, Tx> EventWatcherBuilder<P, Tx> {
         })
     }
 }
-
 
 impl<Tx> EventWatcherBuilder<EventWatcherPath, Tx> {
     pub fn build(
@@ -87,14 +85,11 @@ impl<Tx> EventWatcherBuilder<EventWatcherPath, Tx> {
 
 pub struct EventWatcherNoForDir;
 
-
 pub struct EventWatcherNoPath;
 
 pub struct EventWatcherPath(PathBuf);
 
-impl<Tx> std::default::Default
-    for EventWatcherBuilder<EventWatcherNoPath, Tx>
-{
+impl<Tx> std::default::Default for EventWatcherBuilder<EventWatcherNoPath, Tx> {
     fn default() -> Self {
         Self {
             path: EventWatcherNoPath,

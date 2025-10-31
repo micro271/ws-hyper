@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 pub struct Bucket(String);
 
 impl Bucket {
-
     pub fn new_unchk_from_path<T>(path: T) -> Self
     where
         T: AsRef<Path>,

@@ -85,9 +85,7 @@ impl InfoUserProgram {
                         tracing::info!("Bucker {bucket} is not present in the root");
                         let mut path = PathBuf::from(path);
                         path.push(bucket);
-                        match tokio::fs::create_dir(path)
-                        .await
-                        {
+                        match tokio::fs::create_dir(path).await {
                             Ok(()) => {
                                 tracing::info!(
                                     "[Stream Handler] We've created the bucker {bk} for auth services notifycation"

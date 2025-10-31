@@ -70,7 +70,7 @@ impl<T: AsRef<Path>> From<T> for Object {
         Self {
             key: value
                 .file_name()
-                .and_then(|x| x.to_str().map(ToString::to_string))
+                .map(|x| x.to_string_lossy().into_owned())
                 .unwrap(),
             r#type: file_type,
             checksum: CheckSum::new(value).check_sum(),

@@ -69,14 +69,20 @@ where
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
         tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.clone();
-        
+
         loop {
             match rx_watcher.recv().await {
-                Some(Change::New { bucket, key, object }) => {
-                    tracing::trace!("[Scheduler] New element: {bucket:?} - key: {key} - object: {object?}");
+                Some(Change::NewObject {
+                    bucket,
+                    key,
+                    object,
+                }) => {
+                    tracing::trace!(
+                        "[Scheduler] New element: {bucket:?} - key: {key} - object: {object?}"
+                    );
                     let mut wr = self.state.write().await;
-                    
-                    let file_name = file.key().to_string();
+
+                    let file_name = key.as_ref();
                     if file.is_dir() {
                         let mut path = dir.path();
                         path.push(file.key());
@@ -110,7 +116,11 @@ where
                         tracing::error!("[Scheduler] Validate error - {err:?}");
                     }
                 }
-                Some(Change::Delete { bucket, key, object }) => {
+                Some(Change::Delete {
+                    bucket,
+                    key,
+                    object,
+                }) => {
                     let mut wr = self.state.write().await;
 
                     let mut queue = VecDeque::new();
@@ -160,7 +170,12 @@ where
                         }
                     }
                 }
-                Some(Change::Name { bucket, key, from, to }) => {
+                Some(Change::Name {
+                    bucket,
+                    key,
+                    from,
+                    to,
+                }) => {
                     let mut wr = self.state.write().await;
                     tracing::trace!(
                         "[Scheduler] {{ Some(Change::Name {{ dir: {dir:?}, from: {from:?}, to: {to:?} }}) }}"
