@@ -69,39 +69,19 @@ where
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
         tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.clone();
-
+        
         loop {
             match rx_watcher.recv().await {
-                Some(Change::NewObject {
-                    bucket,
-                    key,
-                    object,
-                }) => {
-                    tracing::trace!(
-                        "[Scheduler] New element: {bucket:?} - key: {key} - object: {object?}"
-                    );
+                Some(Change::NewObject { bucket, key, object }) => {
+                    tracing::trace!("[Scheduler] New element: {bucket:?} - key: {key:?} - object: {object:?}");
                     let mut wr = self.state.write().await;
-
+                    
                     let file_name = key.as_ref();
-                    if file.is_dir() {
-                        let mut path = dir.path();
-                        path.push(file.key());
-                        let dir = Bucket::new_unchk_from_path(path);
-                        tracing::trace!("[Watch Manager]: New dir {dir:?}");
-                        wr.insert(dir, vec![]);
-                    }
 
-                    if let Some(vec) = wr.get_mut(&dir) {
-                        vec.push(file.clone());
-                    } else {
-                        tracing::debug!("{dir:#?} not found");
-                    }
+                    
 
                     if let Err(err) = tx_ws
-                        .send(MsgWs::Change {
-                            subscriber: dir.clone(),
-                            change: Change::New { dir, file },
-                        })
+                        .send(MsgWs::Change(Change::NewObject { bucket, key, object }))
                         .await
                     {
                         tracing::error!("[Scheduler] Sent message to WebSocket manager: {err}");
@@ -116,11 +96,7 @@ where
                         tracing::error!("[Scheduler] Validate error - {err:?}");
                     }
                 }
-                Some(Change::Delete {
-                    bucket,
-                    key,
-                    object,
-                }) => {
+                Some(Change::Delete { bucket, key, object }) => {
                     let mut wr = self.state.write().await;
 
                     let mut queue = VecDeque::new();
@@ -170,12 +146,7 @@ where
                         }
                     }
                 }
-                Some(Change::Name {
-                    bucket,
-                    key,
-                    from,
-                    to,
-                }) => {
+                Some(Change::Name { bucket, key, from, to }) => {
                     let mut wr = self.state.write().await;
                     tracing::trace!(
                         "[Scheduler] {{ Some(Change::Name {{ dir: {dir:?}, from: {from:?}, to: {to:?} }}) }}"
@@ -283,11 +254,38 @@ pub enum Change {
         from: Key,
         to: Key,
     },
-    Delete {
+    DeleteObject {
         bucket: Bucket,
         key: Key,
         object: Object,
     },
+    DeleteKey {
+        bucket: Bucket,
+        key: Key,
+    },
+}
+
+#[derive(Debug)]
+enum Route<'a> {
+    Bucket(&'a Bucket),
+    Pair(&'a Bucket, &'a Key),
+}
+
+impl Change {
+    fn route(&self) -> Route<'_> {
+        match self {
+            Change::NewObject { bucket, key, .. } |
+            Change::NewKey { bucket, key } |
+            Change::NameObject { bucket, key, ..} |
+            Change::DeleteObject { bucket, key, .. } |
+            Change::DeleteKey { bucket, key } => {
+                Route::Pair(bucket, key)
+            },
+            Change::NameBucket { from, to } => Route::Bucket(from),
+            Change::NameKey { bucket, from, to } => Route::Pair(bucket, from),
+            Change::NewBucket { bucket } => Route::Bucket(bucket),
+        }
+    }
 }
 
 pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>) {

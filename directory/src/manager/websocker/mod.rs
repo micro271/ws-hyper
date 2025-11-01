@@ -15,7 +15,7 @@ use tokio::sync::{
 
 use crate::{
     bucket::{Bucket, key::Key},
-    manager::{Change, utils::AsyncRecv},
+    manager::{Change, Route, utils::AsyncRecv}, 
 };
 
 #[derive(Debug, Clone)]
@@ -38,18 +38,18 @@ where
             let msg = rx.recv().await;
             tracing::trace!("{msg:?}");
             match msg {
-                Some(MsgWs::Change {
-                    bucket,
-                    key,
-                    change,
-                }) => {
-                    let Some(sender) = users.get_sender(&bucket, &key) else {
-                        tracing::error!("Nobody is listening the bucket");
-                        continue;
-                    };
-
-                    if let Err(er) = sender.send(change) {
-                        tracing::error!("[Error to notification] {er}");
+                Some(MsgWs::Change(change)) => {
+                    match change.route() {
+                        Route::Bucket(bucket) => {
+                            if let Err(er)  = users.send_all_in_bucket(&bucket).unwrap().send(change) {
+                                tracing::error!("");
+                            }
+                        },
+                        Route::Pair(bucket, key) => {
+                            if let Err(er) = users.send_message(&bucket, &key).send(change) {
+                                tracing::error!("");
+                            }
+                        },
                     }
                 }
                 Some(MsgWs::NewUser {
@@ -129,11 +129,7 @@ pub enum MsgWs {
         key: Key,
         sender: HyperWebsocket,
     },
-    Change {
-        bucket: Bucket,
-        key: Key,
-        change: Change,
-    },
+    Change(Change),
 }
 
 struct ListToNotification<T>(HashMap<Bucket, HashMap<Key, SenderBr<T>>>);
@@ -148,6 +144,18 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
             .get(bucket)
             .and_then(|x| x.get(key).map(|x| x.clone()))
     }
+    
+    fn send_message(&self, bucket: &Bucket, key: &Key) -> SendMessage<'_, T> {
+        let sender = self.0
+            .get(bucket)
+            .and_then(|x| x.get(key)).unwrap();
+
+        SendMessage(sender)
+    }
+
+    pub fn send_all_in_bucket(&self, bucket: &Bucket) -> Result<SendAllBucket<'_, T>,()> {
+        Ok(SendAllBucket(self.0.get(bucket).unwrap()))
+    }
 
     fn rcv_or_create(&mut self, bucket: Bucket, key: Key) -> Receiver<T> {
         let bucket = self.0.entry(bucket).or_insert(HashMap::new());
@@ -156,5 +164,26 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
             tx
         });
         key.subscribe()
+    }
+}
+
+struct SendMessage<'a, T>(&'a SenderBr<T>);
+
+impl<'a, T: Clone> SendMessage<'a, T> {
+    pub fn send(self, msj: T) -> Result<(),()> {
+        self.0.send(msj.clone());
+        Ok(())
+    }
+}
+
+
+struct SendAllBucket<'a, T>(&'a HashMap<Key, SenderBr<T>>);
+
+impl<'a, T: Clone> SendAllBucket<'a, T> {
+    pub fn send(self, msj: T) -> Result<(),()> {
+        for snd in self.0.values() {
+            snd.send(msj.clone());
+        }
+        Ok(())
     }
 }
