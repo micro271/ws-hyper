@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
@@ -10,6 +12,10 @@ impl Key {
 
     pub fn inner(self) -> String {
         self.0
+    }
+
+    pub fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.0.as_ref())
     }
 }
 

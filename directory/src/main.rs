@@ -18,7 +18,7 @@ use crate::{
 };
 use clap::Parser;
 use hyper::server::conn::http1;
-use std::{path::PathBuf, sync::Arc};
+use std::{env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -26,6 +26,8 @@ use utils::{Io, Peer, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("{:?}", env::current_dir());
+
     dotenv::dotenv().ok();
     let Args {
         watcher,
@@ -33,7 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listen,
         port,
         log_level,
-        prefix_root,
         grpc_auth_server,
     } = Args::parse();
 
@@ -51,20 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let websocker_subscribers = match watcher {
         cli::TypeWatcher::Poll => {
-            let w = PollWatcherNotify::new(
-                state.read().await.real_path().to_string(),
-                state.read().await.root().to_string(),
-                2000,
-            )
-            .unwrap();
+            let w = PollWatcherNotify::new(state.read().await.path().to_string(), 2000).unwrap();
             Schedule::run(state.clone(), Watcher::new(w))
         }
         cli::TypeWatcher::Event => {
             let w = EventWatcherBuilder::default()
                 .rename_control_await(2000)
-                .path(PathBuf::from(state.read().await.real_path()))
+                .path(PathBuf::from(state.read().await.path()))
                 .unwrap()
-                .for_dir_root(state.read().await.root())
                 .build()
                 .unwrap();
             Schedule::run(state.clone(), Watcher::new(w))

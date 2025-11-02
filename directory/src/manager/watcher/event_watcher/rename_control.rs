@@ -58,7 +58,10 @@ impl RenameControl {
                             }
                         }
                     }
-                    _ => tracing::error!("[RenameControl] Sender was close"),
+                    _ => {
+                        tracing::error!("[RenameControl] Sender was close");
+                        break;
+                    }
                 }
             }
         });

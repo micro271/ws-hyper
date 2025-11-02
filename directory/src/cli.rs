@@ -22,17 +22,10 @@ pub struct Args {
     pub log_level: LogLebel,
 
     #[arg(
-        long = "prefix-root",
-        env = "PREFIX_ROOT",
-        default_value = ".",
-        help = "Prefix of the root directory"
-    )]
-    pub prefix_root: String,
-
-    #[arg(
         long = "grpc-auth-server",
         env = "GRPC_AUTH_SERVER",
-        help = "Endpoint to auth server"
+        help = "Endpoint to auth server",
+        default_value = "[::]:50504"
     )]
     pub grpc_auth_server: Endpoint,
 }

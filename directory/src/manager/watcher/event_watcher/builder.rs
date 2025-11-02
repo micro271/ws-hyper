@@ -77,7 +77,7 @@ impl<Tx> EventWatcherBuilder<EventWatcherPath, Tx> {
             rename_control,
             tx,
             rx,
-            path: path.to_str().map(ToString::to_string).unwrap(),
+            path: path.to_string_lossy().into_owned(),
             _pantom: self._phantom,
         })
     }

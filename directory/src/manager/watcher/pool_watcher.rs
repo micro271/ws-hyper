@@ -19,7 +19,7 @@ pub struct PollWatcherNotify {
 }
 
 impl PollWatcherNotify {
-    pub fn new<T: AsRef<str>>(real_path: T, root: T, interval: u64) -> Result<Self, WatcherErr> {
+    pub fn new<T: AsRef<str>>(real_path: T, interval: u64) -> Result<Self, WatcherErr> {
         let mut path = PathBuf::from(real_path.as_ref());
 
         if path.is_relative() {

@@ -1,6 +1,10 @@
 pub mod error;
 
-use crate::{handlers::error::ResponseError, state::State, user::Claim};
+use crate::{
+    handlers::error::ResponseError,
+    state::{self, State},
+    user::Claim,
+};
 
 use http::{StatusCode, header};
 use http_body_util::Full;
@@ -19,6 +23,14 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
 
     let response = if path.starts_with("/monitor") {
         server_upgrade(req).await
+    } else if path == "/tree" {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Full::new(Bytes::from(
+                repo.tree_as_json().await.to_string(),
+            )))
+            .unwrap_or_default())
     } else {
         Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)

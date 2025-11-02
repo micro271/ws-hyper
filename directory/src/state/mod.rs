@@ -1,5 +1,5 @@
 use crate::{
-    bucket::{Bucket, bucket_map::BucketMap},
+    bucket::bucket_map::BucketMap,
     grpc_v1::{AllowedBucketReq, InfoClient, Permissions},
     manager::{new_file_tba::CreateRateLimit, websocker::MsgWs},
 };
@@ -101,7 +101,7 @@ impl State {
             let req = AllowedBucketReq {
                 id: user_id.as_bytes().to_vec(),
                 name: bucket_name,
-                permissions: i32::try_from(permission).unwrap(),
+                permissions: i32::from(permission),
             };
 
             match con.bucket(req).await {

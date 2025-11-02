@@ -9,8 +9,7 @@ use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
-use std::{collections::VecDeque, path::PathBuf, sync::Arc, vec};
-use utils::validate_name_and_replace;
+use std::sync::Arc;
 use watcher::Watcher;
 
 use serde_json::json;
@@ -22,7 +21,12 @@ use tokio::sync::{
 use utils::Executing;
 
 use crate::{
-    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
+    bucket::{
+        Bucket,
+        bucket_map::BucketMap,
+        key::Key,
+        object::{Object, ObjectName},
+    },
     manager::{
         utils::{OneshotSender, Task},
         watcher::WatcherOwn,
@@ -69,141 +73,13 @@ where
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
         tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.clone();
-        
+
         loop {
             match rx_watcher.recv().await {
-                Some(Change::NewObject { bucket, key, object }) => {
-                    tracing::trace!("[Scheduler] New element: {bucket:?} - key: {key:?} - object: {object:?}");
-                    let mut wr = self.state.write().await;
-                    
-                    let file_name = key.as_ref();
-
-                    
-
-                    if let Err(err) = tx_ws
-                        .send(MsgWs::Change(Change::NewObject { bucket, key, object }))
-                        .await
-                    {
-                        tracing::error!("[Scheduler] Sent message to WebSocket manager: {err}");
-                    }
-
-                    if let Err(err) = validate_name_and_replace(
-                        PathBuf::from(path.replace(wr.root(), wr.real_path())),
-                        &file_name,
-                    )
-                    .await
-                    {
-                        tracing::error!("[Scheduler] Validate error - {err:?}");
-                    }
-                }
-                Some(Change::Delete { bucket, key, object }) => {
-                    let mut wr = self.state.write().await;
-
-                    let mut queue = VecDeque::new();
-                    let mut key_to_delete = parent.path().clone();
-                    tracing::trace!(
-                        "[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete {{ parent: {parent:?}, file_name: {file:?} }}) }}"
-                    );
-
-                    if let Some(files) = wr.get_mut(&parent) {
-                        if let Some(file) = files.pop_if(|x| x.key() == file.key()) {
-                            if file.is_dir() {
-                                key_to_delete.push(file.key());
-                                queue.push_front(Bucket::new_unchk_from_path(&key_to_delete));
-                            }
-
-                            tracing::warn!(
-                                "[Scheduler] {{ Task: Delete }} Delete file {file:?} - is_dir: {}",
-                                file.is_dir()
-                            );
-                        } else {
-                            tracing::info!(
-                                "[Scheduler] {{ Task: Delete }} Object {file:?} not found"
-                            );
-                        }
-                    } else {
-                        tracing::info!(
-                            "[Scheduler] {{ Task: Delete }} Bucket {parent:?} not found"
-                        );
-                    }
-
-                    while let Some(dir) = queue.pop_front() {
-                        tracing::trace!(
-                            "[Scheduler] {{ Task: Delete }} {{ Some(Change::Delete)}} Delete dir: {dir:?}"
-                        );
-                        if let Some(files) = wr.remove(&dir) {
-                            queue.extend(
-                                files
-                                    .into_iter()
-                                    .filter(Object::is_dir)
-                                    .map(|x| {
-                                        key_to_delete.pop();
-                                        key_to_delete.push(x.key());
-                                        Bucket::new_unchk_from_path(&key_to_delete)
-                                    })
-                                    .collect::<VecDeque<Bucket>>(),
-                            );
-                        }
-                    }
-                }
-                Some(Change::Name { bucket, key, from, to }) => {
-                    let mut wr = self.state.write().await;
-                    tracing::trace!(
-                        "[Scheduler] {{ Some(Change::Name {{ dir: {dir:?}, from: {from:?}, to: {to:?} }}) }}"
-                    );
-                    let path = dir.as_ref().to_string();
-                    let file_name = to.key().to_string();
-                    let is_dir = to.is_dir();
-
-                    if let Some(files) = wr.get_mut(&dir) {
-                        if let Some(file) = files.iter_mut().find(|x| x.key() == from) {
-                            *file = to.clone();
-                        } else {
-                            tracing::info!("[Scheduler] Object {} not found", to.key());
-                            tracing::info!("[Scheduler] Inser Object {}", to.key());
-                            files.push(to.clone());
-                        }
-                    }
-
-                    if is_dir {
-                        let mut path = dir.path();
-                        path.push(&from);
-                        tracing::trace!("[Scheduler] IS DIR RENAME: {path:?}");
-                        let dir = Bucket::new_unchk_from_path(&path);
-                        let files = if let Some(files) = wr.remove(&dir) {
-                            files
-                        } else {
-                            tracing::debug!("[Scheduler] Bucket {dir:?} is empty");
-                            Vec::new()
-                        };
-                        path.pop();
-                        path.push(to.key());
-                        tracing::trace!(
-                            "[Scheduler] {{ Rename directory }} from: {:?} to: {:?}",
-                            dir.path(),
-                            path
-                        );
-                        let dir = Bucket::new_unchk_from_path(&path);
-                        wr.insert(dir, files);
-                    }
-
-                    if let Err(err) = tx_ws
-                        .send(MsgWs::Change {
-                            subscriber: dir.clone(),
-                            change: Change::Name { dir, from, to },
-                        })
-                        .await
-                    {
-                        eprintln!("{err}");
-                    }
-
-                    if let Err(err) = validate_name_and_replace(
-                        PathBuf::from(path.replace(wr.root(), wr.real_path())),
-                        &file_name,
-                    )
-                    .await
-                    {
-                        tracing::error!("[Scheduler] Validate error {path:?} {err:?}");
+                Some(change) => {
+                    self.state.write().await.change(change.clone()).await;
+                    if let Err(er) = tx_ws.send(MsgWs::Change(change)).await {
+                        tracing::error!("{er}");
                     }
                 }
                 None => {
@@ -214,12 +90,13 @@ where
         }
     }
 
-    pub async fn add_cliente(&mut self, path: String, ws: HyperWebsocket) {
+    pub async fn add_watcher(&mut self, bucket: Bucket, key: Key, ws: HyperWebsocket) {
         _ = self
             .tx_ws
             .send(MsgWs::NewUser {
+                bucket,
+                key,
                 sender: ws,
-                subscriber: Bucket::new_unchk_from_path(path),
             })
             .await;
     }
@@ -242,7 +119,7 @@ pub enum Change {
     NameObject {
         bucket: Bucket,
         key: Key,
-        from: Object,
+        from: ObjectName<'static>,
         to: Object,
     },
     NameBucket {
@@ -266,24 +143,22 @@ pub enum Change {
 }
 
 #[derive(Debug)]
-enum Route<'a> {
-    Bucket(&'a Bucket),
-    Pair(&'a Bucket, &'a Key),
+enum Scope {
+    Bucket(Bucket),
+    Key(Bucket, Key),
 }
 
 impl Change {
-    fn route(&self) -> Route<'_> {
+    fn scope(&self) -> Scope {
         match self {
-            Change::NewObject { bucket, key, .. } |
-            Change::NewKey { bucket, key } |
-            Change::NameObject { bucket, key, ..} |
-            Change::DeleteObject { bucket, key, .. } |
-            Change::DeleteKey { bucket, key } => {
-                Route::Pair(bucket, key)
-            },
-            Change::NameBucket { from, to } => Route::Bucket(from),
-            Change::NameKey { bucket, from, to } => Route::Pair(bucket, from),
-            Change::NewBucket { bucket } => Route::Bucket(bucket),
+            Change::NewObject { bucket, key, .. }
+            | Change::NewKey { bucket, key }
+            | Change::NameObject { bucket, key, .. }
+            | Change::DeleteObject { bucket, key, .. }
+            | Change::DeleteKey { bucket, key } => Scope::Key(bucket.clone(), key.clone()),
+            Change::NameBucket { from, .. } => Scope::Bucket(from.clone()),
+            Change::NameKey { bucket, from, .. } => Scope::Key(bucket.clone(), from.clone()),
+            Change::NewBucket { bucket } => Scope::Bucket(bucket.clone()),
         }
     }
 }

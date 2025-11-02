@@ -4,12 +4,19 @@ pub mod key;
 pub mod object;
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
 
 impl Bucket {
+    pub fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.0.as_str())
+    }
+
     pub fn new_unchk_from_path<T>(path: T) -> Self
     where
         T: AsRef<Path>,

@@ -52,7 +52,7 @@ impl InfoUserProgram {
             .bucket(AllowedBucketReq {
                 id: id.into(),
                 name,
-                permissions: i32::try_from(permissions).unwrap(),
+                permissions: i32::from(permissions),
             })
             .await
             .unwrap()
@@ -79,7 +79,7 @@ impl InfoUserProgram {
             let path = &path[..];
             match msg.msg.unwrap() {
                 Msg::CreateBucket(bucket) => {
-                    let bk = Bucket::new_unchk(format!("{}", bucket));
+                    let bk = Bucket::new_unchk(bucket.clone());
                     tracing::trace!("[Stream Handler] {{Create bucket}} bucket: {bk}");
                     if !state.read().await.contains_key(&bk) {
                         tracing::info!("Bucker {bucket} is not present in the root");
@@ -100,16 +100,15 @@ impl InfoUserProgram {
                         .read()
                         .await
                         .get(&Bucket::from(bucket))
-                        .filter(|x| x.len() > 0)
-                        .is_some()
-                    {
-                        if let Err(err) = tx
+                        .filter(|x| !x.is_empty() )
+                        .is_some() && let Err(err) = tx
                             .send(BucketSync {
                                 operation_id: todo!(),
                                 msg: todo!(),
                             })
                             .await
-                        {}
+                    {
+                        tracing::error!("{err}");
                     }
                 }
                 Msg::RenameBucket(rename_bucket) => todo!(),

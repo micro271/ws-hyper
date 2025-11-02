@@ -8,14 +8,15 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::{
-    marker::PhantomData,
-    path::{Path, PathBuf},
-};
+use std::{marker::PhantomData, path::PathBuf};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    bucket::{Bucket, key::Key, object::Object},
+    bucket::{
+        Bucket,
+        key::Key,
+        object::{Object, ObjectName},
+    },
     manager::{
         utils::{AsyncRecv, OneshotSender},
         watcher::{WatcherOwn, error::WatcherErr},
@@ -43,6 +44,7 @@ where
 
     async fn task(mut self, tx: T) {
         tracing::debug!("Watcher notify manage init");
+
         let root = &self.path[..];
         let tx_rename = self.rename_control.sender();
         while let Some(Ok(event)) = self.rx.recv().await {
@@ -52,13 +54,8 @@ where
                     let mut path = event.paths;
                     let path = path.pop().unwrap();
 
-                    if let Some(path) = path
-                        .parent()
-                        .and_then(|x| x.to_str())
-                        .filter(|x| root.eq(*x))
-                        .and_then(|x| x.strip_prefix(root))
-                    {
-                        let bucket = Bucket::new_unchk_from_path(path);
+                    if path.parent().filter(|x| root == *x).is_some() {
+                        let bucket = Bucket::new_unchk_from_path(path.file_name().unwrap());
                         if let Err(err) = tx.send(Change::NewBucket { bucket }) {
                             tracing::error!("New directory nofity error: {err}");
                         }
@@ -88,17 +85,18 @@ where
                     let mut path = event.paths;
                     let path = path.pop().unwrap();
 
-                    if path.parent().is_some_and(|x| x == Path::new(root)) {
+                    if path.parent().is_some_and(|x| x == root) {
                         tracing::error!("Objects aren't allowed in the root path");
                         continue;
                     }
                     let object = Object::from(&path);
-                    let mut iter = path
+                    let iter = path.parent().unwrap();
+                    let iter = iter
                         .strip_prefix(root)
-                        .ok()
-                        .and_then(|x| x.to_str())
                         .unwrap()
-                        .split("/");
+                        .to_string_lossy()
+                        .into_owned();
+                    let mut iter = iter.split("/");
                     let bucket = Bucket::new_unchk(iter.next().unwrap());
                     let key = Key::new(iter.collect::<Vec<_>>().join("/"));
 
@@ -132,42 +130,51 @@ where
                         tracing::error!("{err}");
                     }
 
-                    if from.is_dir() {
-                        if from.parent().is_some_and(|x| x == Path::new(root)) {
-                            let from = Bucket::new_unchk_from_path(from.file_name().unwrap());
-                            let to = Bucket::new_unchk_from_path(to.file_name().unwrap());
+                    if to.is_dir() {
+                        if from.parent().is_some_and(|x| x == root) {
+                            let from = Bucket::new_unchk_from_path(
+                                from.file_name().unwrap().to_string_lossy().into_owned(),
+                            );
+                            let to = Bucket::new_unchk_from_path(
+                                to.file_name().unwrap().to_string_lossy().into_owned(),
+                            );
                             if let Err(er) = tx.send(Change::NameBucket { from, to }) {
                                 tracing::error!("{er}");
                             }
                         } else {
-                            let bucket = Bucket::new_unchk(
-                                to.strip_prefix(root)
-                                    .ok()
-                                    .and_then(|x| x.to_str())
-                                    .and_then(|x| x.split("/").nth(0))
-                                    .unwrap(),
-                            );
-                            let from = Key::new(from.file_name().and_then(|x| x.to_str()).unwrap());
-                            let to = Key::new(to.file_name().and_then(|x| x.to_str()).unwrap());
+                            let path = to
+                                .strip_prefix(root)
+                                .unwrap()
+                                .to_string_lossy()
+                                .into_owned();
+                            let mut path = path.split("/");
+                            let bucket = Bucket::new_unchk(path.next().unwrap());
+                            let from = from.to_string_lossy().into_owned();
+                            let bucket_ = format!("{}/", bucket.as_ref());
+                            let mut from = from.split(&bucket_[..]);
+
+                            let from = Key::new(from.nth(1).unwrap());
+                            let to = to.to_string_lossy().into_owned();
+                            let mut to = to.split(&bucket_[..]);
+                            let to = Key::new(to.nth(1).unwrap());
                             if let Err(er) = tx.send(Change::NameKey { bucket, from, to }) {
                                 tracing::error!("{er}");
                             }
                         }
                     } else {
-                        let Some(parent) = to
-                            .parent()
-                            .filter(|x| *x != Path::new(root))
-                            .and_then(|x| x.to_str())
-                        else {
+                        let Some(parent) = to.parent().filter(|x| *x != root) else {
                             tracing::error!("Object aren't allowed in the root path");
                             continue;
                         };
-                        let mut iter = parent.strip_prefix(root).map(|x| x.split("/")).unwrap();
-                        let bucket = Bucket::new_unchk(iter.nth(0).unwrap());
-                        let key = Key::new(iter.collect::<Vec<_>>().join("/"));
-                        let from = Object::from(&from);
+                        let from = ObjectName::from(&from);
                         let to = Object::from(&to);
-
+                        let iter = parent
+                            .strip_prefix(root)
+                            .map(|x| x.to_string_lossy().into_owned())
+                            .unwrap();
+                        let mut iter = iter.split("/");
+                        let bucket = Bucket::new_unchk(iter.next().unwrap());
+                        let key = Key::new(iter.collect::<Vec<_>>().join("/"));
                         if let Err(er) = tx.send(Change::NameObject {
                             bucket,
                             key,
