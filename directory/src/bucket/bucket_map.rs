@@ -34,11 +34,13 @@ impl BucketMap {
     }
 
     pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: ObjectName<'_>, to: Object) {
-        if let Some(val) = self.new_key(bucket, key)
+        if let Some(val) = self
+            .new_key(bucket, key)
             .iter_mut()
-            .find(|x| x.name() == from) {
-                *val = to;
-            }
+            .find(|x| x.name() == from)
+        {
+            *val = to;
+        }
     }
 
     pub fn set_key(&mut self, bucket: Bucket, from: Key, to: Key) {

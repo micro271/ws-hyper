@@ -6,49 +6,73 @@ use futures::StreamExt;
 pub use proto::{
     AllowedBucketReply, AllowedBucketReq, BucketSync, Permissions, info_client::InfoClient,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{
     RwLock,
-    mpsc::{self, Receiver, Sender},
+    mpsc::{Receiver, Sender, UnboundedSender, channel},
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Request, transport::Channel};
+use tonic::{
+    Request,
+    transport::{Channel, Endpoint},
+};
 use uuid::Uuid;
 
-use crate::{
-    bucket::{Bucket, bucket_map::BucketMap},
-    grpc_v1::proto::bucket_sync::Msg,
-};
+use crate::{bucket::Bucket, grpc_v1::proto::bucket_sync::Msg, manager::Change};
 
-pub struct InfoUserProgram {
-    inner: InfoClient<Channel>,
-    tx_stream: mpsc::Sender<Msg>,
-    state: Arc<RwLock<BucketMap>>,
+#[derive(Debug, Clone)]
+enum StreamState {
+    Pending,
+    Executed(Sender<BucketSync>),
+    Closed,
 }
 
-impl InfoUserProgram {
-    pub async fn new(endpoint: String, state: Arc<RwLock<BucketMap>>) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+#[derive(Debug, Clone)]
+enum Connection {
+    Connected(InfoClient<Channel>),
+    Not(Endpoint),
+}
 
-        let resp = Self {
-            inner: InfoClient::connect(endpoint).await.unwrap(),
-            tx_stream: tx.clone(),
-            state: state.clone(),
-        };
+#[derive(Debug, Clone)]
+pub struct InfoUserGrpc {
+    inner: Connection,
+    notify_changes: UnboundedSender<Change>,
+    state: Arc<RwLock<StreamState>>,
+}
 
-        //tokio::spawn(Self::stream_handler(resp.inner.clone(), tx, rx, state));
-
-        resp
+impl InfoUserGrpc {
+    pub async fn new(endpoint: Endpoint, tx_notify_changes: UnboundedSender<Change>) -> Self {
+        Self {
+            inner: InfoClient::connect(endpoint.clone())
+                .await
+                .map(Connection::Connected)
+                .unwrap_or(Connection::Not(endpoint)),
+            notify_changes: tx_notify_changes,
+            state: Arc::new(RwLock::new(StreamState::Pending)),
+        }
     }
-
+    async fn get_connect(&mut self) -> Result<InfoClient<Channel>, ()> {
+        match &self.inner {
+            Connection::Connected(info_client) => Ok(info_client.clone()),
+            Connection::Not(endpoint) => {
+                if let Ok(ch) = InfoClient::connect(endpoint.clone()).await {
+                    self.inner = Connection::Connected(ch.clone());
+                    Ok(ch)
+                } else {
+                    Err(())
+                }
+            }
+        }
+    }
     pub async fn bucket(
-        &self,
+        &mut self,
         id: Uuid,
         name: String,
         permissions: Permissions,
-    ) -> AllowedBucketReply {
-        self.inner
-            .clone()
+    ) -> Result<bool, ()> {
+        Ok(self
+            .get_connect()
+            .await?
             .bucket(AllowedBucketReq {
                 id: id.into(),
                 name,
@@ -57,63 +81,86 @@ impl InfoUserProgram {
             .await
             .unwrap()
             .into_inner()
+            .allowed)
     }
 
-    async fn stream_handler(
-        mut client: InfoClient<Channel>,
-        tx: Sender<BucketSync>,
-        rx: Receiver<BucketSync>,
-        state: Arc<RwLock<BucketMap>>,
-    ) {
-        let path = state.read().await.path().to_string();
+    pub async fn notify_peer(&self, msg: BucketSync) -> Result<(), ()> {
+        if let StreamState::Executed(tx) = &*self.state.read().await
+            && let Err(er) = tx.send(msg).await
+        {
+            tracing::error!("{er}");
+            Err(())
+        } else {
+            Err(())
+        }
+    }
 
+    pub async fn run_stream(&self) {
+        match &mut *self.state.write().await {
+            StreamState::Executed(_) => {}
+            state => {
+                let state = self.state.clone();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {}
+
+                        }
+                    }
+                });
+
+                let exc = self.clone();
+                let (tx, rx) = channel(256);
+                //*state = StreamState::Executed(tx.clone());
+
+                tokio::spawn(exc.stream_handler(tx, rx));
+                todo!()
+            }
+        }
+    }
+
+    async fn stream_handler(mut self, tx: Sender<BucketSync>, rx: Receiver<BucketSync>) {
+        tracing::info!("[Stream Handler Stated]");
+        /*
         let stream = ReceiverStream::new(rx);
-        let rx = client
+        let rx = self.inner
             .message_for_consistency(Request::new(stream))
             .await
             .unwrap();
-
         let mut inner = rx.into_inner();
+        let notify = self.notify_changes;
 
-        while let Some(Ok(msg)) = inner.next().await {
-            let path = &path[..];
-            match msg.msg.unwrap() {
+        loop {
+            let Some(msg) = inner.next().await else {
+                *self.state.write().await = StreamState::Closed;
+                break;
+            };
+
+            let (op_id, msg) = match msg {
+                Ok(msg) => {
+                    (msg.operation_id, msg.msg.unwrap())
+                },
+                Err(er) =>{
+                    tracing::error!("{er}");
+                    continue;
+                }
+            };
+
+            match msg {
                 Msg::CreateBucket(bucket) => {
                     let bk = Bucket::new_unchk(bucket.clone());
-                    tracing::trace!("[Stream Handler] {{Create bucket}} bucket: {bk}");
-                    if !state.read().await.contains_key(&bk) {
-                        tracing::info!("Bucker {bucket} is not present in the root");
-                        let mut path = PathBuf::from(path);
-                        path.push(bucket);
-                        match tokio::fs::create_dir(path).await {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "[Stream Handler] We've created the bucker {bk} for auth services notifycation"
-                                );
-                            }
-                            Err(err) => tracing::error!("{err}"),
-                        }
+                    if let Err(er) = notify.send(Change::NewBucket { bucket: bk }) {
+                        tracing::error!("{er}");
                     }
                 }
                 Msg::DeleteBucket(bucket) => {
-                    if state
-                        .read()
-                        .await
-                        .get(&Bucket::from(bucket))
-                        .filter(|x| !x.is_empty() )
-                        .is_some() && let Err(err) = tx
-                            .send(BucketSync {
-                                operation_id: todo!(),
-                                msg: todo!(),
-                            })
-                            .await
-                    {
-                        tracing::error!("{err}");
-                    }
+                    todo!()
                 }
                 Msg::RenameBucket(rename_bucket) => todo!(),
                 Msg::Error(error) => todo!(),
             }
         }
+        */
+        todo!()
     }
 }

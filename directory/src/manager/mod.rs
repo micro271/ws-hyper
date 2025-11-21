@@ -6,19 +6,18 @@ pub mod websocker;
 
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
-use hyper_tungstenite::{HyperWebsocket, WebSocketStream, tungstenite::Message};
+use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
-use std::sync::Arc;
-use watcher::Watcher;
+use std::{path::PathBuf, sync::Arc};
+use tonic::transport::Endpoint;
 
 use serde_json::json;
 use tokio::sync::{
     RwLock,
     broadcast::Receiver as ReceivedBr,
-    mpsc::{Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
+    mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
 };
-use utils::Executing;
 
 use crate::{
     bucket::{
@@ -27,9 +26,10 @@ use crate::{
         key::Key,
         object::{Object, ObjectName},
     },
+    grpc_v1::InfoUserGrpc,
     manager::{
-        utils::{OneshotSender, Task},
-        watcher::WatcherOwn,
+        utils::Run,
+        watcher::{event_watcher::EventWatcherBuilder},
         websocker::{MsgWs, WebSocker},
     },
 };
@@ -37,50 +37,58 @@ use crate::{
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
-pub struct Schedule<W, T, TxInner> {
-    tx_ws: Sender<MsgWs>,
+pub struct Manager {
+    tx_ws: RwLock<Sender<MsgWs>>,
     pub state: Arc<RwLock<BucketMap>>,
-    _watcher: Watcher<Executing, W, T, TxInner>,
 }
 
-impl<W, TxInner> Schedule<W, UnboundedSender<Change>, TxInner>
-where
-    W: WatcherOwn<UnboundedSender<Change>, TxInner> + Send + 'static + Sync,
-    TxInner: OneshotSender + Clone + Sync,
-{
-    pub fn run(
+impl Manager {
+    pub async fn run(
         state: Arc<RwLock<BucketMap>>,
-        watcher: Watcher<Task<W>, W, UnboundedSender<Change>, TxInner>,
-    ) -> Sender<MsgWs> {
+        watcher: WatcherParams,
+        endpoint: Endpoint,
+    ) -> (Sender<MsgWs>, InfoUserGrpc) {
         let (tx_ws, rx_ws) = channel(128);
-
         let (tx_sch, rx_sch) = unbounded_channel();
+
+        let tx_sch_clone = tx_sch.clone();
+
+        let grpc_client: InfoUserGrpc = InfoUserGrpc::new(endpoint, tx_sch_clone).await;
         let resp = tx_ws.clone();
-        let (watcher, task) = watcher.task();
 
         let myself = Arc::new(Self {
-            tx_ws,
+            tx_ws: RwLock::new(tx_ws),
             state,
-            _watcher: watcher,
         });
 
-        task.run(tx_sch);
+        let watcher = match watcher {
+            WatcherParams::Event { path, r#await } => EventWatcherBuilder::default()
+                .path(path)
+                .unwrap()
+                .change_notify(tx_sch)
+                .rename_control_await(r#await.unwrap_or(2000))
+                .build(),
+            WatcherParams::Poll => todo!(),
+        }
+        .unwrap();
+
+        watcher.run();
+
+        grpc_client.run_stream().await;
         WebSocker::run(rx_ws);
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
-        resp
+        (resp, grpc_client)
     }
 
     async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
         tracing::info!("Scheduler init");
-        let tx_ws = self.tx_ws.clone();
+        let tx_ws = self.tx_ws.read().await.clone();
 
         loop {
             match rx_watcher.recv().await {
                 Some(change) => {
                     self.state.write().await.change(change.clone()).await;
-                    if let Err(er) = tx_ws.send(MsgWs::Change(change)).await {
-                        tracing::error!("{er}");
-                    }
+                    tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
                 }
                 None => {
                     tracing::error!("[Scheduler] Peer: tx_watcher closed");
@@ -88,17 +96,6 @@ where
                 }
             }
         }
-    }
-
-    pub async fn add_watcher(&mut self, bucket: Bucket, key: Key, ws: HyperWebsocket) {
-        _ = self
-            .tx_ws
-            .send(MsgWs::NewUser {
-                bucket,
-                key,
-                sender: ws,
-            })
-            .await;
     }
 }
 
@@ -169,4 +166,9 @@ pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>)
             .await
             .unwrap();
     }
+}
+
+pub enum WatcherParams {
+    Event { path: PathBuf, r#await: Option<u64> },
+    Poll,
 }

@@ -1,9 +1,9 @@
 pub mod error;
 
 use crate::{
+    bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::{self, State},
-    user::Claim,
+    state::State,
 };
 
 use http::{StatusCode, header};
@@ -13,7 +13,6 @@ use hyper::{
     body::{Bytes, Incoming},
 };
 use std::{convert::Infallible, sync::Arc};
-use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 
 type TypeState = Arc<State>;
 
@@ -82,16 +81,21 @@ pub async fn server_upgrade(
     let path = req
         .uri()
         .path()
-        .strip_prefix("/monitor")
+        .strip_prefix("/monitor/")
         .ok_or(ResponseError::new(
             format!("{} not found", req.uri().path()),
             StatusCode::BAD_REQUEST,
-        ))?
-        .to_string();
+        ))?;
 
+    let mut path = path.split("/");
+    let bucket = Bucket::new_unchk(
+        path.next()
+            .ok_or(ResponseError::status(StatusCode::BAD_REQUEST))?,
+    );
+    let key = Key::new(path.next().unwrap_or_default());
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
-        state.add_client(path, ws).await;
+        state.add_client(bucket, key, ws).await;
         Ok(res)
     } else {
         Ok(Response::builder()

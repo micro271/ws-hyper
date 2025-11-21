@@ -8,7 +8,7 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::{marker::PhantomData, path::PathBuf};
+use std::path::PathBuf;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
@@ -18,182 +18,211 @@ use crate::{
         object::{Object, ObjectName},
     },
     manager::{
-        utils::{AsyncRecv, OneshotSender},
-        watcher::{WatcherOwn, error::WatcherErr},
+        utils::{AsyncRecv, OneshotSender, Run, Task},
+        watcher::{NotifyChType, error::WatcherErr},
     },
 };
 
-pub struct EventWatcher<Tx, TxInner, RxInner> {
+pub struct EventWatcher<Tx, Rx, TxChange> {
     rename_control: RenameControl,
     _notify_watcher: INotifyWatcher,
-    tx: TxInner,
-    rx: RxInner,
-    _pantom: PhantomData<Tx>,
+    tx: Tx,
+    rx: Rx,
+    change_notify: TxChange,
     path: String,
 }
 
-impl<T, TxInner, RxInner> WatcherOwn<T, TxInner> for EventWatcher<T, TxInner, RxInner>
+impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
 where
-    T: OneshotSender<Item = Change> + Send + Clone + 'static,
-    TxInner: OneshotSender<Item = Result<notify::Event, notify::Error>> + Send + 'static + Clone,
-    RxInner: AsyncRecv<Item = Result<notify::Event, notify::Error>> + Send + 'static,
+    TxChange: OneshotSender<Item = Change>,
+    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
+    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
 {
-    fn run(self, tx: T) {
-        tokio::task::spawn(self.task(tx));
-    }
+    type Output = ();
+    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static {
+        async move {
+            tracing::debug!("Watcher notify manage init");
 
-    async fn task(mut self, tx: T) {
-        tracing::debug!("Watcher notify manage init");
+            let root = &self.path[..];
+            let tx_rename = self.rename_control.sender();
+            while let Some(Ok(event)) = self.rx.recv().await {
+                match event.kind {
+                    notify::EventKind::Create(CreateKind::Folder) => {
+                        tracing::trace!("{event:?}");
+                        let mut path = event.paths;
+                        let path = path.pop().unwrap();
 
-        let root = &self.path[..];
-        let tx_rename = self.rename_control.sender();
-        while let Some(Ok(event)) = self.rx.recv().await {
-            match event.kind {
-                notify::EventKind::Create(CreateKind::Folder) => {
-                    tracing::trace!("{event:?}");
-                    let mut path = event.paths;
-                    let path = path.pop().unwrap();
-
-                    if path.parent().filter(|x| root == *x).is_some() {
-                        let bucket = Bucket::new_unchk_from_path(path.file_name().unwrap());
-                        if let Err(err) = tx.send(Change::NewBucket { bucket }) {
-                            tracing::error!("New directory nofity error: {err}");
-                        }
-                    } else {
-                        let tmp = path
-                            .strip_prefix(root)
-                            .ok()
-                            .and_then(|x| x.to_str())
-                            .unwrap();
-                        let mut iter = tmp.split('/');
-                        let bucket = iter.nth(0);
-                        let key = iter.collect::<Vec<&str>>().join("/");
-
-                        let bucket = Bucket::new_unchk(bucket.unwrap().to_string());
-
-                        if let Err(err) = tx.send(Change::NewKey {
-                            bucket,
-                            key: Key::new(key),
-                        }) {
-                            tracing::error!("New directory nofity error: {err}");
-                        }
-                    }
-                }
-                notify::EventKind::Create(action) => {
-                    tracing::trace!("Event: {event:?}");
-                    tracing::trace!("Object Type: {action:?}");
-                    let mut path = event.paths;
-                    let path = path.pop().unwrap();
-
-                    if path.parent().is_some_and(|x| x == root) {
-                        tracing::error!("Objects aren't allowed in the root path");
-                        continue;
-                    }
-                    let object = Object::from(&path);
-                    let iter = path.parent().unwrap();
-                    let iter = iter
-                        .strip_prefix(root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned();
-                    let mut iter = iter.split("/");
-                    let bucket = Bucket::new_unchk(iter.next().unwrap());
-                    let key = Key::new(iter.collect::<Vec<_>>().join("/"));
-
-                    if let Err(err) = tx.send(Change::NewObject {
-                        bucket,
-                        key,
-                        object,
-                    }) {
-                        tracing::error!("New directory nofity error: {err}");
-                    }
-                }
-                notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
-                    let mut path = event.paths;
-                    let path = path.pop().unwrap();
-
-                    tracing::debug!(
-                        "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
-                    );
-                    if let Err(err) = tx_rename.send(Rename::From(RenameFrom::new(path))) {
-                        tracing::error!("{err}");
-                    }
-                }
-                notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                    tracing::trace!("Modify both {:?}", event.paths);
-
-                    let mut paths = event.paths;
-                    let to = paths.pop().unwrap();
-                    let from = paths.pop().unwrap();
-
-                    if let Err(err) = tx_rename.send(Rename::Decline(from.clone())) {
-                        tracing::error!("{err}");
-                    }
-
-                    if to.is_dir() {
-                        if from.parent().is_some_and(|x| x == root) {
-                            let from = Bucket::new_unchk_from_path(
-                                from.file_name().unwrap().to_string_lossy().into_owned(),
-                            );
-                            let to = Bucket::new_unchk_from_path(
-                                to.file_name().unwrap().to_string_lossy().into_owned(),
-                            );
-                            if let Err(er) = tx.send(Change::NameBucket { from, to }) {
-                                tracing::error!("{er}");
+                        if path.parent().filter(|x| root == *x).is_some() {
+                            let bucket = Bucket::new_unchk_from_path(path.file_name().unwrap());
+                            if let Err(err) = self.change_notify.send(Change::NewBucket { bucket })
+                            {
+                                tracing::error!(
+                                    "[Event Watcher] {{ Create folder (bucket) }} New directory nofity error: {err} - {:?}",
+                                    path.file_name()
+                                );
                             }
                         } else {
-                            let path = to
+                            let tmp = path
                                 .strip_prefix(root)
-                                .unwrap()
-                                .to_string_lossy()
-                                .into_owned();
-                            let mut path = path.split("/");
-                            let bucket = Bucket::new_unchk(path.next().unwrap());
-                            let from = from.to_string_lossy().into_owned();
-                            let bucket_ = format!("{}/", bucket.as_ref());
-                            let mut from = from.split(&bucket_[..]);
+                                .ok()
+                                .and_then(|x| x.to_str())
+                                .unwrap();
+                            let mut iter = tmp.split('/');
+                            let bucket = iter.nth(0);
+                            let key = iter.collect::<Vec<&str>>().join("/");
 
-                            let from = Key::new(from.nth(1).unwrap());
-                            let to = to.to_string_lossy().into_owned();
-                            let mut to = to.split(&bucket_[..]);
-                            let to = Key::new(to.nth(1).unwrap());
-                            if let Err(er) = tx.send(Change::NameKey { bucket, from, to }) {
-                                tracing::error!("{er}");
+                            let bucket = Bucket::new_unchk(bucket.unwrap().to_string());
+
+                            if let Err(err) = self.change_notify.send(Change::NewKey {
+                                bucket,
+                                key: Key::new(key),
+                            }) {
+                                tracing::error!(
+                                    "[Event Watcher] {{ Create foler (key) }} New directory nofity error: {err} - key: {:?}",
+                                    path
+                                );
                             }
                         }
-                    } else {
-                        let Some(parent) = to.parent().filter(|x| *x != root) else {
-                            tracing::error!("Object aren't allowed in the root path");
+                    }
+                    notify::EventKind::Create(action) => {
+                        tracing::trace!("Event: {event:?}");
+                        tracing::trace!("Object Type: {action:?}");
+                        let mut path = event.paths;
+                        let path = path.pop().unwrap();
+
+                        if path.parent().is_some_and(|x| x == root) {
+                            tracing::error!("Objects aren't allowed in the root path");
                             continue;
-                        };
-                        let from = ObjectName::from(&from);
-                        let to = Object::from(&to);
-                        let iter = parent
+                        }
+                        let object = Object::from(&path);
+                        let iter = path.parent().unwrap();
+                        let iter = iter
                             .strip_prefix(root)
-                            .map(|x| x.to_string_lossy().into_owned())
-                            .unwrap();
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned();
                         let mut iter = iter.split("/");
                         let bucket = Bucket::new_unchk(iter.next().unwrap());
                         let key = Key::new(iter.collect::<Vec<_>>().join("/"));
-                        if let Err(er) = tx.send(Change::NameObject {
+
+                        if let Err(err) = self.change_notify.send(Change::NewObject {
                             bucket,
                             key,
-                            from,
-                            to,
+                            object,
                         }) {
-                            tracing::error!("{er}");
+                            tracing::error!(
+                                "[Event Watcher] {{ Create Object }} New directory nofity error: {err} - {:?}",
+                                path
+                            );
                         }
                     }
+                    notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+                        let mut path = event.paths;
+                        let path = path.pop().unwrap();
+
+                        tracing::debug!(
+                            "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
+                        );
+                        if let Err(err) = tx_rename.send(Rename::From(RenameFrom::new(path))) {
+                            tracing::error!("{err}");
+                        }
+                    }
+                    notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                        tracing::trace!("Modify both {:?}", event.paths);
+
+                        let mut paths = event.paths;
+                        let to = paths.pop().unwrap();
+                        let from = paths.pop().unwrap();
+
+                        if let Err(err) = tx_rename.send(Rename::Decline(from.clone())) {
+                            tracing::error!("{err}");
+                        }
+
+                        if to.is_dir() {
+                            if from.parent().is_some_and(|x| x == root) {
+                                let from = Bucket::new_unchk_from_path(
+                                    from.file_name().unwrap().to_string_lossy().into_owned(),
+                                );
+                                let to = Bucket::new_unchk_from_path(
+                                    to.file_name().unwrap().to_string_lossy().into_owned(),
+                                );
+                                if let Err(er) =
+                                    self.change_notify.send(Change::NameBucket { from, to })
+                                {
+                                    tracing::error!(
+                                        "[Event Watcher] {{ Modify Name Bucket }} {er}"
+                                    );
+                                }
+                            } else {
+                                let path = to
+                                    .strip_prefix(root)
+                                    .unwrap()
+                                    .to_string_lossy()
+                                    .into_owned();
+                                let mut path = path.split("/");
+                                let bucket = Bucket::new_unchk(path.next().unwrap());
+                                let from = from.to_string_lossy().into_owned();
+                                let bucket_ = format!("{}/", bucket.as_ref());
+                                let mut from = from.split(&bucket_[..]);
+
+                                let from = Key::new(from.nth(1).unwrap());
+                                let to = to.to_string_lossy().into_owned();
+                                let mut to = to.split(&bucket_[..]);
+                                let to = Key::new(to.nth(1).unwrap());
+                                if let Err(er) =
+                                    self.change_notify
+                                        .send(Change::NameKey { bucket, from, to })
+                                {
+                                    tracing::error!(
+                                        "[Event Watcher] {{ Modify Name Key }} {er} - {:?}",
+                                        path
+                                    );
+                                }
+                            }
+                        } else {
+                            let Some(parent) = to.parent().filter(|x| *x != root) else {
+                                tracing::error!("Object aren't allowed in the root path");
+                                continue;
+                            };
+                            let from = ObjectName::from(&from);
+                            let to = Object::from(&to);
+                            let iter = parent
+                                .strip_prefix(root)
+                                .map(|x| x.to_string_lossy().into_owned())
+                                .unwrap();
+                            let mut iter = iter.split("/");
+                            let bucket = Bucket::new_unchk(iter.next().unwrap());
+                            let key = Key::new(iter.collect::<Vec<_>>().join("/"));
+                            if let Err(er) = self.change_notify.send(Change::NameObject {
+                                bucket,
+                                key,
+                                from,
+                                to,
+                            }) {
+                                tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
+                            }
+                        }
+                    }
+                    notify::EventKind::Remove(_) => {
+                        todo!()
+                    }
+                    _ => {}
                 }
-                notify::EventKind::Remove(_) => {
-                    todo!()
-                }
-                _ => {}
             }
         }
     }
+}
 
-    fn tx(&self) -> TxInner {
-        self.tx.clone()
+impl<Tx, Rx, TxChange> Run for EventWatcher<Tx, Rx, TxChange>
+where
+    TxChange: OneshotSender<Item = Change>,
+    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
+    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
+{
+    fn run(self)
+    where
+        Self: Sized,
+    {
+        tokio::spawn(self.task());
     }
 }

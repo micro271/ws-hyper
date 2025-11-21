@@ -86,9 +86,9 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
 }
 
 #[derive(Debug, Clone)]
-pub struct Task<W: Send + 'static>(W);
+pub struct Pending<W: Send + 'static>(W);
 
-impl<W: Send + 'static> Task<W> {
+impl<W: Send + 'static> Pending<W> {
     pub fn new(inner: W) -> Self {
         Self(inner)
     }
@@ -97,8 +97,25 @@ impl<W: Send + 'static> Task<W> {
 #[derive(Debug, Clone)]
 pub struct Executing;
 
-impl<W: Send + 'static> TakeOwn<W> for Task<W> {
+impl<W: Send + 'static> TakeOwn<W> for Pending<W> {
     fn take(self) -> W {
         self.0
+    }
+}
+
+pub trait Task {
+    type Output: Send + 'static;
+
+    fn task(self) -> impl Future<Output = Self::Output> + Send + 'static
+    where
+        Self: Sized;
+}
+
+pub trait Run: Task {
+    fn run(self)
+    where
+        Self: Sized,
+    {
+        tokio::spawn(self.task());
     }
 }

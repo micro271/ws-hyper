@@ -11,8 +11,7 @@ use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
     manager::{
-        Schedule,
-        watcher::{Watcher, event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
+        Manager, WatcherParams,
     },
     state::State,
 };
@@ -50,23 +49,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(RwLock::new(state));
 
-    let websocker_subscribers = match watcher {
+    let (websocker_subscribers, grpc_client) = match watcher {
         cli::TypeWatcher::Poll => {
-            let w = PollWatcherNotify::new(state.read().await.path().to_string(), 2000).unwrap();
-            Schedule::run(state.clone(), Watcher::new(w))
+            todo!()
         }
         cli::TypeWatcher::Event => {
-            let w = EventWatcherBuilder::default()
-                .rename_control_await(2000)
-                .path(PathBuf::from(state.read().await.path()))
-                .unwrap()
-                .build()
-                .unwrap();
-            Schedule::run(state.clone(), Watcher::new(w))
+            Manager::run(
+                state.clone(),
+                WatcherParams::Event {
+                    path: PathBuf::from(state.read().await.path()),
+                    r#await: None,
+                },
+                grpc_auth_server,
+            )
+            .await
         }
     };
 
-    let state = Arc::new(State::new(state, websocker_subscribers, grpc_auth_server).await);
+    let state = Arc::new(State::new(state, websocker_subscribers, grpc_client).await);
 
     loop {
         let (stream, _) = listener.accept().await?;

@@ -3,12 +3,8 @@ use std::{path::PathBuf, time::Duration};
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::{
-    manager::{
-        utils::OneshotSender,
-        watcher::{WatcherOwn, error::WatcherErr},
-    },
-    state,
+use crate::manager::{
+    watcher::{error::WatcherErr},
 };
 
 pub struct PollWatcherNotify {
@@ -52,26 +48,3 @@ impl PollWatcherNotify {
     }
 }
 
-impl<T> WatcherOwn<T, UnboundedSender<Result<notify::Event, notify::Error>>> for PollWatcherNotify
-where
-    T: OneshotSender,
-{
-    fn run(self, tx: T) {
-        todo!()
-    }
-
-    async fn task(mut self, tx: T) {
-        let mut rx = self.rx.take().unwrap();
-
-        while let Some(inc) = rx.recv().await {
-            // TODO
-            tracing::info!("{inc:?}");
-        }
-
-        tracing::error!("[Watcher] {{ Event Loop broken }} rx was close");
-    }
-
-    fn tx(&self) -> UnboundedSender<Result<notify::Event, notify::Error>> {
-        self.tx.clone()
-    }
-}

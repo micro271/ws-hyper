@@ -3,13 +3,23 @@ use http_body_util::Full;
 use hyper::{Response, body::Bytes};
 
 pub struct ResponseError {
-    detail: String,
+    detail: Option<String>,
     status: StatusCode,
 }
 
 impl ResponseError {
     pub fn new(detail: String, status: StatusCode) -> Self {
-        Self { detail, status }
+        Self {
+            detail: Some(detail),
+            status,
+        }
+    }
+
+    pub fn status(status: StatusCode) -> Self {
+        Self {
+            detail: None,
+            status,
+        }
     }
 }
 
@@ -17,7 +27,12 @@ impl From<ResponseError> for Response<Full<Bytes>> {
     fn from(value: ResponseError) -> Self {
         Response::builder()
             .status(value.status)
-            .body(Full::new(Bytes::copy_from_slice(value.detail.as_ref())))
+            .body(
+                value
+                    .detail
+                    .map(|x| Full::new(Bytes::from(x)))
+                    .unwrap_or_default(),
+            )
             .unwrap_or_default()
     }
 }

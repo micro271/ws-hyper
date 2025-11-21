@@ -1,30 +1,44 @@
 use notify::{Error, Event};
-use std::marker::PhantomData;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::manager::utils::TakeOwn;
+use crate::manager::{
+    Change,
+    utils::{OneshotSender, TakeOwn},
+};
 
 use super::{
     EventWatcher, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr, unbounded_channel,
 };
 
 #[derive(Debug)]
-pub struct EventWatcherBuilder<P, Tx> {
+pub struct EventWatcherBuilder<P, CN> {
     path: P,
     r#await: Option<u64>,
-    _phantom: PhantomData<Tx>,
+    change_notify: CN,
 }
 
-impl<P, Tx> EventWatcherBuilder<P, Tx> {
+impl<P, CN> EventWatcherBuilder<P, CN> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
         self
     }
+}
 
+impl<P> EventWatcherBuilder<P, EventWatcherNoNotify> {
+    pub fn change_notify<Tx>(self, tx: Tx) -> EventWatcherBuilder<P, EventWatcherNotify<Tx>> {
+        EventWatcherBuilder {
+            path: self.path,
+            r#await: self.r#await,
+            change_notify: EventWatcherNotify(tx),
+        }
+    }
+}
+
+impl<CN> EventWatcherBuilder<EventWatcherNoPath, CN> {
     pub fn path(
         self,
         mut path: PathBuf,
-    ) -> Result<EventWatcherBuilder<EventWatcherPath, Tx>, WatcherErr> {
+    ) -> Result<EventWatcherBuilder<EventWatcherPath, CN>, WatcherErr> {
         if path.is_relative() {
             path = path
                 .canonicalize()
@@ -34,19 +48,22 @@ impl<P, Tx> EventWatcherBuilder<P, Tx> {
         Ok(EventWatcherBuilder {
             path: EventWatcherPath(path),
             r#await: self.r#await,
-            _phantom: self._phantom,
+            change_notify: self.change_notify,
         })
     }
 }
 
-impl<Tx> EventWatcherBuilder<EventWatcherPath, Tx> {
+impl<Tx> EventWatcherBuilder<EventWatcherPath, EventWatcherNotify<Tx>>
+where
+    Tx: OneshotSender<Item = Change>,
+{
     pub fn build(
         self,
     ) -> Result<
         EventWatcher<
-            Tx,
             UnboundedSender<Result<Event, Error>>,
             UnboundedReceiver<Result<Event, Error>>,
+            Tx,
         >,
         WatcherErr,
     > {
@@ -78,29 +95,37 @@ impl<Tx> EventWatcherBuilder<EventWatcherPath, Tx> {
             tx,
             rx,
             path: path.to_string_lossy().into_owned(),
-            _pantom: self._phantom,
+            change_notify: self.change_notify.take(),
         })
     }
 }
-
-pub struct EventWatcherNoForDir;
 
 pub struct EventWatcherNoPath;
 
 pub struct EventWatcherPath(PathBuf);
 
-impl<Tx> std::default::Default for EventWatcherBuilder<EventWatcherNoPath, Tx> {
+pub struct EventWatcherNoNotify;
+
+pub struct EventWatcherNotify<T>(T);
+
+impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoNotify> {
     fn default() -> Self {
         Self {
             path: EventWatcherNoPath,
             r#await: None,
-            _phantom: PhantomData,
+            change_notify: EventWatcherNoNotify,
         }
     }
 }
 
 impl TakeOwn<PathBuf> for EventWatcherPath {
     fn take(self) -> PathBuf {
+        self.0
+    }
+}
+
+impl<T: Send + 'static> TakeOwn<T> for EventWatcherNotify<T> {
+    fn take(self) -> T {
         self.0
     }
 }
