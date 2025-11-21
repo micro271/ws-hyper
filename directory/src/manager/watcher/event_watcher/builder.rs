@@ -3,7 +3,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::manager::{
     Change,
-    utils::{OneshotSender, TakeOwn},
+    utils::{OneshotSender, Run, TakeOwn},
 };
 
 use super::{
@@ -11,13 +11,13 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct EventWatcherBuilder<P, CN> {
+pub struct EventWatcherBuilder<P, ChNot> {
     path: P,
     r#await: Option<u64>,
-    change_notify: CN,
+    change_notify: ChNot,
 }
 
-impl<P, CN> EventWatcherBuilder<P, CN> {
+impl<P, ChNot> EventWatcherBuilder<P, ChNot> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
         self
@@ -87,8 +87,9 @@ where
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|x| WatcherErr::new(x.to_string()))?;
 
-        let rename_control = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await));
+        let (rename_control, task) = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await)).split();
 
+        task.run();
         Ok(EventWatcher {
             _notify_watcher: notify_watcher,
             rename_control,
@@ -107,6 +108,7 @@ pub struct EventWatcherPath(PathBuf);
 pub struct EventWatcherNoNotify;
 
 pub struct EventWatcherNotify<T>(T);
+
 
 impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoNotify> {
     fn default() -> Self {

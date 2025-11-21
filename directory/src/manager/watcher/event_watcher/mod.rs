@@ -18,19 +18,24 @@ use crate::{
         object::{Object, ObjectName},
     },
     manager::{
-        utils::{AsyncRecv, OneshotSender, Run, Task},
+        utils::{AsyncRecv, Executing, OneshotSender, Task},
         watcher::{NotifyChType, error::WatcherErr},
     },
 };
 
 pub struct EventWatcher<Tx, Rx, TxChange> {
-    rename_control: RenameControl,
+    rename_control: RenameControl<Executing>,
     _notify_watcher: INotifyWatcher,
     tx: Tx,
     rx: Rx,
     change_notify: TxChange,
     path: String,
 }
+
+impl<Tx, Rx, TxCh> EventWatcher<Tx, Rx, TxCh> {
+    fn tx() -> Tx {todo!()}
+}
+
 
 impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
 where
@@ -213,16 +218,3 @@ where
     }
 }
 
-impl<Tx, Rx, TxChange> Run for EventWatcher<Tx, Rx, TxChange>
-where
-    TxChange: OneshotSender<Item = Change>,
-    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
-    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
-{
-    fn run(self)
-    where
-        Self: Sized,
-    {
-        tokio::spawn(self.task());
-    }
-}

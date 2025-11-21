@@ -119,3 +119,5 @@ pub trait Run: Task {
         tokio::spawn(self.task());
     }
 }
+
+impl<T: Task> Run for T {}
