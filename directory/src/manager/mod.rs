@@ -29,7 +29,7 @@ use crate::{
     grpc_v1::InfoUserGrpc,
     manager::{
         utils::Run,
-        watcher::{event_watcher::EventWatcherBuilder},
+        watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
         websocker::{MsgWs, WebSocker},
     },
 };
@@ -53,7 +53,7 @@ impl Manager {
 
         let tx_sch_clone = tx_sch.clone();
 
-        let grpc_client: InfoUserGrpc = InfoUserGrpc::new(endpoint, tx_sch_clone).await;
+        let grpc_client = InfoUserGrpc::new(endpoint, tx_sch_clone).await;
         let resp = tx_ws.clone();
 
         let myself = Arc::new(Self {
@@ -61,21 +61,26 @@ impl Manager {
             state,
         });
 
-        let watcher = match watcher {
-            WatcherParams::Event { path, r#await } => EventWatcherBuilder::default()
-                .path(path)
-                .unwrap()
-                .change_notify(tx_sch)
-                .rename_control_await(r#await.unwrap_or(2000))
-                .build(),
-            WatcherParams::Poll => todo!(),
+        match watcher {
+            WatcherParams::Event { path, r#await } => {
+                let task = EventWatcherBuilder::default()
+                    .path(path)
+                    .unwrap()
+                    .change_notify(tx_sch)
+                    .rename_control_await(r#await.unwrap_or(2000))
+                    .build()
+                    .unwrap();
+                task.run();
+            }
+            WatcherParams::Poll { path, interval } => {
+                let task = PollWatcherNotify::new(path, interval.unwrap_or_default()).unwrap();
+                task.run();
+            }
         }
-        .unwrap();
 
-        watcher.run();
+        WebSocker::new(rx_ws).run();
 
         grpc_client.run_stream().await;
-        WebSocker::run(rx_ws);
         tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
         (resp, grpc_client)
     }
@@ -169,6 +174,12 @@ pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>)
 }
 
 pub enum WatcherParams {
-    Event { path: PathBuf, r#await: Option<u64> },
-    Poll,
+    Event {
+        path: PathBuf,
+        r#await: Option<u64>,
+    },
+    Poll {
+        path: PathBuf,
+        interval: Option<u64>,
+    },
 }

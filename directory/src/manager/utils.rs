@@ -2,6 +2,8 @@ use regex::Regex;
 use std::path::PathBuf;
 use tokio::{fs, sync::mpsc::error::SendError};
 
+pub type SenderErrorTokio<T> = Result<(), tokio::sync::mpsc::error::SendError<T>>;
+
 pub trait AsyncRecv: Send {
     type Item;
 
@@ -118,6 +120,18 @@ pub trait Run: Task {
     {
         tokio::spawn(self.task());
     }
+
+    fn executor(self) -> impl Run
+    where
+        Self: Sized,
+    {
+        self
+    }
 }
 
 impl<T: Task> Run for T {}
+
+pub trait SplitTask: Run {
+    type Output;
+    fn split(self) -> (<Self as SplitTask>::Output, impl Run);
+}

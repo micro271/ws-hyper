@@ -6,48 +6,65 @@ use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
-use crate::manager::utils::{Executing, Pending, Run, TakeOwn, Task};
+use crate::manager::utils::{SplitTask, Task};
 
-type PendingRenameControl = Pending<(UnboundedReceiver<Rename>, UnboundedSender<Result<notify::Event, notify::Error>>, u64)>;
+pub struct RenameControlCh(UnboundedSender<Rename>);
 
-#[derive(Debug)]
-pub struct RenameControl<Recv> {
-    notify: UnboundedSender<Rename>,
-    rcv: Recv,
-}
-
-impl<T> RenameControl<T> {
-    pub fn sender(&self) -> UnboundedSender<Rename> {
-        self.notify.clone()
+impl RenameControlCh {
+    pub fn inner(self) -> UnboundedSender<Rename> {
+        self.0
     }
 }
 
-impl RenameControl<PendingRenameControl> {
+#[derive(Debug)]
+pub struct RenameControl {
+    tx: UnboundedSender<Rename>,
+    rx: UnboundedReceiver<Rename>,
+    r#await: u64,
+    sender_watcher: UnboundedSender<Result<notify::Event, notify::Error>>,
+}
+
+impl RenameControl {
     pub fn new(
         sender_watcher: UnboundedSender<Result<notify::Event, notify::Error>>,
         r#await: u64,
     ) -> Self {
         let (tx, rx) = unbounded_channel();
 
-        Self { notify: tx, rcv: Pending::new((rx, sender_watcher, r#await)) }
+        Self {
+            tx,
+            rx,
+            sender_watcher,
+            r#await,
+        }
     }
 
-    pub fn split(self) -> (RenameControl<Executing>, impl Run) {
-        (RenameControl{
-            notify: self.notify.clone(),
-            rcv: Executing,
-        }, self)
+    pub fn sender(&self) -> UnboundedSender<Rename> {
+        self.tx.clone()
     }
 }
 
-impl Task for RenameControl<PendingRenameControl> {
+impl SplitTask for RenameControl {
+    type Output = RenameControlCh;
+    fn split(self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
+        (RenameControlCh(self.tx.clone()), self)
+    }
+}
+
+impl Task for RenameControl {
     type Output = ();
 
     fn task(self) -> impl Future<Output = Self::Output> + Send + 'static
     where
-        Self: Sized {
+        Self: Sized,
+    {
         async move {
-            let (mut rx, sender, r#await) = self.rcv.take();
+            let RenameControl {
+                tx: _,
+                mut rx,
+                r#await,
+                sender_watcher,
+            } = self;
 
             let duration = Duration::from_millis(r#await);
             let files = Arc::new(Mutex::new(
@@ -60,7 +77,7 @@ impl Task for RenameControl<PendingRenameControl> {
                     Some(Rename::From(RenameFrom(from))) => {
                         let (tx_inner, mut rx_inner) = unbounded_channel::<DropDelete>();
                         files_inner.lock().await.insert(from.clone(), tx_inner);
-                        let sender_watcher = sender.clone();
+                        let sender_watcher = sender_watcher.clone();
                         tokio::spawn(async move {
                             tokio::select! {
                                 () = tokio::time::sleep(duration) => {

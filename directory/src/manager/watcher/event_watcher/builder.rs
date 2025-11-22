@@ -3,7 +3,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::manager::{
     Change,
-    utils::{OneshotSender, Run, TakeOwn},
+    utils::{OneshotSender, Run, SplitTask, TakeOwn},
 };
 
 use super::{
@@ -87,12 +87,13 @@ where
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|x| WatcherErr::new(x.to_string()))?;
 
-        let (rename_control, task) = RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await)).split();
+        let (rename_control, task) =
+            RenameControl::new(tx.clone(), self.r#await.unwrap_or(r#await)).split();
 
         task.run();
         Ok(EventWatcher {
             _notify_watcher: notify_watcher,
-            rename_control,
+            rename_control_sender: rename_control,
             tx,
             rx,
             path: path.to_string_lossy().into_owned(),
@@ -108,7 +109,6 @@ pub struct EventWatcherPath(PathBuf);
 pub struct EventWatcherNoNotify;
 
 pub struct EventWatcherNotify<T>(T);
-
 
 impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatcherNoNotify> {
     fn default() -> Self {

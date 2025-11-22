@@ -1,11 +1,26 @@
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::manager::{
-    watcher::{error::WatcherErr},
+    utils::{SplitTask, Task},
+    watcher::error::WatcherErr,
 };
+
+pub struct PollWatcherNotifyCh<Tx>(Tx);
+
+impl<Tx> PollWatcherNotifyCh<Tx> 
+where 
+    Tx: Clone
+{
+    fn new(tx: Tx) -> Self {
+        Self(tx)
+    }
+}
 
 pub struct PollWatcherNotify {
     _poll_watcher: PollWatcher,
@@ -15,7 +30,7 @@ pub struct PollWatcherNotify {
 }
 
 impl PollWatcherNotify {
-    pub fn new<T: AsRef<str>>(real_path: T, interval: u64) -> Result<Self, WatcherErr> {
+    pub fn new<T: AsRef<Path>>(real_path: T, interval: u64) -> Result<Self, WatcherErr> {
         let mut path = PathBuf::from(real_path.as_ref());
 
         if path.is_relative() {
@@ -43,8 +58,30 @@ impl PollWatcherNotify {
             tx,
             rx: Some(rx),
             _poll_watcher: poll,
-            path: real_path.as_ref().to_string(),
+            path: real_path.as_ref().to_string_lossy().into_owned(),
         })
     }
 }
 
+impl Task for PollWatcherNotify {
+    type Output = ();
+
+    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static
+    where
+        Self: Sized,
+    {
+        async move {
+            let mut rx = self.rx.take().unwrap();
+            loop {
+                rx.recv().await;
+            }
+        }
+    }
+}
+
+impl SplitTask for PollWatcherNotify {
+    type Output = PollWatcherNotifyCh<UnboundedSender<Result<notify::Event, notify::Error>>>;
+    fn split(self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
+        (PollWatcherNotifyCh::new(self.tx.clone()), self)
+    }
+}

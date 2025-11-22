@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, sync::Arc};
 
 use futures::{
     SinkExt, StreamExt,
@@ -15,84 +15,99 @@ use tokio::sync::{
 
 use crate::{
     bucket::{Bucket, key::Key},
-    manager::{Change, Scope, utils::AsyncRecv},
+    manager::{
+        Change, Scope,
+        utils::{AsyncRecv, Task},
+    },
 };
 
 #[derive(Debug, Clone)]
 pub struct WebSocker<Rx> {
-    _priv: PhantomData<Rx>,
+    rx: Rx,
 }
 
-impl<Rx: AsyncRecv<Item = MsgWs>> WebSocker<Rx>
-where
-    Self: Send + 'static,
+impl<Rx> Task for WebSocker<Rx> 
+where 
+    Rx: AsyncRecv<Item = MsgWs> + Send + 'static,
 {
-    pub fn run(rx: Rx) {
-        tokio::spawn(Self::task(rx));
-    }
-    pub async fn task(mut rx: Rx) {
-        let mut users = ListToNotification::<Change>::new();
-        tracing::debug!("Web socket manage init");
+    type Output = ();
 
-        loop {
-            let msg = rx.recv().await;
-            tracing::trace!("{msg:?}");
-            match msg {
-                Some(MsgWs::Change(change)) => match change.scope() {
-                    Scope::Bucket(bucket) => match users.send_all_in_bucket(&bucket) {
-                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                        Ok(snd) => {
-                            if let Err(er) = snd.send(change) {
-                                tracing::error!(
-                                    "We had a problem sending the message to this keys {er:?}"
-                                );
+    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static
+    where
+        Self: Sized,
+    {
+        async move {
+            let mut users = ListToNotification::<Change>::new();
+            tracing::debug!("Web socket manage init");
+
+            loop {
+                let msg = self.rx.recv().await;
+                tracing::trace!("{msg:?}");
+                match msg {
+                    Some(MsgWs::Change(change)) => match change.scope() {
+                        Scope::Bucket(bucket) => match users.send_all_in_bucket(&bucket) {
+                            Err(er) => tracing::error!("No one is listening the bucket {er}"),
+                            Ok(snd) => {
+                                if let Err(er) = snd.send(change) {
+                                    tracing::error!(
+                                        "We had a problem sending the message to this keys {er:?}"
+                                    );
+                                }
                             }
-                        }
+                        },
+                        Scope::Key(bucket, key) => match users.send_message(&bucket, &key) {
+                            Err(er) => tracing::error!("No one is listening the bucket {er}"),
+                            Ok(snd) => {
+                                if let Err(er) = snd.send(change) {
+                                    tracing::error!(
+                                        "We had a problem sending the message to this key {er:?}"
+                                    );
+                                }
+                            }
+                        },
                     },
-                    Scope::Key(bucket, key) => match users.send_message(&bucket, &key) {
-                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                        Ok(snd) => {
-                            if let Err(er) = snd.send(change) {
-                                tracing::error!(
-                                    "We had a problem sending the message to this key {er:?}"
-                                );
-                            }
-                        }
-                    },
-                },
-                Some(MsgWs::NewUser {
-                    bucket,
-                    key,
-                    sender,
-                }) => {
-                    let mut rx = users.rcv_or_create(bucket, key);
+                    Some(MsgWs::NewUser {
+                        bucket,
+                        key,
+                        sender,
+                    }) => {
+                        let mut rx = users.rcv_or_create(bucket, key);
 
-                    let (tx_client, rx_client) = sender.await.unwrap().split();
-                    let tx_client = Arc::new(Mutex::new(tx_client));
-                    let tx_client_clone = tx_client.clone();
-                    tokio::spawn(async move {
-                        while let Ok(change) = rx.recv().await {
-                            if let Err(err) = tx_client_clone
-                                .lock()
-                                .await
-                                .send(Message::Text(json!(change).to_string().into()))
-                                .await
-                            {
-                                tracing::error!("{err}");
+                        let (tx_client, rx_client) = sender.await.unwrap().split();
+                        let tx_client = Arc::new(Mutex::new(tx_client));
+                        let tx_client_clone = tx_client.clone();
+                        tokio::spawn(async move {
+                            while let Ok(change) = rx.recv().await {
+                                if let Err(err) = tx_client_clone
+                                    .lock()
+                                    .await
+                                    .send(Message::Text(json!(change).to_string().into()))
+                                    .await
+                                {
+                                    tracing::error!("{err}");
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
-                }
-                _ => {
-                    tracing::debug!("Peer tx_ws closed");
-                    break;
+                        tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
+                    }
+                    _ => {
+                        tracing::debug!("Peer tx_ws closed");
+                        break;
+                    }
                 }
             }
         }
     }
+}
 
+impl<Rx> WebSocker<Rx>
+where
+    Self: Send + 'static,
+{
+    pub fn new(rx: Rx) -> Self {
+        Self { rx }
+    }
     async fn client_messages_handler(
         mut ws: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
         tx: Arc<Mutex<SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>>>,

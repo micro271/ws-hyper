@@ -10,9 +10,7 @@ pub mod ws;
 use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
-    manager::{
-        Manager, WatcherParams,
-    },
+    manager::{Manager, WatcherParams},
     state::State,
 };
 use clap::Parser;

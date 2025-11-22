@@ -44,7 +44,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
 }
 
 pub async fn middleware_jwt<T>(
-    mut req: Request<Incoming>,
+    req: Request<Incoming>,
     next: T,
 ) -> Result<Response<Full<Bytes>>, Infallible>
 where

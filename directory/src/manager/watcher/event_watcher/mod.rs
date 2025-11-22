@@ -18,24 +18,22 @@ use crate::{
         object::{Object, ObjectName},
     },
     manager::{
-        utils::{AsyncRecv, Executing, OneshotSender, Task},
+        utils::{AsyncRecv, OneshotSender, SenderErrorTokio, SplitTask, Task},
         watcher::{NotifyChType, error::WatcherErr},
     },
 };
 
+#[derive(Debug, Clone)]
+pub struct EventWatcherCh<Tx>(Tx);
+
 pub struct EventWatcher<Tx, Rx, TxChange> {
-    rename_control: RenameControl<Executing>,
     _notify_watcher: INotifyWatcher,
     tx: Tx,
     rx: Rx,
     change_notify: TxChange,
     path: String,
+    rename_control_sender: RenameControlCh,
 }
-
-impl<Tx, Rx, TxCh> EventWatcher<Tx, Rx, TxCh> {
-    fn tx() -> Tx {todo!()}
-}
-
 
 impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
 where
@@ -49,7 +47,7 @@ where
             tracing::debug!("Watcher notify manage init");
 
             let root = &self.path[..];
-            let tx_rename = self.rename_control.sender();
+            let tx_rename = self.rename_control_sender.inner();
             while let Some(Ok(event)) = self.rx.recv().await {
                 match event.kind {
                     notify::EventKind::Create(CreateKind::Folder) => {
@@ -218,3 +216,34 @@ where
     }
 }
 
+impl<Tx> std::ops::Deref for EventWatcherCh<Tx> {
+    type Target = Tx;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<Tx: Clone> EventWatcherCh<Tx> {
+    fn new(tx: Tx) -> Self {
+        Self(tx)
+    }
+}
+
+impl<Tx: OneshotSender> EventWatcherCh<Tx> {
+    fn send(&self, item: Tx::Item) -> SenderErrorTokio<Tx::Item> {
+        self.0.send(item)
+    }
+}
+
+impl<Tx, Rx, TxChange> SplitTask for EventWatcher<Tx, Rx, TxChange>
+where
+    TxChange: OneshotSender<Item = Change>,
+    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
+    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
+{
+    type Output = EventWatcherCh<Tx>;
+
+    fn split(self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
+        (EventWatcherCh::new(self.tx.clone()), self)
+    }
+}
