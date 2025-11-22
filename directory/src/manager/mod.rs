@@ -28,10 +28,11 @@ use crate::{
     },
     grpc_v1::InfoUserGrpc,
     manager::{
-        utils::Run,
+        utils::{Run, SplitTask},
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
         websocker::{MsgWs, WebSocker},
     },
+    state::pg_listen::{ListenBucket, ListenBucketCh},
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -47,6 +48,7 @@ impl Manager {
         state: Arc<RwLock<BucketMap>>,
         watcher: WatcherParams,
         endpoint: Endpoint,
+        listen_bk: ListenBucket,
     ) -> (Sender<MsgWs>, InfoUserGrpc) {
         let (tx_ws, rx_ws) = channel(128);
         let (tx_sch, rx_sch) = unbounded_channel();
@@ -55,6 +57,8 @@ impl Manager {
 
         let grpc_client = InfoUserGrpc::new(endpoint, tx_sch_clone).await;
         let resp = tx_ws.clone();
+
+        let (listener_ch, lst_task) = listen_bk.split();
 
         let myself = Arc::new(Self {
             tx_ws: RwLock::new(tx_ws),
@@ -77,15 +81,19 @@ impl Manager {
                 task.run();
             }
         }
-
+        lst_task.run();
         WebSocker::new(rx_ws).run();
 
         grpc_client.run_stream().await;
-        tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch));
+        tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch, listener_ch));
         (resp, grpc_client)
     }
 
-    async fn run_scheduler_mg(self: Arc<Self>, mut rx_watcher: UnboundedReceiver<Change>) {
+    async fn run_scheduler_mg(
+        self: Arc<Self>,
+        mut rx_watcher: UnboundedReceiver<Change>,
+        lst: ListenBucketCh,
+    ) {
         tracing::info!("Scheduler init");
         let tx_ws = self.tx_ws.read().await.clone();
 
@@ -94,6 +102,7 @@ impl Manager {
                 Some(change) => {
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
+                    lst.send(change).await.unwrap();
                 }
                 None => {
                     tracing::error!("[Scheduler] Peer: tx_watcher closed");

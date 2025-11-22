@@ -11,7 +11,7 @@ use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
     manager::{Manager, WatcherParams},
-    state::State,
+    state::{State, pg_listen::builder::ListenBucketBuilder},
 };
 use clap::Parser;
 use hyper::server::conn::http1;
@@ -33,6 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port,
         log_level,
         grpc_auth_server,
+        database_name,
+        username,
+        password,
+        channel,
+        database_host,
+        database_port,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -46,23 +52,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = BucketMap::new(watcher_path)?;
 
     let state = Arc::new(RwLock::new(state));
+    let listen_b = ListenBucketBuilder::default()
+        .username(username)
+        .database(database_name)
+        .password(password)
+        .channel(channel)
+        .host(database_host)
+        .port(port)
+        .build().await;
 
-    let (websocker_subscribers, grpc_client) = match watcher {
-        cli::TypeWatcher::Poll => {
-            todo!()
-        }
-        cli::TypeWatcher::Event => {
-            Manager::run(
-                state.clone(),
-                WatcherParams::Event {
-                    path: PathBuf::from(state.read().await.path()),
-                    r#await: None,
-                },
-                grpc_auth_server,
-            )
-            .await
-        }
-    };
+    let (websocker_subscribers, grpc_client) = Manager::run(
+        state.clone(),
+        match watcher {
+            cli::TypeWatcher::Poll => {
+                todo!()
+            }
+            cli::TypeWatcher::Event => WatcherParams::Event {
+                path: PathBuf::from(state.read().await.path()),
+                r#await: None,
+            },
+        },
+        grpc_auth_server,
+        listen_b,
+    )
+    .await;
 
     let state = Arc::new(State::new(state, websocker_subscribers, grpc_client).await);
 

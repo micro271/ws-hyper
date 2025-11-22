@@ -26,8 +26,8 @@ pub struct WebSocker<Rx> {
     rx: Rx,
 }
 
-impl<Rx> Task for WebSocker<Rx> 
-where 
+impl<Rx> Task for WebSocker<Rx>
+where
     Rx: AsyncRecv<Item = MsgWs> + Send + 'static,
 {
     type Output = ();

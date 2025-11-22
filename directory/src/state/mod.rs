@@ -1,3 +1,5 @@
+pub mod pg_listen;
+
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
     grpc_v1::{InfoUserGrpc, Permissions},

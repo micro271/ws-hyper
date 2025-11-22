@@ -13,9 +13,9 @@ use crate::manager::{
 
 pub struct PollWatcherNotifyCh<Tx>(Tx);
 
-impl<Tx> PollWatcherNotifyCh<Tx> 
-where 
-    Tx: Clone
+impl<Tx> PollWatcherNotifyCh<Tx>
+where
+    Tx: Clone,
 {
     fn new(tx: Tx) -> Self {
         Self(tx)

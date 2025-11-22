@@ -28,6 +28,24 @@ pub struct Args {
         default_value = "[::]:50504"
     )]
     pub grpc_auth_server: Endpoint,
+
+    #[arg(long = "database-name", env = "DATABASE_NAME")]
+    pub database_name: String,
+
+    #[arg(long = "database-user", env = "DATABASE_USER")]
+    pub username: String,
+
+    #[arg(long = "database-pass", env = "DATABASE_PASSWD")]
+    pub password: String,
+
+    #[arg(long = "database-listen-channel", env = "DATABASE_LISTEN_CHANNEL")]
+    pub channel: String,
+
+    #[arg(long = "database-host", env = "DATABASE_HOST")]
+    pub database_host: String,
+
+    #[arg(long = "database-port", env = "DATABASE_PORT")]
+    pub database_port: u16,
 }
 
 #[derive(Clone, ValueEnum)]
