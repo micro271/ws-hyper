@@ -14,15 +14,16 @@ use crate::manager::{
     utils::{SplitTask, Task},
 };
 
-pub struct ListenBucketCh(Sender<Change>);
+#[derive(Debug)]
+pub struct ListenBucketChSender(Sender<Change>);
 
-impl ListenBucketCh {
+impl ListenBucketChSender {
     pub fn new(sender: Sender<Change>) -> Self {
         Self(sender)
     }
 }
 
-impl std::ops::Deref for ListenBucketCh {
+impl std::ops::Deref for ListenBucketChSender {
     type Target = Sender<Change>;
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -40,9 +41,8 @@ pub struct ListenBucket {
 }
 
 impl Task for ListenBucket {
-    type Output = ();
 
-    async fn task(mut self) -> Self::Output
+    async fn task(mut self) 
     where
         Self: Sized,
     {
@@ -161,10 +161,10 @@ pub async fn change_(change: Change) {
 }
 
 impl SplitTask for ListenBucket {
-    type Output = ListenBucketCh;
+    type Output = ListenBucketChSender;
 
     fn split(mut self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
-        (ListenBucketCh::new(self.tx.take().unwrap()), self)
+        (ListenBucketChSender::new(self.tx.take().unwrap()), self)
     }
 }
 

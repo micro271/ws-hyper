@@ -64,9 +64,8 @@ impl PollWatcherNotify {
 }
 
 impl Task for PollWatcherNotify {
-    type Output = ();
 
-    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static
+    fn task(mut self) -> impl Future<Output = ()> + Send + 'static
     where
         Self: Sized,
     {

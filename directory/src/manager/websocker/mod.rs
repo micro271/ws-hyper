@@ -10,29 +10,50 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tokio::sync::{
     Mutex,
-    broadcast::{self, Receiver, Sender as SenderBr},
+    broadcast::{self, Sender as SenderBr, Receiver as ReceivedBr}, mpsc::{self, Sender, Receiver},
 };
 
 use crate::{
     bucket::{Bucket, key::Key},
     manager::{
         Change, Scope,
-        utils::{AsyncRecv, Task},
+        utils::{SplitTask, Task},
     },
 };
 
-#[derive(Debug, Clone)]
-pub struct WebSocker<Rx> {
-    rx: Rx,
+pub struct WebSocketChSender(Sender<MsgWs>);
+
+impl std::ops::Deref for WebSocketChSender {
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+    
+    type Target = Sender<MsgWs>;
 }
 
-impl<Rx> Task for WebSocker<Rx>
-where
-    Rx: AsyncRecv<Item = MsgWs> + Send + 'static,
-{
-    type Output = ();
+#[derive(Debug)]
+pub struct WebSocket {
+    rx: Receiver<MsgWs>,
+    tx: Sender<MsgWs>,
+}
 
-    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static
+impl WebSocket {
+    pub fn get_sender(&self) -> Sender<MsgWs> {
+        self.tx.clone()
+    }
+}
+
+impl SplitTask for WebSocket {
+    fn split(self) -> (<Self as SplitTask>::Output, impl super::utils::Run) {
+        (WebSocketChSender(self.tx.clone()), self)
+    }
+    
+    type Output = WebSocketChSender;
+}
+
+impl Task for WebSocket {
+
+    fn task(mut self) -> impl Future<Output = ()> + Send + 'static
     where
         Self: Sized,
     {
@@ -101,12 +122,10 @@ where
     }
 }
 
-impl<Rx> WebSocker<Rx>
-where
-    Self: Send + 'static,
-{
-    pub fn new(rx: Rx) -> Self {
-        Self { rx }
+impl WebSocket {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel(128);
+        Self { rx, tx }
     }
     async fn client_messages_handler(
         mut ws: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
@@ -188,7 +207,7 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
         )?))
     }
 
-    fn rcv_or_create(&mut self, bucket: Bucket, key: Key) -> Receiver<T> {
+    fn rcv_or_create(&mut self, bucket: Bucket, key: Key) -> ReceivedBr<T> {
         let bucket = self.0.entry(bucket).or_default();
         let key = bucket.entry(key).or_insert_with(|| {
             let (tx, _) = broadcast::channel::<T>(128);

@@ -10,7 +10,7 @@ pub mod ws;
 use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
-    manager::{Manager, WatcherParams},
+    manager::{Manager, WatcherParams, utils::{Run, SplitTask}},
     state::{State, pg_listen::builder::ListenBucketBuilder},
 };
 use clap::Parser;
@@ -58,10 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .password(password)
         .channel(channel)
         .host(database_host)
-        .port(port)
+        .port(database_port)
         .build().await;
 
-    let (websocker_subscribers, grpc_client) = Manager::run(
+    let ((websocker_subscribers, grpc_client), task) = Manager::new(
         state.clone(),
         match watcher {
             cli::TypeWatcher::Poll => {
@@ -75,9 +75,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         grpc_auth_server,
         listen_b,
     )
-    .await;
+    .await.split();
 
     let state = Arc::new(State::new(state, websocker_subscribers, grpc_client).await);
+    task.run();
 
     loop {
         let (stream, _) = listener.accept().await?;

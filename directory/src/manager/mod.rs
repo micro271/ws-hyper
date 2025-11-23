@@ -4,7 +4,7 @@ pub mod utils;
 pub mod watcher;
 pub mod websocker;
 
-use futures::{SinkExt, stream::SplitSink};
+use futures::{SinkExt,  stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
@@ -16,7 +16,7 @@ use serde_json::json;
 use tokio::sync::{
     RwLock,
     broadcast::Receiver as ReceivedBr,
-    mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
+    mpsc::{UnboundedReceiver, Sender, UnboundedSender, unbounded_channel},
 };
 
 use crate::{
@@ -28,49 +28,59 @@ use crate::{
     },
     grpc_v1::InfoUserGrpc,
     manager::{
-        utils::{Run, SplitTask},
+        utils::{Run, SplitTask, Task},
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
-        websocker::{MsgWs, WebSocker},
+        websocker::{MsgWs, WebSocket, WebSocketChSender},
     },
-    state::pg_listen::{ListenBucket, ListenBucketCh},
+    state::pg_listen::{ListenBucket, ListenBucketChSender},
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
-#[derive(Debug)]
 pub struct Manager {
-    tx_ws: RwLock<Sender<MsgWs>>,
-    pub state: Arc<RwLock<BucketMap>>,
+    state: Arc<RwLock<BucketMap>>,
+    tx: UnboundedSender<Change>,
+    rx: UnboundedReceiver<Change>,
+    listen_bk: ListenBucket,
+    grpc: InfoUserGrpc,
+    ws: WebSocket,
+    watcher_params: WatcherParams,
+}
+
+pub struct ManagerRunning {
+    ws_sender: WebSocketChSender,
+    rx: UnboundedReceiver<Change>,
+    state: Arc<RwLock<BucketMap>>,
+    grpc: InfoUserGrpc,
+    lst_sender: ListenBucketChSender,
 }
 
 impl Manager {
-    pub async fn run(
-        state: Arc<RwLock<BucketMap>>,
-        watcher: WatcherParams,
+    pub async fn new(state: Arc<RwLock<BucketMap>>, watcher_params: WatcherParams,
         endpoint: Endpoint,
-        listen_bk: ListenBucket,
-    ) -> (Sender<MsgWs>, InfoUserGrpc) {
-        let (tx_ws, rx_ws) = channel(128);
-        let (tx_sch, rx_sch) = unbounded_channel();
+        listen_bk: ListenBucket) -> Self {
+        let (tx_sch, rx_sch) = unbounded_channel();        
 
-        let tx_sch_clone = tx_sch.clone();
-
-        let grpc_client = InfoUserGrpc::new(endpoint, tx_sch_clone).await;
-        let resp = tx_ws.clone();
-
-        let (listener_ch, lst_task) = listen_bk.split();
-
-        let myself = Arc::new(Self {
-            tx_ws: RwLock::new(tx_ws),
+        Self {
             state,
-        });
+            tx: tx_sch.clone(),
+            rx: rx_sch,
+            listen_bk,
+            grpc: InfoUserGrpc::new(endpoint, tx_sch).await,
+            watcher_params,
+            ws: WebSocket::new(),
+        }
+    }
+}
 
-        match watcher {
+impl Run for Manager {
+    fn run(self) where Self: Sized {
+        match self.watcher_params {
             WatcherParams::Event { path, r#await } => {
                 let task = EventWatcherBuilder::default()
                     .path(path)
                     .unwrap()
-                    .change_notify(tx_sch)
+                    .change_notify(self.tx.clone())
                     .rename_control_await(r#await.unwrap_or(2000))
                     .build()
                     .unwrap();
@@ -81,28 +91,51 @@ impl Manager {
                 task.run();
             }
         }
-        lst_task.run();
-        WebSocker::new(rx_ws).run();
+        let (lst_ch, lst_task) = self.listen_bk.split();
+        let (ws_sender, ws_task) = self.ws.split();
 
-        grpc_client.run_stream().await;
-        tokio::task::spawn(myself.clone().run_scheduler_mg(rx_sch, listener_ch));
-        (resp, grpc_client)
+        lst_task.run();
+        ws_task.run();
+        
+        let task = ManagerRunning {
+            ws_sender,
+            rx: self.rx,
+            state: self.state,
+            lst_sender: lst_ch,
+            grpc: self.grpc,
+        };
+
+        task.run();
     }
 
-    async fn run_scheduler_mg(
-        self: Arc<Self>,
-        mut rx_watcher: UnboundedReceiver<Change>,
-        lst: ListenBucketCh,
-    ) {
+    fn executor(self) -> impl Run
+    where
+        Self: Sized,
+    {
+        self
+    }
+}
+
+impl SplitTask for Manager {
+    type Output = (Sender<MsgWs>, InfoUserGrpc);
+
+    fn split(self) -> (<Self as SplitTask>::Output, impl Run) {
+        ((self.ws.get_sender(), self.grpc.clone()), self)
+    }
+}
+
+impl Task for ManagerRunning {
+    async fn task(mut self)  {
         tracing::info!("Scheduler init");
-        let tx_ws = self.tx_ws.read().await.clone();
+
+        let tx_ws = self.ws_sender;
 
         loop {
-            match rx_watcher.recv().await {
+            match self.rx.recv().await {
                 Some(change) => {
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
-                    lst.send(change).await.unwrap();
+                    self.lst_sender.send(change).await.unwrap();
                 }
                 None => {
                     tracing::error!("[Scheduler] Peer: tx_watcher closed");
@@ -182,6 +215,7 @@ pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>)
     }
 }
 
+#[derive(Debug)]
 pub enum WatcherParams {
     Event {
         path: PathBuf,

@@ -18,7 +18,7 @@ use crate::{
         object::{Object, ObjectName},
     },
     manager::{
-        utils::{AsyncRecv, OneshotSender, SenderErrorTokio, SplitTask, Task},
+        utils::{AsyncRecv, OneshotSender, SplitTask, Task},
         watcher::{NotifyChType, error::WatcherErr},
     },
 };
@@ -41,8 +41,7 @@ where
     Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
     Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
 {
-    type Output = ();
-    fn task(mut self) -> impl Future<Output = Self::Output> + Send + 'static {
+    fn task(mut self) -> impl Future<Output = ()> + Send + 'static {
         async move {
             tracing::debug!("Watcher notify manage init");
 
@@ -226,12 +225,6 @@ impl<Tx> std::ops::Deref for EventWatcherCh<Tx> {
 impl<Tx: Clone> EventWatcherCh<Tx> {
     fn new(tx: Tx) -> Self {
         Self(tx)
-    }
-}
-
-impl<Tx: OneshotSender> EventWatcherCh<Tx> {
-    fn send(&self, item: Tx::Item) -> SenderErrorTokio<Tx::Item> {
-        self.0.send(item)
     }
 }
 

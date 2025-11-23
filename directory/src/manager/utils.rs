@@ -106,18 +106,18 @@ impl<W: Send + 'static> TakeOwn<W> for Pending<W> {
 }
 
 pub trait Task {
-    type Output: Send + 'static;
-
-    fn task(self) -> impl Future<Output = Self::Output> + Send + 'static
+    fn task(self) -> impl Future<Output = ()> + Send + 'static
     where
         Self: Sized;
 }
 
-pub trait Run: Task {
-    fn run(self)
-    where
-        Self: Sized,
-    {
+pub trait Run {
+    fn run(self) where Self: Sized;
+    fn executor(self) -> impl Run where Self: Sized;
+}
+
+impl<T: Task> Run for T {
+    fn run(self) where Self: Sized{
         tokio::spawn(self.task());
     }
 
@@ -129,9 +129,7 @@ pub trait Run: Task {
     }
 }
 
-impl<T: Task> Run for T {}
-
-pub trait SplitTask: Run {
+pub trait SplitTask {
     type Output;
     fn split(self) -> (<Self as SplitTask>::Output, impl Run);
 }
