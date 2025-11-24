@@ -1,10 +1,10 @@
 mod grpc_v1;
 mod handler;
 mod models;
-mod repository;
+mod state;
 use crate::{
     grpc_v1::user_control::InfoUserProgram, handler::entry, models::user::default_account_admin,
-    repository::PgRepository,
+    state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
 use hyper::server::conn::http1;

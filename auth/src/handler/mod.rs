@@ -24,7 +24,7 @@ use crate::{
         Claim, User,
         update::{UpdateSelf, UpdateUser},
     },
-    repository::{PgRepository, QueryOwn},
+    state::{PgRepository, QueryOwn},
 };
 
 type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;

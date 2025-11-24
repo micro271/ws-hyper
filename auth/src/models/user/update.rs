@@ -1,4 +1,4 @@
-use crate::repository::Types;
+use crate::state::Types;
 use std::collections::HashMap;
 
 use super::{Deserialize, Role, UserState};

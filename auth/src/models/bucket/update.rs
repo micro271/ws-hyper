@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::repository::Types;
+use crate::state::Types;
 
 #[derive(Debug, Deserialize)]
 pub struct ProgramaUpdate {

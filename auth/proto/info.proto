@@ -5,14 +5,14 @@ package info;
 service Info {
     rpc User (UserInfoRequest) returns (UserInfoReply);
     rpc Bucket (AllowedBucketReq) returns (AllowedBucketReply);
-    rpc MessageForConsistency (stream BucketSync) returns (stream BucketSync);
+    rpc Messages (stream BucketSync) returns (stream BucketSync);
 }
 
 message NotFound {
     string name = 1;
 }
 
-message NotEmpty {
+message NotEmpty { 
     string name = 1;
 }
 

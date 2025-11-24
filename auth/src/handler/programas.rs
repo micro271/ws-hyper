@@ -1,7 +1,7 @@
 use crate::{
     handler::{error::ResponseErr, GetRepo, ResponseHandlers},
     models::bucket::{update::ProgramaUpdate, Buckets},
-    repository::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
+    state::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
 };
 use hyper::{Request, StatusCode, body::Incoming};
 use utils::ParseBodyToStruct;

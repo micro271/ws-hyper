@@ -14,7 +14,7 @@ use uuid::Uuid;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    grpc_v1::user_control::proto::{BucketSync, bucket_sync::Msg}, models::{Permissions, UsersBuckets}, repository::{PgRepository, QueryOwn, Types}
+    grpc_v1::user_control::proto::{BucketSync, bucket_sync::Msg}, models::{Permissions, UsersBuckets}, state::{PgRepository, QueryOwn, Types}
 };
 
 type ResultStream = Pin<Box<dyn Stream<Item = Result<BucketSync, Status>> + Send>>;
@@ -33,7 +33,7 @@ impl InfoUserProgram {
 #[async_trait]
 impl Info for InfoUserProgram {
 
-    type MessageForConsistencyStream = ResultStream;
+    type MessagesStream = ResultStream;
 
     async fn user(
         &self,
@@ -61,8 +61,8 @@ impl Info for InfoUserProgram {
         
         Ok(Response::new(msg))
     }
-
-    async fn message_for_consistency(&self, req: tonic::Request<Streaming<BucketSync>>) -> Result<Response<Self::MessageForConsistencyStream>, Status> {
+    
+    async fn messages(&self, req: tonic::Request<Streaming<BucketSync>>) -> Result<Response<Self::MessagesStream>, Status> {
         
         let mut stream = req.into_inner();
         let (tx, rx) = tokio::sync::mpsc::channel(256);
@@ -87,7 +87,7 @@ impl Info for InfoUserProgram {
 
         let out = ReceiverStream::new(rx);
 
-        Ok(Response::new(Box::pin(out) as Self::MessageForConsistencyStream))
+        Ok(Response::new(Box::pin(out) as Self::MessagesStream))
     }
 }
 

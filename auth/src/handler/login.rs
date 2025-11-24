@@ -12,7 +12,7 @@ use crate::{
     Repository,
     handler::{Login, error::ResponseErr},
     models::user::User,
-    repository::QueryOwn,
+    state::QueryOwn,
 };
 
 pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, ResponseErr> {

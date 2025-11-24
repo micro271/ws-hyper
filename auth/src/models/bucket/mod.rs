@@ -3,7 +3,7 @@ pub mod update;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow};
 
-use crate::repository::{TABLA_BUCKET, Table};
+use crate::state::{TABLA_BUCKET, Table};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Buckets {
@@ -29,7 +29,7 @@ impl<'a> Table<'a> for Buckets {
         vec!["id", "icon", "user_id", "name", "description"]
     }
 
-    fn values(self) -> Vec<crate::repository::Types> {
+    fn values(self) -> Vec<crate::state::Types> {
         vec![
             self.name.into(),
             self.description.into(),

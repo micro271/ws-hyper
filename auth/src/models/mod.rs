@@ -1,7 +1,7 @@
 pub mod bucket;
 pub mod user;
 
-use crate::{grpc_v1::user_control::UserInfoReply, repository::{QuerySelect, TABLA_BUCKET, TABLA_USER}};
+use crate::{grpc_v1::user_control::UserInfoReply, state::{QuerySelect, TABLA_BUCKET, TABLA_USER}};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::Type};
 use uuid::Uuid;

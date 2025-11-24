@@ -12,7 +12,7 @@ use crate::{
         UserAllInfo,
         user::{Encrypt, User},
     },
-    repository::{Insert, InsertOwn, QueryOwn, QueryResult, TABLA_USER, Types, UpdateOwn},
+    state::{Insert, InsertOwn, QueryOwn, QueryResult, TABLA_USER, Types, UpdateOwn},
 };
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {

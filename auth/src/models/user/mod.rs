@@ -6,7 +6,7 @@ use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;
 use uuid::Uuid;
 
-use crate::repository::{TABLA_USER, Table};
+use crate::state::{TABLA_USER, Table};
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct User {
@@ -154,7 +154,7 @@ impl<'a> Table<'a> for User {
     fn name() -> &'a str {
         TABLA_USER
     }
-    fn values(self) -> Vec<crate::repository::Types> {
+    fn values(self) -> Vec<crate::state::Types> {
         vec![
             self.id.unwrap_or_default().into(),
             self.username.into(),
