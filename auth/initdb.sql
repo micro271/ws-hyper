@@ -1,8 +1,6 @@
-CREATE DATABASE buckets;
-
 CREATE TYPE PERMISSIONS AS ENUM ('Put', 'Get', 'Delete', 'Read');
 CREATE TYPE USER_STATE AS ENUM ('Active', 'Inactive');
-CREATE TYPE ROLE AS ENUN ('SuperUser', 'Admin', 'Operator', 'User');
+CREATE TYPE ROLE AS ENUM ('SuperUser', 'Admin', 'Operator', 'User');
 
 CREATE TABLE IF NOT EXISTS buckets (
     name TEXT UNIQUE,
@@ -22,14 +20,14 @@ CREATE TABLE IF NOT EXISTS users (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS users_buckets {
+CREATE TABLE IF NOT EXISTS users_buckets (
     bucket TEXT,
     user_id UUID,
     permissions PERMISSIONS[],
     PRIMARY KEY (bucket, user_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
-    FOREIGN KEY (program_id) REFERENCES program(id) ON DELETE SET NULL ON UPDATE CASCADE
-}
+    FOREIGN KEY (bucket) REFERENCES buckets(name) ON DELETE SET NULL ON UPDATE CASCADE
+);
 
 
 CREATE OR REPLACE FUNCTION notify_row_change()
@@ -51,7 +49,7 @@ BEGIN
     ELSIF TG_OP = 'DELETE' THEN
         payload := json_build_object(
             'operation', 'Delete',
-            'bucket', OLD.name,
+            'bucket', OLD.name
         );
     END IF;
 
@@ -70,6 +68,8 @@ RETURNS trigger AS $$
 DECLARE
     admin_ids UUID[];
     operators_ids UUID[];
+    op_id UUID;
+    adm_id UUID;
 BEGIN
     SELECT
         array_agg(id) FILTER (WHERE role = 'Operator'),
@@ -80,8 +80,8 @@ BEGIN
         INSERT INTO users_buckets (bucket, user_id, permissions) VALUES (NEW.name, op_id, ARRAY['Get', 'Read']::role[]);
     END LOOP;
 
-    FOREACH op_id IN ARRAY admin_ids LOOP
-        INSERT INTO users_buckets (bucket, user_id, permissions) VALUES (NEW.name, op_id, ARRAY['Get', 'Put', 'Delete', 'Read']::role[]);
+    FOREACH adm_id IN ARRAY admin_ids LOOP
+        INSERT INTO users_buckets (bucket, user_id, permissions) VALUES (NEW.name, adm_id, ARRAY['Get', 'Put', 'Delete', 'Read']::role[]);
     END LOOP;
 
     RETURN NEW;
@@ -91,4 +91,4 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_assign_permissions
 AFTER INSERT ON buckets
 FOR EACH ROW
-EXECUTE FUNCTION assign_bucket_on_ops();
+EXECUTE FUNCTION assign_bucket_on_users();

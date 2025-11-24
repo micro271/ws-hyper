@@ -131,12 +131,12 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
     };
 
     user.passwd = Encrypt::from(&user.passwd)?;
-    
+
     Ok(user)
 }
 
 impl Table for User {
-    type ValuesOutput = [Types ;8];
+    type ValuesOutput = [Types; 8];
     fn columns() -> &'static [&'static str] {
         &[
             "id",
@@ -146,8 +146,6 @@ impl Table for User {
             "phone",
             "user_state",
             "role",
-            "resources",
-            "programa",
             "description",
         ]
     }

@@ -1,6 +1,6 @@
 use crate::{
-    handler::{error::ResponseErr, GetRepo, ResponseHandlers},
-    models::bucket::{update::ProgramaUpdate, Buckets},
+    handler::{GetRepo, ResponseHandlers, error::ResponseErr},
+    models::bucket::{Buckets, update::ProgramaUpdate},
     state::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
 };
 use hyper::{Request, StatusCode, body::Incoming};
@@ -9,11 +9,14 @@ use uuid::Uuid;
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
     let (parts, body) = req.into_parts();
-    let programa: Buckets = ParseBodyToStruct::get(body).await.map_err(|x| ResponseErr::new(x,StatusCode::BAD_GATEWAY))?;
+    let programa: Buckets = ParseBodyToStruct::get(body)
+        .await
+        .map_err(|x| ResponseErr::new(x, StatusCode::BAD_GATEWAY))?;
     // This action requires creating a new directory to store the videos
-    Ok(
-        GetRepo::get(&parts.extensions)?.insert(InsertOwn::insert(programa)).await?.into()
-    )
+    Ok(GetRepo::get(&parts.extensions)?
+        .insert(InsertOwn::insert(programa))
+        .await?
+        .into())
 }
 
 pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {

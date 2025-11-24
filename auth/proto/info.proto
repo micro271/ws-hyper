@@ -4,7 +4,6 @@ package info;
 
 service Info {
     rpc UserById (UserByIdReq) returns (UserReply);
-    rpc UserByName (UserByNameReq) returns (UserReply);
     rpc BucketIsAllowed (AllowedBucketReq) returns (AllowedBucketReply);
     rpc GetBucket(BucketReq) returns (BucketReply);
 }
@@ -27,14 +26,9 @@ message UserByIdReq {
 }
 
 message UserReply {
-    string username = 1;
     bytes id = 2;
     Role role = 3;
     repeated BucketUser buckets = 4;
-}
-
-message UserByNameReq {
-    string username = 1;
 }
 
 enum Role {
@@ -47,6 +41,7 @@ enum Permissions {
     PUT = 0;
     GET = 1;
     DELETE = 2;
+    READ = 3;
 }
 
 message AllowedBucketReq {

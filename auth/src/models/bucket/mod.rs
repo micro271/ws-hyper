@@ -26,14 +26,11 @@ impl Table for Buckets {
         TABLA_BUCKET
     }
 
-    fn columns() -> &'static[&'static str] {
+    fn columns() -> &'static [&'static str] {
         &["id", "icon", "user_id", "name", "description"]
     }
 
     fn values(self) -> Self::ValuesOutput {
-        [
-            self.name.into(),
-            self.description.into(),
-        ]
+        [self.name.into(), self.description.into()]
     }
 }

@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, Version, body::Bytes};
 
-use crate::{models::user::EncryptErr, state::RepositoryError};
+use crate::{models::user::EncryptErr, state::error::RepositoryError};
 
 #[derive(Debug)]
 pub struct ResponseErr {
