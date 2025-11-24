@@ -1,7 +1,7 @@
 pub mod bucket;
 pub mod user;
 
-use crate::{grpc_v1::user_control::UserInfoReply, state::{QuerySelect, TABLA_BUCKET, TABLA_USER}};
+use crate::{grpc_v1::user_control::UserReply, state::{QuerySelect, TABLA_BUCKET, TABLA_USER, Table, Types}};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::Type};
 use uuid::Uuid;
@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::models::user::{Role, UserState};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct UsersBuckets {
+pub struct BucketUser {
     pub bucket: String,
     pub user_id: Uuid,
     pub permissions: Vec<Permissions>,
@@ -66,13 +66,13 @@ impl From<PgRow> for UserAllInfo {
     }
 }
 
-impl From<PgRow> for UserInfoReply {
+impl From<PgRow> for UserReply {
     fn from(value: PgRow) -> Self {
-        Self { username: value.get("username"), role: value.get("role"), buckets: value.get("buckets") }
+        todo!()
     }
 }
 
-impl From<PgRow> for UsersBuckets {
+impl From<PgRow> for BucketUser {
     fn from(value: PgRow) -> Self {
         Self { user_id: value.get("user_id"), permissions: value.get("permissions"), bucket: value.get("buckets") }
     }
@@ -86,18 +86,31 @@ impl QuerySelect for UserAllInfo {
     }
 }
 
-impl QuerySelect for UserInfoReply {
+impl QuerySelect for UserReply {
     fn query() -> String {
-        format!(
-            "SELECT user_id, permissions, array_agg(bucket) as buckets FROM {TABLA_BUCKET} INNER JOIN users ON ({TABLA_USER}.id = {TABLA_BUCKET}.user_id) GROUB BY buckets"
-        )
+        todo!()
     }
 }
 
-impl QuerySelect for UsersBuckets {
-    fn query() -> String {
-        format!(
-            "SELECT * FROM {TABLA_BUCKET}"
-        )
+impl Table for BucketUser {
+
+    type ValuesOutput = [Types; 2];
+
+    fn name() -> &'static str {
+        "users_buckets"
+    }
+
+    fn columns() -> &'static [&'static str] {
+        &[
+            "name",
+            "description"
+        ]
+    }
+    
+    fn values(self) -> Self::ValuesOutput {
+        [
+            self.bucket.into(),
+            self.user_id.into()
+        ]
     }
 }

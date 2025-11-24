@@ -3,49 +3,38 @@ syntax = "proto3";
 package info;
 
 service Info {
-    rpc User (UserInfoRequest) returns (UserInfoReply);
-    rpc Bucket (AllowedBucketReq) returns (AllowedBucketReply);
-    rpc Messages (stream BucketSync) returns (stream BucketSync);
+    rpc UserById (UserByIdReq) returns (UserReply);
+    rpc UserByName (UserByNameReq) returns (UserReply);
+    rpc BucketIsAllowed (AllowedBucketReq) returns (AllowedBucketReply);
+    rpc GetBucket(BucketReq) returns (BucketReply);
 }
 
-message NotFound {
+message BucketUser {
     string name = 1;
+    repeated Permissions permissions = 2;
 }
 
-message NotEmpty { 
-    string name = 1;
+message BucketReq {
+    optional string name = 1;
 }
 
-message Error {
-    oneof kind {
-        NotFound not_found = 1;
-        NotEmpty not_empty = 2;
-    }
+message BucketReply {
+    repeated string buckets = 1;
 }
 
-message RenameBucket {
-    string from = 1;
-    string to = 2;
-}
-
-message BucketSync {
-    bytes operation_id = 4;
-    oneof msg {
-        string create_bucket = 1;
-        string delete_bucket = 2;
-        RenameBucket rename_bucket = 3;
-        Error error = 5;
-    }
-}
-
-message UserInfoRequest {
+message UserByIdReq {
     bytes id = 1;
 }
 
-message UserInfoReply {
+message UserReply {
     string username = 1;
-    Role role = 2;
-    repeated string buckets = 3;
+    bytes id = 2;
+    Role role = 3;
+    repeated BucketUser buckets = 4;
+}
+
+message UserByNameReq {
+    string username = 1;
 }
 
 enum Role {

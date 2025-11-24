@@ -6,7 +6,7 @@ use sqlx::{Row, postgres::PgRow, prelude::FromRow};
 use utils::GetClaim;
 use uuid::Uuid;
 
-use crate::state::{TABLA_USER, Table};
+use crate::state::{TABLA_USER, Table, Types};
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct User {
@@ -22,7 +22,7 @@ pub struct User {
 
 impl User {
     pub fn is_admin(&self) -> bool {
-        self.role == Role::Administrator || self.role == Role::SuperUs
+        self.role == Role::Administrator || self.role == Role::SuperUser
     }
 }
 
@@ -39,7 +39,7 @@ impl std::cmp::PartialEq<str> for User {
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Default)]
-#[sqlx(type_name = "ESTADO")]
+#[sqlx(type_name = "USER_STATE")]
 pub enum UserState {
     Active,
     #[default]
@@ -47,9 +47,9 @@ pub enum UserState {
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Clone, Copy, PartialEq, PartialOrd)]
-#[sqlx(type_name = "ROL")]
+#[sqlx(type_name = "ROLE")]
 pub enum Role {
-    SuperUs,
+    SuperUser,
     Administrator,
     Productor,
     Operador,
@@ -58,7 +58,7 @@ pub enum Role {
 impl From<Role> for i32 {
     fn from(value: Role) -> Self {
         match value {
-            Role::SuperUs => 0,
+            Role::SuperUser => 0,
             Role::Administrator => 1,
             Role::Productor => 2,
             Role::Operador => 3,
@@ -69,7 +69,7 @@ impl From<Role> for i32 {
 impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Role::SuperUs => write!(f, "SuperUsuario"),
+            Role::SuperUser => write!(f, "SuperUsuario"),
             Role::Administrator => write!(f, "Admin"),
             Role::Productor => write!(f, "Productor"),
             Role::Operador => write!(f, "Operador"),
@@ -118,7 +118,6 @@ impl std::fmt::Display for EncryptErr {
 
 impl std::error::Error for EncryptErr {}
 
-#[inline]
 pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
     let mut user = User {
         user_state: UserState::Active,
@@ -127,18 +126,19 @@ pub fn default_account_admin() -> Result<User, Box<dyn std::error::Error>> {
         passwd: "admin".to_string(),
         email: None,
         phone: None,
-        role: crate::models::user::Role::SuperUs,
+        role: Role::SuperUser,
         description: Some("Default account".to_string()),
     };
 
     user.passwd = Encrypt::from(&user.passwd)?;
-
+    
     Ok(user)
 }
 
-impl<'a> Table<'a> for User {
-    fn columns() -> Vec<&'a str> {
-        vec![
+impl Table for User {
+    type ValuesOutput = [Types ;8];
+    fn columns() -> &'static [&'static str] {
+        &[
             "id",
             "username",
             "passwd",
@@ -151,11 +151,11 @@ impl<'a> Table<'a> for User {
             "description",
         ]
     }
-    fn name() -> &'a str {
+    fn name() -> &'static str {
         TABLA_USER
     }
-    fn values(self) -> Vec<crate::state::Types> {
-        vec![
+    fn values(self) -> Self::ValuesOutput {
+        [
             self.id.unwrap_or_default().into(),
             self.username.into(),
             self.passwd.into(),

@@ -88,7 +88,7 @@ impl PgRepository {
         mut insert: InsertOwn<T>,
     ) -> Result<QueryResult<T>, RepositoryError>
     where
-        T: for<'b> Table<'b>,
+        T: Table,
     {
         let res = insert.query().execute(&self.inner).await?;
 
@@ -100,7 +100,7 @@ impl PgRepository {
         mut updater: UpdateOwn<'_, T>,
     ) -> Result<QueryResult<T>, RepositoryError>
     where
-        T: for<'a> Table<'a>,
+        T: Table,
     {
         Ok(QueryResult::Update(
             updater
@@ -241,10 +241,11 @@ impl From<Role> for Types {
 
 type Where<'a> = HashMap<&'a str, Types>;
 
-pub trait Table<'a> {
-    fn name() -> &'a str;
-    fn columns() -> Vec<&'a str>;
-    fn values(self) -> Vec<Types>;
+pub trait Table {
+    type ValuesOutput: IntoIterator<Item = Types>;
+    fn name() -> &'static str;
+    fn columns() -> &'static [&'static str];
+    fn values(self) -> Self::ValuesOutput;
 }
 
 pub trait QuerySelect {
@@ -253,7 +254,7 @@ pub trait QuerySelect {
 
 impl<T> QuerySelect for T
 where
-    T: for<'a> Table<'a>,
+    T: Table,
 {
     fn query() -> String {
         format!("SELECT * FROM {}", T::name())
@@ -342,7 +343,7 @@ pub trait Insert<T> {
 
 impl<T> Insert<T> for InsertOwn<T>
 where
-    T: for<'a> Table<'a>,
+    T: Table,
 {
     fn insert(item: T) -> Self {
         let columns = T::columns();
@@ -363,7 +364,7 @@ where
 
     fn query(&mut self) -> Query<'_, Postgres, PgArguments> {
         let item = self.item.take();
-
+        
         item.unwrap()
             .values()
             .into_iter()
@@ -390,7 +391,7 @@ pub struct UpdateOwn<'a, T> {
 
 impl<'a, T> UpdateOwn<'a, T>
 where
-    T: for<'t> Table<'t>,
+    T: Table,
 {
     pub fn new() -> Self {
         Self {

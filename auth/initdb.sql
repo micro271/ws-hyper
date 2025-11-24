@@ -1,7 +1,8 @@
 CREATE DATABASE buckets;
 
-CREATE TYPE PERMISSIONS AS ENUM ('Put', 'Get', 'Delete');
-CREATE TYPE ESTADO AS ENUM ('Active', 'Inactive');
+CREATE TYPE PERMISSIONS AS ENUM ('Put', 'Get', 'Delete', 'Read');
+CREATE TYPE USER_STATE AS ENUM ('Active', 'Inactive');
+CREATE TYPE ROLE AS ENUN ('SuperUser', 'Admin', 'Operator', 'User');
 
 CREATE TABLE IF NOT EXISTS buckets (
     name TEXT UNIQUE,
@@ -14,9 +15,9 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE,
     passwd TEXT,
     email TEXT,
-    user_state ESTADO,
+    user_state USER_STATE,
     phone TEXT,
-    role ROL,
+    role ROLE,
     description TEXT,
     PRIMARY KEY (id)
 );
@@ -63,3 +64,31 @@ CREATE TRIGGER trg_tabla_notif
 AFTER INSERT OR UPDATE OR DELETE ON buckets
 FOR EACH ROW
 EXECUTE FUNCTION notify_row_change();
+
+CREATE OR REPLACE FUNCTION assign_bucket_on_users()
+RETURNS trigger AS $$
+DECLARE
+    admin_ids UUID[];
+    operators_ids UUID[];
+BEGIN
+    SELECT
+        array_agg(id) FILTER (WHERE role = 'Operator'),
+        array_agg(id) FILTER (WHERE role = 'Admin')
+    INTO operators_ids, admin_ids FROM users;
+
+    FOREACH op_id IN ARRAY operators_ids LOOP
+        INSERT INTO users_buckets (bucket, user_id, permissions) VALUES (NEW.name, op_id, ARRAY['Get', 'Read']::role[]);
+    END LOOP;
+
+    FOREACH op_id IN ARRAY admin_ids LOOP
+        INSERT INTO users_buckets (bucket, user_id, permissions) VALUES (NEW.name, op_id, ARRAY['Get', 'Put', 'Delete', 'Read']::role[]);
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_assign_permissions
+AFTER INSERT ON buckets
+FOR EACH ROW
+EXECUTE FUNCTION assign_bucket_on_ops();
