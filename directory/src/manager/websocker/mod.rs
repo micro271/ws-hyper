@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+#[derive(Clone, Debug)]
 pub struct WebSocketChSender(Sender<MsgWs>);
 
 impl std::ops::Deref for WebSocketChSender {
@@ -31,6 +32,12 @@ impl std::ops::Deref for WebSocketChSender {
     type Target = Sender<MsgWs>;
 }
 
+impl WebSocketChSender {
+    pub fn inner(self) -> Sender<MsgWs> {
+        self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct WebSocket {
     rx: Receiver<MsgWs>,
@@ -38,8 +45,8 @@ pub struct WebSocket {
 }
 
 impl WebSocket {
-    pub fn get_sender(&self) -> Sender<MsgWs> {
-        self.tx.clone()
+    pub fn get_sender(&self) -> WebSocketChSender {
+        WebSocketChSender(self.tx.clone())
     }
 }
 

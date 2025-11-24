@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use sqlx::{
     Connection, PgConnection,
     postgres::{PgConnectOptions, PgListener},
@@ -95,7 +97,7 @@ impl ListenBucketBuilder {
             channel: channel.expect("Channel not defined"),
             tx: tx.into(),
             rx: rx.into(),
-            workdir,
+            workdir: PathBuf::from(workdir),
         }
     }
 }

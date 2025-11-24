@@ -16,7 +16,7 @@ use serde_json::json;
 use tokio::sync::{
     RwLock,
     broadcast::Receiver as ReceivedBr,
-    mpsc::{UnboundedReceiver, Sender, UnboundedSender, unbounded_channel},
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
 use crate::{
@@ -36,6 +36,12 @@ use crate::{
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
+
+#[derive(Debug)]
+pub struct ManagerChSenders {
+    grpc: InfoUserGrpc,
+    ws: WebSocketChSender,
+}
 
 pub struct Manager {
     state: Arc<RwLock<BucketMap>>,
@@ -117,10 +123,10 @@ impl Run for Manager {
 }
 
 impl SplitTask for Manager {
-    type Output = (Sender<MsgWs>, InfoUserGrpc);
+    type Output = ManagerChSenders;
 
     fn split(self) -> (<Self as SplitTask>::Output, impl Run) {
-        ((self.ws.get_sender(), self.grpc.clone()), self)
+        (ManagerChSenders { ws: self.ws.get_sender(), grpc: self.grpc.clone()}, self)
     }
 }
 
@@ -143,6 +149,16 @@ impl Task for ManagerRunning {
                 }
             }
         }
+    }
+}
+
+impl ManagerChSenders {
+    fn client_grpc(&self) -> &InfoUserGrpc {
+        &self.grpc
+    }
+
+    fn ws_sender(&self) -> &WebSocketChSender {
+        &self.ws
     }
 }
 
@@ -184,6 +200,9 @@ pub enum Change {
         bucket: Bucket,
         key: Key,
     },
+    DeleteBucket {
+        bucket: Bucket,
+    },
 }
 
 #[derive(Debug)]
@@ -202,7 +221,7 @@ impl Change {
             | Change::DeleteKey { bucket, key } => Scope::Key(bucket.clone(), key.clone()),
             Change::NameBucket { from, .. } => Scope::Bucket(from.clone()),
             Change::NameKey { bucket, from, .. } => Scope::Key(bucket.clone(), from.clone()),
-            Change::NewBucket { bucket } => Scope::Bucket(bucket.clone()),
+            Change::NewBucket { bucket } | Change::DeleteBucket { bucket } => Scope::Bucket(bucket.clone()),
         }
     }
 }

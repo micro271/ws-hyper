@@ -43,7 +43,7 @@ pub enum ValidateError {
 }
 
 pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), ValidateError> {
-    let re = Regex::new(r"(^\.[^.])|(^\.\.)|(\s+)|(^$)")
+    let re = Regex::new(r"(^\.*)|(\s+)|(^$)")
         .map_err(|x| ValidateError::RegexError(Box::new(x)))?;
 
     if !path.exists() {
@@ -56,13 +56,13 @@ pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), Va
         tracing::info!("[Validate Task] {{ Auto rename excecuted }} invalid file name: {to:?}");
         let new_to_file_name = re
             .replace_all(to, |caps: &regex::Captures<'_>| {
-                if caps.get(1).is_some() {
-                    "[DOT]".to_string()
+                if let Some(txt) = caps.get(1) {
+                    let mut resp = txt.as_str().replace(".", "[DOT]").to_string();
+                    resp.insert_str(0, nanoid::nanoid!(4).as_str());
+                    resp
                 } else if caps.get(2).is_some() {
-                    "[DOT][DOT]".to_string()
-                } else if caps.get(3).is_some() {
                     "_".to_string()
-                } else if caps.get(4).is_some() {
+                } else if caps.get(3).is_some() {
                     uuid::Uuid::new_v4().to_string()
                 } else {
                     caps.get(0).unwrap().as_str().to_string()

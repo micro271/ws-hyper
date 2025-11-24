@@ -2,8 +2,8 @@ pub mod pg_listen;
 
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
-    grpc_v1::{InfoUserGrpc, Permissions},
-    manager::{new_file_tba::CreateRateLimit, websocker::MsgWs},
+    grpc_v1::Permissions,
+    manager::{ManagerChSenders, new_file_tba::CreateRateLimit, websocker::MsgWs},
 };
 use hyper_tungstenite::HyperWebsocket;
 use serde_json::{Value, json};
@@ -15,21 +15,18 @@ use uuid::Uuid;
 pub struct State {
     tree: Arc<RwLock<BucketMap>>,
     create_limit: CreateRateLimit,
-    tx_subs: Sender<MsgWs>,
-    info_user_connection: InfoUserGrpc,
+    mgr: ManagerChSenders,
 }
 
 impl State {
     pub async fn new(
         tree: Arc<RwLock<BucketMap>>,
-        new_subs: Sender<MsgWs>,
-        connection: InfoUserGrpc,
+        mgr: ManagerChSenders,
     ) -> Self {
         Self {
             tree,
             create_limit: CreateRateLimit::new(),
-            tx_subs: new_subs,
-            info_user_connection: connection,
+            mgr,
         }
     }
 
@@ -47,6 +44,7 @@ impl State {
     }
 
     pub async fn add_client(&self, bucket: Bucket, key: Key, sender: HyperWebsocket) {
+        /*
         if let Err(er) = self
             .tx_subs
             .send(MsgWs::NewUser {
@@ -57,7 +55,7 @@ impl State {
             .await
         {
             tracing::error!("{er}");
-        }
+        } */
     }
 
     pub fn create_rate_limit(&self) -> &CreateRateLimit {

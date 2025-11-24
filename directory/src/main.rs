@@ -24,8 +24,8 @@ use utils::{Io, Peer, service_with_state};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("{:?}", env::current_dir());
+    _ = dotenv::dotenv();
 
-    dotenv::dotenv().ok();
     let Args {
         watcher,
         watcher_path,
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .port(database_port)
         .build().await;
 
-    let ((websocker_subscribers, grpc_client), task) = Manager::new(
+    let (msgs, task) = Manager::new(
         state.clone(),
         match watcher {
             cli::TypeWatcher::Poll => {
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await.split();
 
-    let state = Arc::new(State::new(state, websocker_subscribers, grpc_client).await);
+    let state = Arc::new(State::new(state, msgs).await);
     task.run();
 
     loop {

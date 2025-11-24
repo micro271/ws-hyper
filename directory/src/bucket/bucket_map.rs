@@ -6,7 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 type BucketMapType = HashMap<Bucket, BTreeMap<Key, Vec<Object>>>;
@@ -17,7 +17,7 @@ pub struct BucketMap {
     inner: BucketMapType,
 
     #[serde(skip_serializing)]
-    path: String,
+    path: PathBuf,
 }
 
 impl BucketMap {
@@ -102,18 +102,19 @@ impl BucketMap {
             Change::DeleteKey { bucket, key } => {
                 self.remove_key(bucket, key);
             }
+            Change::DeleteBucket {..} => todo!(),
         }
     }
 
-    pub fn path(&self) -> &str {
-        self.path.as_ref()
+    pub fn path(&self) -> &Path {
+        self.path.as_path()
     }
 
     pub fn new(mut path: String) -> Result<Self, BucketMapErr> {
         Self::validate(&mut path)?;
-        let mut root_path = PathBuf::from(&path);
+        let mut path = PathBuf::from(path);
 
-        let mut buckets = std::fs::read_dir(&root_path)?
+        let mut buckets = std::fs::read_dir(&path)?
             .filter_map(|x| {
                 x.ok()
                     .filter(|x| x.file_type().map(|x| x.is_dir()).unwrap_or_default())
@@ -134,8 +135,8 @@ impl BucketMap {
 
         let bk_keys = buckets.keys().cloned().collect::<Vec<_>>();
         for bks in bk_keys {
-            root_path.push(bks.as_ref());
-            let mut list_dirs = root_path
+            path.push(bks.as_ref());
+            let mut list_dirs = path.as_path()
                 .read_dir()?
                 .filter(|x| x.is_ok())
                 .map(|x| x.unwrap().path())
@@ -153,7 +154,7 @@ impl BucketMap {
                 let key = Key::new(
                     dir.parent()
                         .unwrap()
-                        .strip_prefix(&root_path)
+                        .strip_prefix(&path)
                         .unwrap()
                         .to_string_lossy()
                         .into_owned(),
@@ -165,14 +166,14 @@ impl BucketMap {
                 }
             }
 
-            root_path.pop();
+            path.pop();
         }
-
+        
         tracing::info!("Bucket Tree {buckets:#?}");
 
         Ok(BucketMap {
             inner: buckets,
-            path: path,
+            path,
         })
     }
 

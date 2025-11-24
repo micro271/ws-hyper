@@ -37,7 +37,7 @@ pub struct ListenBucket {
     channel: String,
     tx: Option<Sender<Change>>,
     rx: Option<Receiver<Change>>,
-    workdir: String,
+    workdir: PathBuf,
 }
 
 impl Task for ListenBucket {
@@ -55,21 +55,31 @@ impl Task for ListenBucket {
                 msg = self.lst.recv() => {
                     let payload = serde_json::from_str::<Payload>(msg.unwrap().payload()).unwrap();
                     match payload.operation {
-                        Operation::Delete => delete(&format!("{}/{}", self.workdir, payload.bucket), false).await,
-                        Operation::New => new(&format!("{}/{}", self.workdir, payload.bucket)).await,
+                        Operation::Delete => {
+                            let mut path = self.workdir.clone();
+                            path.push(payload.bucket);
+                            delete(path, false).await
+                        },
+                        Operation::New => {
+                            let mut path = self.workdir.clone();
+                            path.push(payload.bucket);
+                            new(path).await
+                        },
                         Operation::Rename => {
-                            if payload.old_bucket.is_none() {
+                            let Some(old_bucket) = payload.old_bucket else {
                                 return;
-                            }
-                            let new = format!("{}/{}", self.workdir, payload.bucket);
-                            let old = format!("{}/{}", self.workdir, payload.old_bucket.unwrap());
-                            rename(&new, &old).await;
+                            };
+                            let mut from = self.workdir.clone();
+                            let mut to = self.workdir.clone();
+                            from.push(old_bucket);
+                            to.push(payload.bucket);
+                            rename(from, to).await;
                         },
                     }
                 }
                 change = rx.recv() => {
                     if let Some(some) = change {
-                        change_(some).await
+                        change_(some, self.workdir.clone()).await
                     } else {
                         break;
                     }
@@ -79,7 +89,7 @@ impl Task for ListenBucket {
     }
 }
 
-pub async fn delete(bk: &str, force: bool) {
+pub async fn delete(bk: PathBuf, force: bool) {
     let mut path = PathBuf::from(bk);
     if !path.exists() {
         tracing::warn!("dir: {path:?} not found");
@@ -122,41 +132,36 @@ pub async fn delete(bk: &str, force: bool) {
     tracing::warn!("{path:?} deleted");
 }
 
-pub async fn new(name: &str) {
+pub async fn new(name: PathBuf) {
     if let Err(er) = tokio::fs::create_dir(name).await {
         tracing::error!("Create error: {er}");
     }
 }
 
-pub async fn rename(new: &str, old: &str) {
+pub async fn rename(new: PathBuf, old: PathBuf) {
     if let Err(er) = tokio::fs::rename(old, new).await {
         tracing::error!("Create error: {er}");
     }
 }
 
-pub async fn change_(change: Change) {
+pub async fn change_(change: Change, mut workdir: PathBuf) {
     match change {
-        Change::NewObject {
-            bucket,
-            key,
-            object,
-        } => todo!(),
-        Change::NewKey { bucket, key } => todo!(),
-        Change::NewBucket { bucket } => todo!(),
-        Change::NameObject {
-            bucket,
-            key,
-            from,
-            to,
-        } => todo!(),
-        Change::NameBucket { from, to } => todo!(),
-        Change::NameKey { bucket, from, to } => todo!(),
-        Change::DeleteObject {
-            bucket,
-            key,
-            object,
-        } => todo!(),
-        Change::DeleteKey { bucket, key } => todo!(),
+        Change::NewBucket { bucket } => {
+            workdir.push(bucket.as_ref());
+            new(workdir).await;
+        },
+        Change::NameBucket { from, to } => {
+            let mut from_ = workdir.clone();
+            from_.push(from.as_ref());
+
+            workdir.push(to.as_ref());
+            rename(from_, workdir).await;
+        },
+        Change::DeleteBucket { bucket } => {
+            workdir.push(bucket.as_ref());
+            delete(workdir, false).await;
+        },
+        _ => {}
     }
 }
 
