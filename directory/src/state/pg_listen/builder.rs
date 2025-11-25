@@ -25,12 +25,6 @@ impl ListenBucketBuilder {
         self
     }
 
-    pub fn workdir(mut self, workdir: String) -> Self {
-        self.username = Some(workdir);
-
-        self
-    }
-
     pub fn password(mut self, password: String) -> Self {
         self.password = Some(password);
 
@@ -57,6 +51,12 @@ impl ListenBucketBuilder {
 
     pub fn database(mut self, db: String) -> Self {
         self.database = Some(db);
+
+        self
+    }
+
+    pub fn workdir(mut self, wd: String) -> Self {
+        self.workdir = Some(wd);
 
         self
     }

@@ -10,6 +10,7 @@ use std::{
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
 
+
 macro_rules! from_transparent {
     ($from: ty, $to: ident) => {
         impl From<$from> for $to {
@@ -38,18 +39,28 @@ macro_rules! default_time {
     };
 }
 
+macro_rules! impl_canged {
+    ($i:ident) => {
+        impl crate::state::local_storage::Changed for $i {
+            fn change(&self, other: &Self) -> bool {
+                other.0.as_ref().and_then(|x| self.0.as_ref().map(|y| y >= x)).unwrap_or_default()
+            }
+        }
+    };
+}
+
 #[derive(Debug, PartialEq, Clone, Deserialize, Serialize, Default)]
 pub struct ObjectName<'a>(Cow<'a, str>);
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(transparent)]
 pub struct ObjectModified(#[serde(with = "option")] Option<OffsetDateTime>);
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(transparent)]
 pub struct ObjectCreated(#[serde(with = "option")] Option<OffsetDateTime>);
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(transparent)]
 pub struct ObjectAccessed(#[serde(with = "option")] Option<OffsetDateTime>);
 
@@ -59,6 +70,9 @@ from_transparent!(Option<OffsetDateTime>, ObjectCreated);
 default_time!(local ObjectCreated);
 default_time!(local ObjectAccessed);
 default_time!(local ObjectModified);
+impl_canged!(ObjectCreated);
+impl_canged!(ObjectAccessed);
+impl_canged!(ObjectModified);
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
@@ -67,7 +81,6 @@ pub struct Object {
     pub name: String,
     pub seen_by: Option<Vec<String>>,
     pub taken_by: Option<Vec<String>>,
-    pub deleted_by: Option<String>,
     pub modified: ObjectModified,
     pub accessed: ObjectAccessed,
     pub created: ObjectCreated,
@@ -171,7 +184,7 @@ pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
         .unwrap()
         .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap())
         .replace_nanosecond(tmp.subsec_nanos())
-        .unwrap()
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 pub struct CheckSum<T> {

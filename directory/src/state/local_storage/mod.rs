@@ -11,7 +11,7 @@ macro_rules! diff {
     ($t1: expr, $t2: expr $(,$field: ident)+) => {{
         let mut doc = doc!{};
         $(
-            if $t1.$field.ne(&$t2.$field) {
+            if $t1.$field.change(&$t2.$field) {
                 doc.insert(stringify!($field), bson::to_bson(&$t2.$field).unwrap());
             }
         )+
@@ -45,30 +45,30 @@ impl LocalStorage {
             .unwrap()
             .unwrap();
         let to_update = diff!(
-            tmp, obj, size, name, seen_by, taken_by, deleted_by, modified, accessed, created
+            tmp, obj, size, name, seen_by, taken_by, modified, accessed, created
         );
-        db.collection::<Object>(COLLECTION)
+        _ = db.collection::<Object>(COLLECTION)
             .update_one(doc! {"_id": &obj._id}, to_update)
             .await;
     }
 
     pub async fn new_object(&self, object: &Object) {
         let tmp = self.pool.default_database().unwrap();
-        tmp.collection::<&Object>(COLLECTION)
+        _ = tmp.collection::<&Object>(COLLECTION)
             .insert_one(object)
             .await;
     }
 
     pub async fn delete_object(&self, obj: &Object) {
         let tmp = self.pool.default_database().unwrap();
-        tmp.collection::<&Object>(COLLECTION)
+        _ = tmp.collection::<&Object>(COLLECTION)
             .delete_one(doc! {"_id": &obj._id})
             .await;
     }
 
     pub async fn seen_by(&self, obj: &Object, id: Uuid) {
         let tmp = self.pool.default_database().unwrap();
-        tmp.collection::<&Object>(COLLECTION)
+        _ = tmp.collection::<&Object>(COLLECTION)
             .update_one(
                 doc! {"_id": &obj._id },
                 doc! { "$addToSet": {"seen_by": id.to_string()} },
@@ -125,5 +125,15 @@ impl LocalStorageBuild {
         LocalStorage {
             pool: Client::with_options(opts).unwrap(),
         }
+    }
+}
+
+pub trait Changed<Rhs=Self> {
+    fn change(&self, other: &Rhs) -> bool;
+}
+
+impl<T, K: PartialEq<T>> Changed<T> for K {
+    fn change(&self, other: &T) -> bool {
+        self.ne(other)
     }
 }

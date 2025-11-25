@@ -25,7 +25,7 @@ pub struct Args {
         long = "grpc-auth-server",
         env = "GRPC_AUTH_SERVER",
         help = "Endpoint to auth server",
-        default_value = "[::]:50504"
+        default_value = "[::1]:50051"
     )]
     pub grpc_auth_server: Endpoint,
 
@@ -50,7 +50,7 @@ pub struct Args {
     #[arg(long = "md-host", env = "MD_DATABASE_HOST")]
     pub md_host: String,
 
-    #[arg(long = "md-username", env = "MD_DATABASE_PORT")]
+    #[arg(long = "md-port", env = "MD_DATABASE_PORT")]
     pub md_port: u16,
 
     #[arg(long = "md-username", env = "MD_DATABASE_USERNAME")]
@@ -59,7 +59,7 @@ pub struct Args {
     #[arg(long = "md-password", env = "MD_DATABASE_PASSWORD")]
     pub md_pass: String,
 
-    #[arg(long = "md-database-na,e", env = "MD_DATABASE_NAME")]
+    #[arg(long = "md-database-name", env = "MD_DATABASE_NAME")]
     pub md_database: String,
 }
 

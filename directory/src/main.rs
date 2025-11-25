@@ -68,8 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .channel(channel)
         .host(database_host)
         .port(database_port)
+        .workdir(state.read().await.path().to_string_lossy().into_owned())
         .build()
         .await;
+    
     let ls = LocalStorageBuild::default()
         .host(md_host)
         .port(md_port)
@@ -77,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .username(md_username)
         .database(md_database)
         .build();
+
     let (msgs, task) = Manager::new(
         state.clone(),
         match watcher {

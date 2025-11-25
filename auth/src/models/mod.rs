@@ -132,7 +132,6 @@ impl From<PgRow> for UserReply {
             .unwrap_or_default();
 
         Self {
-            username: value.get("username"),
             role: value.get("role"),
             buckets: buckets,
         }
