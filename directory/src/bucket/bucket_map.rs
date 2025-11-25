@@ -1,7 +1,7 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
     bucket::{key::Key, object::ObjectName},
-    manager::Change,
+    manager::Change, state::local_storage::LocalStorage,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,6 +18,9 @@ pub struct BucketMap {
 
     #[serde(skip_serializing)]
     path: PathBuf,
+
+    #[serde(skip_serializing, skip_deserializing)]
+    ls: Option<LocalStorage>,
 }
 
 impl BucketMap {
@@ -174,6 +177,7 @@ impl BucketMap {
         Ok(BucketMap {
             inner: buckets,
             path,
+            ls: None,
         })
     }
 

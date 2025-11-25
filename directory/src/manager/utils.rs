@@ -29,12 +29,6 @@ pub trait TakeOwn<T: Send + 'static> {
     fn take(self) -> T;
 }
 
-pub trait FromDirEntyAsync<T>
-where
-    Self: Sized + Send,
-{
-    fn from_entry(value: T) -> impl Future<Output = Self>;
-}
 
 #[derive(Debug)]
 pub enum ValidateError {

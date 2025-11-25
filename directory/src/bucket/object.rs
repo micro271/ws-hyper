@@ -1,19 +1,122 @@
-use crate::manager::utils::FromDirEntyAsync;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     borrow::Cow,
-    fs::{FileType as FT, Metadata},
+    fs::Metadata,
     io::Read,
     os::unix::fs::MetadataExt,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
-use tokio::fs;
 
-#[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
+macro_rules! from_transparent {
+    ($from: ty, $to: ident) => {
+        impl From<$from> for $to {
+            fn from(value: $from) -> $to {
+                $to(value)
+            }
+        }
+    };
+}
+
+macro_rules! default_time {
+    (local $to: ident) => {
+        impl std::default::Default for $to {
+            fn default() -> $to {
+                $to(Some(OffsetDateTime::now_local().unwrap()))
+            }
+        }
+    };
+
+    ($to: ident) => {
+        impl std::default::Default for $to {
+            fn default() -> $to {
+                $to(Some(OffsetDateTime::now()))
+            }
+        }
+    };
+}
+
+#[derive(Debug, PartialEq, Clone, Deserialize, Serialize, Default)]
 pub struct ObjectName<'a>(Cow<'a, str>);
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ObjectModified(#[serde(with = "option")] Option<OffsetDateTime>);
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ObjectCreated(#[serde(with = "option")] Option<OffsetDateTime>);
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ObjectAccessed(#[serde(with = "option")] Option<OffsetDateTime>);
+
+from_transparent!(Option<OffsetDateTime>, ObjectModified);
+from_transparent!(Option<OffsetDateTime>, ObjectAccessed);
+from_transparent!(Option<OffsetDateTime>, ObjectCreated);
+default_time!(local ObjectCreated);
+default_time!(local ObjectAccessed);
+default_time!(local ObjectModified);
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd, Default)]
+pub struct Object {
+    _id: String,
+    size: u64,
+    name: String,
+    seen_by: Option<Vec<String>>,
+    taken_by: Option<Vec<String>>,
+    deleted_by: Option<String>,
+    modified: ObjectModified,
+    accessed: ObjectAccessed,
+    created: ObjectCreated,
+}
+
+impl Object {
+    pub async fn new<T>(path: T) -> Self 
+    where 
+        T: AsRef<Path>
+    {
+        let path = path.as_ref();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let hash = CheckSum::new(path.to_path_buf()).check_sum_async().await.unwrap();
+        let meta = path.metadata().ok();
+        let (modified, accessed, created, size) = get_info_metadata(meta);
+
+        Self {
+            name,
+            _id: hash,
+            size,
+            modified,
+            accessed,
+            created,
+            ..Default::default()
+        }
+    }
+}
+
+
+impl<T: AsRef<Path>> From<T> for Object {
+    fn from(value: T) -> Self {
+        let value = value.as_ref();
+        
+        let (modified, accessed, created, size) = get_info_metadata(value.metadata().ok());
+
+        Self {
+            _id: CheckSum::new(value).check_sum().unwrap(),
+            name: value
+                .file_name()
+                .map(|x| x.to_string_lossy().into_owned())
+                .unwrap(),
+            size,
+            modified,
+            accessed,
+            created,
+            ..Default::default()
+        }
+    }
+}
 
 impl<'a, T: AsRef<Path>> From<T> for ObjectName<'a> {
     fn from(value: T) -> Self {
@@ -41,108 +144,25 @@ impl<'a> std::fmt::Display for ObjectName<'a> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd)]
-pub struct Object {
-    name: String,
-    r#type: ObjectType,
-    size: u64,
-    checksum: Option<String>,
 
-    #[serde(with = "option")]
-    modified: Option<time::OffsetDateTime>,
-    #[serde(with = "option")]
-    accessed: Option<time::OffsetDateTime>,
-    #[serde(with = "option")]
-    created: Option<time::OffsetDateTime>,
-}
-
-impl Object {
-    pub fn is_dir(&self) -> bool {
-        self.r#type == ObjectType::Dir
-    }
-
-    pub fn name(&self) -> ObjectName<'_> {
-        ObjectName(Cow::Borrowed(&self.name))
-    }
-
-    pub fn file_type(&self) -> ObjectType {
-        self.r#type
+fn get_info_metadata(
+    meta: Option<Metadata>,
+) -> (
+    ObjectModified,
+    ObjectAccessed,
+    ObjectCreated,
+    u64,
+) {
+    match meta {
+        Some(meta) => (
+            meta.modified().map(from_systemtime).ok().into(),
+            meta.accessed().map(from_systemtime).ok().into(),
+            meta.created().map(from_systemtime).ok().into(),
+            meta.size(),
+        ),
+        _ => (Default::default(), Default::default(), Default::default(), Default::default()),
     }
 }
-
-impl FromDirEntyAsync<fs::DirEntry> for Object {
-    async fn from_entry(value: fs::DirEntry) -> Self {
-        let file_type = value.file_type().await.unwrap();
-
-        let (modified, accessed, created, size) = get_info_metadata(value.metadata().await.ok());
-
-        Self {
-            name: value.file_name().to_str().unwrap().to_string(),
-            r#type: ObjectType::from(file_type),
-            size: size.unwrap_or_default(),
-            checksum: CheckSum::new(value.path()).check_sum_async().await.ok(),
-            modified,
-            accessed,
-            created,
-        }
-    }
-}
-
-impl<T: AsRef<Path>> From<T> for Object {
-    fn from(value: T) -> Self {
-        let value = value.as_ref();
-        let meta = value.metadata();
-        let file_type = meta
-            .map(|x| ObjectType::from(x.file_type()))
-            .unwrap_or_default();
-        let (modified, accessed, created, size) = get_info_metadata(value.metadata().ok());
-
-        Self {
-            name: value
-                .file_name()
-                .map(|x| x.to_string_lossy().into_owned())
-                .unwrap(),
-            r#type: file_type,
-            checksum: CheckSum::new(value).check_sum().ok(),
-            size: size.unwrap_or_default(),
-            modified,
-            accessed,
-            created,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, PartialOrd, Default)]
-pub enum ObjectType {
-    SymLink,
-    Regular,
-    Dir,
-    #[default]
-    Unknown,
-}
-
-impl From<FT> for ObjectType {
-    fn from(value: FT) -> Self {
-        if value.is_dir() {
-            Self::Dir
-        } else if value.is_file() {
-            Self::Regular
-        } else {
-            Self::SymLink
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct FromEntryToObjectErr;
-
-impl std::fmt::Display for FromEntryToObjectErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "This is not a file")
-    }
-}
-
-impl std::error::Error for FromEntryToObjectErr {}
 
 pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
     let tmp = value.duration_since(UNIX_EPOCH).unwrap();
@@ -151,31 +171,6 @@ pub fn from_systemtime(value: SystemTime) -> OffsetDateTime {
         .to_offset(UtcOffset::from_hms(-3, 0, 0).unwrap())
         .replace_nanosecond(tmp.subsec_nanos())
         .unwrap()
-}
-
-impl std::fmt::Display for Object {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-fn get_info_metadata(
-    meta: Option<Metadata>,
-) -> (
-    Option<OffsetDateTime>,
-    Option<OffsetDateTime>,
-    Option<OffsetDateTime>,
-    Option<u64>,
-) {
-    match meta {
-        Some(meta) => (
-            meta.modified().map(from_systemtime).ok(),
-            meta.accessed().map(from_systemtime).ok(),
-            meta.created().map(from_systemtime).ok(),
-            Some(meta.size()),
-        ),
-        _ => (None, None, None, None),
-    }
 }
 
 pub struct CheckSum<T> {

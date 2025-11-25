@@ -26,7 +26,7 @@ use crate::{
         key::Key,
         object::{Object, ObjectName},
     },
-    grpc_v1::InfoUserGrpc,
+    grpc_v1::ConnectionAuthMS,
     manager::{
         utils::{Run, SplitTask, Task},
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
@@ -39,7 +39,7 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
 pub struct ManagerChSenders {
-    grpc: InfoUserGrpc,
+    grpc: ConnectionAuthMS,
     ws: WebSocketChSender,
 }
 
@@ -48,7 +48,7 @@ pub struct Manager {
     tx: UnboundedSender<Change>,
     rx: UnboundedReceiver<Change>,
     listen_bk: ListenBucket,
-    grpc: InfoUserGrpc,
+    grpc: ConnectionAuthMS,
     ws: WebSocket,
     watcher_params: WatcherParams,
 }
@@ -57,7 +57,7 @@ pub struct ManagerRunning {
     ws_sender: WebSocketChSender,
     rx: UnboundedReceiver<Change>,
     state: Arc<RwLock<BucketMap>>,
-    grpc: InfoUserGrpc,
+    grpc: ConnectionAuthMS,
     lst_sender: ListenBucketChSender,
 }
 
@@ -72,7 +72,7 @@ impl Manager {
             tx: tx_sch.clone(),
             rx: rx_sch,
             listen_bk,
-            grpc: InfoUserGrpc::new(endpoint, tx_sch).await,
+            grpc: ConnectionAuthMS::new(endpoint, tx_sch).await,
             watcher_params,
             ws: WebSocket::new(),
         }
@@ -153,7 +153,7 @@ impl Task for ManagerRunning {
 }
 
 impl ManagerChSenders {
-    fn client_grpc(&self) -> &InfoUserGrpc {
+    fn client_grpc(&self) -> &ConnectionAuthMS {
         &self.grpc
     }
 

@@ -1,4 +1,5 @@
 pub mod bucket;
+pub mod models;
 pub mod cli;
 pub mod grpc_v1;
 pub mod handlers;
