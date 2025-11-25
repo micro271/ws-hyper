@@ -53,7 +53,7 @@ where
                         tracing::trace!("{event:?}");
                         let mut path = event.paths;
                         let path = path.pop().unwrap();
-                        
+
                         if path.parent().filter(|x| root == *x).is_some() {
                             let bucket = Bucket::new_unchk_from_path(path.file_name().unwrap());
                             if let Err(err) = self.change_notify.send(Change::NewBucket { bucket })

@@ -29,7 +29,6 @@ pub trait TakeOwn<T: Send + 'static> {
     fn take(self) -> T;
 }
 
-
 #[derive(Debug)]
 pub enum ValidateError {
     RegexError(Box<dyn std::error::Error>),
@@ -37,8 +36,8 @@ pub enum ValidateError {
 }
 
 pub async fn validate_name_and_replace(path: PathBuf, to: &str) -> Result<(), ValidateError> {
-    let re = Regex::new(r"(^\.*)|(\s+)|(^$)")
-        .map_err(|x| ValidateError::RegexError(Box::new(x)))?;
+    let re =
+        Regex::new(r"(^\.*)|(\s+)|(^$)").map_err(|x| ValidateError::RegexError(Box::new(x)))?;
 
     if !path.exists() {
         return Err(ValidateError::PathNotExist(path));
@@ -106,12 +105,19 @@ pub trait Task {
 }
 
 pub trait Run {
-    fn run(self) where Self: Sized;
-    fn executor(self) -> impl Run where Self: Sized;
+    fn run(self)
+    where
+        Self: Sized;
+    fn executor(self) -> impl Run
+    where
+        Self: Sized;
 }
 
 impl<T: Task> Run for T {
-    fn run(self) where Self: Sized{
+    fn run(self)
+    where
+        Self: Sized,
+    {
         tokio::spawn(self.task());
     }
 

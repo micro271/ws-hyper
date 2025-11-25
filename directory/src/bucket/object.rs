@@ -60,27 +60,30 @@ default_time!(local ObjectCreated);
 default_time!(local ObjectAccessed);
 default_time!(local ObjectModified);
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
-    _id: String,
-    size: u64,
-    name: String,
-    seen_by: Option<Vec<String>>,
-    taken_by: Option<Vec<String>>,
-    deleted_by: Option<String>,
-    modified: ObjectModified,
-    accessed: ObjectAccessed,
-    created: ObjectCreated,
+    pub _id: String,
+    pub size: i64,
+    pub name: String,
+    pub seen_by: Option<Vec<String>>,
+    pub taken_by: Option<Vec<String>>,
+    pub deleted_by: Option<String>,
+    pub modified: ObjectModified,
+    pub accessed: ObjectAccessed,
+    pub created: ObjectCreated,
 }
 
 impl Object {
-    pub async fn new<T>(path: T) -> Self 
-    where 
-        T: AsRef<Path>
+    pub async fn new<T>(path: T) -> Self
+    where
+        T: AsRef<Path>,
     {
         let path = path.as_ref();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let hash = CheckSum::new(path.to_path_buf()).check_sum_async().await.unwrap();
+        let hash = CheckSum::new(path.to_path_buf())
+            .check_sum_async()
+            .await
+            .unwrap();
         let meta = path.metadata().ok();
         let (modified, accessed, created, size) = get_info_metadata(meta);
 
@@ -96,11 +99,10 @@ impl Object {
     }
 }
 
-
 impl<T: AsRef<Path>> From<T> for Object {
     fn from(value: T) -> Self {
         let value = value.as_ref();
-        
+
         let (modified, accessed, created, size) = get_info_metadata(value.metadata().ok());
 
         Self {
@@ -144,23 +146,22 @@ impl<'a> std::fmt::Display for ObjectName<'a> {
     }
 }
 
-
 fn get_info_metadata(
     meta: Option<Metadata>,
-) -> (
-    ObjectModified,
-    ObjectAccessed,
-    ObjectCreated,
-    u64,
-) {
+) -> (ObjectModified, ObjectAccessed, ObjectCreated, i64) {
     match meta {
         Some(meta) => (
             meta.modified().map(from_systemtime).ok().into(),
             meta.accessed().map(from_systemtime).ok().into(),
             meta.created().map(from_systemtime).ok().into(),
-            meta.size(),
+            meta.size() as i64,
         ),
-        _ => (Default::default(), Default::default(), Default::default(), Default::default()),
+        _ => (
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ),
     }
 }
 

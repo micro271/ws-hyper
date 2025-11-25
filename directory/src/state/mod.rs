@@ -1,6 +1,6 @@
-pub mod pg_listen;
-pub mod local_storage;
 pub mod cache;
+pub mod local_storage;
+pub mod pg_listen;
 
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
@@ -21,10 +21,7 @@ pub struct State {
 }
 
 impl State {
-    pub async fn new(
-        tree: Arc<RwLock<BucketMap>>,
-        mgr: ManagerChSenders,
-    ) -> Self {
+    pub async fn new(tree: Arc<RwLock<BucketMap>>, mgr: ManagerChSenders) -> Self {
         Self {
             tree,
             create_limit: CreateRateLimit::new(),

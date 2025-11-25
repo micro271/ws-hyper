@@ -132,7 +132,7 @@ impl From<PgRow> for UserReply {
             .unwrap_or_default();
 
         Self {
-            id: value.get("user_id"),
+            username: value.get("username"),
             role: value.get("role"),
             buckets: buckets,
         }
@@ -168,7 +168,7 @@ impl QuerySelect for UserReply {
         let user_bucket_table = BucketUser::name();
         let user_table = User::name();
         format!(
-            "SELECT array_agg(json_build_object('bucket', bucket.{user_bucket_table} as buckets, 'permissions', permissions.{user_bucket_table})), user_id,  FROM {user_bucket_table} INNER JOIN {user_table} ON (user_id.{user_bucket_table} = id.{user_table})"
+            "SELECT array_agg(json_build_object('bucket', bucket.{user_bucket_table} as buckets, 'permissions', permissions.{user_bucket_table})), username,  FROM {user_bucket_table} INNER JOIN {user_table} ON (user_id.{user_bucket_table} = id.{user_table})"
         )
     }
 }

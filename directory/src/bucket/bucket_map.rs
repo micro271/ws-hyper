@@ -1,7 +1,7 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
     bucket::{key::Key, object::ObjectName},
-    manager::Change, state::local_storage::LocalStorage,
+    manager::Change,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,9 +18,6 @@ pub struct BucketMap {
 
     #[serde(skip_serializing)]
     path: PathBuf,
-
-    #[serde(skip_serializing, skip_deserializing)]
-    ls: Option<LocalStorage>,
 }
 
 impl BucketMap {
@@ -40,7 +37,7 @@ impl BucketMap {
         if let Some(val) = self
             .new_key(bucket, key)
             .iter_mut()
-            .find(|x| x.name() == from)
+            .find(|x| x.name == *from)
         {
             *val = to;
         }
@@ -62,7 +59,7 @@ impl BucketMap {
             .unwrap()
             .get_mut(&key)
             .unwrap()
-            .pop_if(|x| x.name() == object.name())
+            .pop_if(|x| x.name == object.name)
             .unwrap()
     }
 
@@ -105,7 +102,7 @@ impl BucketMap {
             Change::DeleteKey { bucket, key } => {
                 self.remove_key(bucket, key);
             }
-            Change::DeleteBucket {..} => todo!(),
+            Change::DeleteBucket { .. } => todo!(),
         }
     }
 
@@ -139,7 +136,8 @@ impl BucketMap {
         let bk_keys = buckets.keys().cloned().collect::<Vec<_>>();
         for bks in bk_keys {
             path.push(bks.as_ref());
-            let mut list_dirs = path.as_path()
+            let mut list_dirs = path
+                .as_path()
                 .read_dir()?
                 .filter(|x| x.is_ok())
                 .map(|x| x.unwrap().path())
@@ -171,13 +169,12 @@ impl BucketMap {
 
             path.pop();
         }
-        
+
         tracing::info!("Bucket Tree {buckets:#?}");
 
         Ok(BucketMap {
             inner: buckets,
             path,
-            ls: None,
         })
     }
 

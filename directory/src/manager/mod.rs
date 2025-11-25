@@ -4,7 +4,7 @@ pub mod utils;
 pub mod watcher;
 pub mod websocker;
 
-use futures::{SinkExt,  stream::SplitSink};
+use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
 use hyper_util::rt::TokioIo;
@@ -32,7 +32,10 @@ use crate::{
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
         websocker::{MsgWs, WebSocket, WebSocketChSender},
     },
-    state::pg_listen::{ListenBucket, ListenBucketChSender},
+    state::{
+        local_storage::{self, LocalStorage},
+        pg_listen::{ListenBucket, ListenBucketChSender},
+    },
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -51,6 +54,7 @@ pub struct Manager {
     grpc: ConnectionAuthMS,
     ws: WebSocket,
     watcher_params: WatcherParams,
+    local_storage: LocalStorage,
 }
 
 pub struct ManagerRunning {
@@ -59,13 +63,18 @@ pub struct ManagerRunning {
     state: Arc<RwLock<BucketMap>>,
     grpc: ConnectionAuthMS,
     lst_sender: ListenBucketChSender,
+    local_storage: LocalStorage,
 }
 
 impl Manager {
-    pub async fn new(state: Arc<RwLock<BucketMap>>, watcher_params: WatcherParams,
+    pub async fn new(
+        state: Arc<RwLock<BucketMap>>,
+        watcher_params: WatcherParams,
         endpoint: Endpoint,
-        listen_bk: ListenBucket) -> Self {
-        let (tx_sch, rx_sch) = unbounded_channel();        
+        listen_bk: ListenBucket,
+        local_storage: LocalStorage,
+    ) -> Self {
+        let (tx_sch, rx_sch) = unbounded_channel();
 
         Self {
             state,
@@ -75,12 +84,16 @@ impl Manager {
             grpc: ConnectionAuthMS::new(endpoint, tx_sch).await,
             watcher_params,
             ws: WebSocket::new(),
+            local_storage,
         }
     }
 }
 
 impl Run for Manager {
-    fn run(self) where Self: Sized {
+    fn run(self)
+    where
+        Self: Sized,
+    {
         match self.watcher_params {
             WatcherParams::Event { path, r#await } => {
                 let task = EventWatcherBuilder::default()
@@ -102,13 +115,14 @@ impl Run for Manager {
 
         lst_task.run();
         ws_task.run();
-        
+
         let task = ManagerRunning {
             ws_sender,
             rx: self.rx,
             state: self.state,
             lst_sender: lst_ch,
             grpc: self.grpc,
+            local_storage: self.local_storage,
         };
 
         task.run();
@@ -126,12 +140,18 @@ impl SplitTask for Manager {
     type Output = ManagerChSenders;
 
     fn split(self) -> (<Self as SplitTask>::Output, impl Run) {
-        (ManagerChSenders { ws: self.ws.get_sender(), grpc: self.grpc.clone()}, self)
+        (
+            ManagerChSenders {
+                ws: self.ws.get_sender(),
+                grpc: self.grpc.clone(),
+            },
+            self,
+        )
     }
 }
 
 impl Task for ManagerRunning {
-    async fn task(mut self)  {
+    async fn task(mut self) {
         tracing::info!("Scheduler init");
 
         let tx_ws = self.ws_sender;
@@ -139,9 +159,31 @@ impl Task for ManagerRunning {
         loop {
             match self.rx.recv().await {
                 Some(change) => {
+                    match &change {
+                        Change::NewObject { object, .. } => {
+                            self.local_storage.new_object(object).await;
+                        }
+                        Change::DeleteObject { object, .. } => {
+                            self.local_storage.delete_object(object).await;
+                        }
+                        Change::NameObject {
+                            bucket,
+                            key,
+                            from,
+                            to,
+                        } => todo!(),
+
+                        Change::NewBucket { .. }
+                        | Change::DeleteBucket { .. }
+                        | Change::NameBucket { .. } => {
+                            if let Err(er) = self.lst_sender.send(change.clone()).await {
+                                tracing::error!("Send to ListenBucket Error: {er}")
+                            }
+                        }
+                        _ => {}
+                    }
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
-                    self.lst_sender.send(change).await.unwrap();
                 }
                 None => {
                     tracing::error!("[Scheduler] Peer: tx_watcher closed");
@@ -221,7 +263,9 @@ impl Change {
             | Change::DeleteKey { bucket, key } => Scope::Key(bucket.clone(), key.clone()),
             Change::NameBucket { from, .. } => Scope::Bucket(from.clone()),
             Change::NameKey { bucket, from, .. } => Scope::Key(bucket.clone(), from.clone()),
-            Change::NewBucket { bucket } | Change::DeleteBucket { bucket } => Scope::Bucket(bucket.clone()),
+            Change::NewBucket { bucket } | Change::DeleteBucket { bucket } => {
+                Scope::Bucket(bucket.clone())
+            }
         }
     }
 }

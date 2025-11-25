@@ -10,7 +10,8 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tokio::sync::{
     Mutex,
-    broadcast::{self, Sender as SenderBr, Receiver as ReceivedBr}, mpsc::{self, Sender, Receiver},
+    broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
+    mpsc::{self, Receiver, Sender},
 };
 
 use crate::{
@@ -28,7 +29,7 @@ impl std::ops::Deref for WebSocketChSender {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
-    
+
     type Target = Sender<MsgWs>;
 }
 
@@ -54,12 +55,11 @@ impl SplitTask for WebSocket {
     fn split(self) -> (<Self as SplitTask>::Output, impl super::utils::Run) {
         (WebSocketChSender(self.tx.clone()), self)
     }
-    
+
     type Output = WebSocketChSender;
 }
 
 impl Task for WebSocket {
-
     fn task(mut self) -> impl Future<Output = ()> + Send + 'static
     where
         Self: Sized,

@@ -46,6 +46,21 @@ pub struct Args {
 
     #[arg(long = "database-port", env = "DATABASE_PORT")]
     pub database_port: u16,
+
+    #[arg(long = "md-host", env = "MD_DATABASE_HOST")]
+    pub md_host: String,
+
+    #[arg(long = "md-username", env = "MD_DATABASE_PORT")]
+    pub md_port: u16,
+
+    #[arg(long = "md-username", env = "MD_DATABASE_USERNAME")]
+    pub md_username: String,
+
+    #[arg(long = "md-password", env = "MD_DATABASE_PASSWORD")]
+    pub md_pass: String,
+
+    #[arg(long = "md-database-na,e", env = "MD_DATABASE_NAME")]
+    pub md_database: String,
 }
 
 #[derive(Clone, ValueEnum)]

@@ -41,8 +41,7 @@ pub struct ListenBucket {
 }
 
 impl Task for ListenBucket {
-
-    async fn task(mut self) 
+    async fn task(mut self)
     where
         Self: Sized,
     {
@@ -149,18 +148,18 @@ pub async fn change_(change: Change, mut workdir: PathBuf) {
         Change::NewBucket { bucket } => {
             workdir.push(bucket.as_ref());
             new(workdir).await;
-        },
+        }
         Change::NameBucket { from, to } => {
             let mut from_ = workdir.clone();
             from_.push(from.as_ref());
 
             workdir.push(to.as_ref());
             rename(from_, workdir).await;
-        },
+        }
         Change::DeleteBucket { bucket } => {
             workdir.push(bucket.as_ref());
             delete(workdir, false).await;
-        },
+        }
         _ => {}
     }
 }

@@ -52,7 +52,6 @@ impl SplitTask for RenameControl {
 }
 
 impl Task for RenameControl {
-
     fn task(self) -> impl Future<Output = ()> + Send + 'static
     where
         Self: Sized,

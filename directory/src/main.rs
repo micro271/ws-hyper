@@ -1,9 +1,9 @@
 pub mod bucket;
-pub mod models;
 pub mod cli;
 pub mod grpc_v1;
 pub mod handlers;
 pub mod manager;
+pub mod models;
 pub mod state;
 pub mod user;
 pub mod ws;
@@ -11,8 +11,11 @@ pub mod ws;
 use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
-    manager::{Manager, WatcherParams, utils::{Run, SplitTask}},
-    state::{State, pg_listen::builder::ListenBucketBuilder},
+    manager::{
+        Manager, WatcherParams,
+        utils::{Run, SplitTask},
+    },
+    state::{State, local_storage::LocalStorageBuild, pg_listen::builder::ListenBucketBuilder},
 };
 use clap::Parser;
 use hyper::server::conn::http1;
@@ -40,6 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         channel,
         database_host,
         database_port,
+        md_host,
+        md_port,
+        md_username,
+        md_pass,
+        md_database,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -60,8 +68,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .channel(channel)
         .host(database_host)
         .port(database_port)
-        .build().await;
-
+        .build()
+        .await;
+    let ls = LocalStorageBuild::default()
+        .host(md_host)
+        .port(md_port)
+        .password(md_pass)
+        .username(md_username)
+        .database(md_database)
+        .build();
     let (msgs, task) = Manager::new(
         state.clone(),
         match watcher {
@@ -75,8 +90,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         grpc_auth_server,
         listen_b,
+        ls,
     )
-    .await.split();
+    .await
+    .split();
 
     let state = Arc::new(State::new(state, msgs).await);
     task.run();

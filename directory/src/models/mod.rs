@@ -1,15 +1,12 @@
-pub mod object;
-
-use serde::{Deserialize, Serialize};
 use crate::grpc_v1::Permissions;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum PermissionsUser {
     Put,
     Get,
     Read,
-    Delete
+    Delete,
 }
 
 impl From<Permissions> for PermissionsUser {

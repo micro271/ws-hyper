@@ -26,9 +26,8 @@ message UserByIdReq {
 }
 
 message UserReply {
-    bytes id = 2;
-    Role role = 3;
-    repeated BucketUser buckets = 4;
+    Role role = 1;
+    repeated BucketUser buckets = 2;
 }
 
 enum Role {

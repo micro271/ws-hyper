@@ -13,17 +13,31 @@ pub struct Cache {
 impl Cache {
     async fn new(path: &str) -> Self {
         Self {
-            pool: Client::open(path).unwrap().get_multiplexed_async_connection().await.unwrap()
+            pool: Client::open(path)
+                .unwrap()
+                .get_multiplexed_async_connection()
+                .await
+                .unwrap(),
         }
     }
 
     async fn get_permissions(&mut self, user: Uuid, bucket: &str) -> Vec<PermissionsUser> {
-        let resp: String = self.pool.get(format!("user:{}:bucket:{}", user, bucket)).await.unwrap();
+        let resp: String = self
+            .pool
+            .get(format!("user:{}:bucket:{}", user, bucket))
+            .await
+            .unwrap();
         serde_json::from_str::<Vec<PermissionsUser>>(resp.as_str()).unwrap()
     }
 
     async fn set_permissions(&mut self, user: Uuid, bucket: &str, perm: Vec<PermissionsUser>) {
-        self.pool.set::<'_, _, _, String>(format!("user:{}:bucket:{}", user, bucket), json!(perm).to_string()).await.unwrap();
+        self.pool
+            .set::<'_, _, _, String>(
+                format!("user:{}:bucket:{}", user, bucket),
+                json!(perm).to_string(),
+            )
+            .await
+            .unwrap();
     }
 
     async fn get_role(&mut self, user: Uuid) -> Vec<PermissionsUser> {
@@ -31,9 +45,23 @@ impl Cache {
         serde_json::from_str::<Vec<PermissionsUser>>(resp.as_str()).unwrap()
     }
 
-    async fn set_role(&mut self, user: Uuid, bucket: &str, perm: Vec<PermissionsUser>) -> Vec<Permissions> {
-        let resp: Vec<String> = self.pool.set(format!("user:{}:bucket:{}", user, bucket), json!(perm).to_string()).await.unwrap();
-        resp.into_iter().map(|x| Permissions::try_from(x.as_ref()).unwrap()).collect::<Vec<Permissions>>()        
+    async fn set_role(
+        &mut self,
+        user: Uuid,
+        bucket: &str,
+        perm: Vec<PermissionsUser>,
+    ) -> Vec<Permissions> {
+        let resp: Vec<String> = self
+            .pool
+            .set(
+                format!("user:{}:bucket:{}", user, bucket),
+                json!(perm).to_string(),
+            )
+            .await
+            .unwrap();
+        resp.into_iter()
+            .map(|x| Permissions::try_from(x.as_ref()).unwrap())
+            .collect::<Vec<Permissions>>()
     }
 }
 
