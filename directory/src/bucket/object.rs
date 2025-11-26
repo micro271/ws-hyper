@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    borrow::Cow,
     fs::Metadata,
     io::Read,
     os::unix::fs::MetadataExt,
@@ -10,6 +9,9 @@ use std::{
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
 
+use crate::bucket::utils::NormalizeForObjectName;
+
+pub const EXTENSION_OBJECT: &str = "__object";
 
 macro_rules! from_transparent {
     ($from: ty, $to: ident) => {
@@ -43,14 +45,11 @@ macro_rules! impl_canged {
     ($i:ident) => {
         impl crate::state::local_storage::Changed for $i {
             fn change(&self, other: &Self) -> bool {
-                other.0.as_ref().and_then(|x| self.0.as_ref().map(|y| y >= x)).unwrap_or_default()
+                other.0.as_ref().and_then(|x| self.0.as_ref().map(|y| y > x)).unwrap_or_default()
             }
         }
     };
 }
-
-#[derive(Debug, PartialEq, Clone, Deserialize, Serialize, Default)]
-pub struct ObjectName<'a>(Cow<'a, str>);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(transparent)]
@@ -76,9 +75,10 @@ impl_canged!(ObjectModified);
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
-    pub _id: String,
-    pub size: i64,
     pub name: String,
+    pub size: i64,
+    pub file_name: String,
+    pub chechsum: String,
     pub seen_by: Option<Vec<String>>,
     pub taken_by: Option<Vec<String>>,
     pub modified: ObjectModified,
@@ -87,22 +87,43 @@ pub struct Object {
 }
 
 impl Object {
+    pub async fn new_from_object<T: AsRef<Path>>(path: T, obj: &Object) -> Self {
+        let path = path.as_ref();
+        let meta = path.metadata().ok();
+        let (modified, accessed, created, size) = get_info_metadata(meta);
+
+        Self {
+            modified,
+            accessed,
+            created,
+            size,
+            name: obj.name.clone(),
+            file_name: obj.file_name.clone(),
+            chechsum: obj.chechsum.clone(),
+            seen_by: obj.seen_by.clone(),
+            taken_by: obj.taken_by.clone(),
+        }
+    }
     pub async fn new<T>(path: T) -> Self
     where
         T: AsRef<Path>,
     {
         let path = path.as_ref();
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let hash = CheckSum::new(path.to_path_buf())
-            .check_sum_async()
-            .await
-            .unwrap();
         let meta = path.metadata().ok();
         let (modified, accessed, created, size) = get_info_metadata(meta);
 
+        let chechsum = CheckSum::new(path.to_path_buf())
+            .check_sum_async()
+            .await
+            .unwrap();
+
+        let file_name = NormalizeForObjectName::run(&path).await;
+        let name = path.file_name().and_then(|x| x.to_str()).map(ToString::to_string).unwrap_or(file_name.clone());
+
         Self {
             name,
-            _id: hash,
+            file_name,
+            chechsum,
             size,
             modified,
             accessed,
@@ -110,52 +131,9 @@ impl Object {
             ..Default::default()
         }
     }
-}
 
-impl<T: AsRef<Path>> From<T> for Object {
-    fn from(value: T) -> Self {
-        let value = value.as_ref();
-
-        let (modified, accessed, created, size) = get_info_metadata(value.metadata().ok());
-
-        Self {
-            _id: CheckSum::new(value).check_sum().unwrap(),
-            name: value
-                .file_name()
-                .map(|x| x.to_string_lossy().into_owned())
-                .unwrap(),
-            size,
-            modified,
-            accessed,
-            created,
-            ..Default::default()
-        }
-    }
-}
-
-impl<'a, T: AsRef<Path>> From<T> for ObjectName<'a> {
-    fn from(value: T) -> Self {
-        ObjectName(Cow::Owned(
-            value
-                .as_ref()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-        ))
-    }
-}
-
-impl<'a> std::ops::Deref for ObjectName<'a> {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-impl<'a> std::fmt::Display for ObjectName<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 

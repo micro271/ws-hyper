@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use notify::{Error, Event};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::manager::{
+use crate::{manager::{
     Change,
     utils::{OneshotSender, Run, SplitTask, TakeOwn},
-};
+}, state::local_storage::LocalStorage};
 
 use super::{
     EventWatcher, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr, unbounded_channel,
@@ -15,11 +17,17 @@ pub struct EventWatcherBuilder<P, ChNot> {
     path: P,
     r#await: Option<u64>,
     change_notify: ChNot,
+    ls: Option<Arc<LocalStorage>>,
 }
 
 impl<P, ChNot> EventWatcherBuilder<P, ChNot> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
+        self
+    }
+
+    pub fn local_storage(mut self, local_storage: Arc<LocalStorage>) -> Self {
+        self.ls = Some(local_storage);
         self
     }
 }
@@ -30,6 +38,7 @@ impl<P> EventWatcherBuilder<P, EventWatcherNoNotify> {
             path: self.path,
             r#await: self.r#await,
             change_notify: EventWatcherNotify(tx),
+            ls: None,
         }
     }
 }
@@ -49,6 +58,7 @@ impl<CN> EventWatcherBuilder<EventWatcherNoPath, CN> {
             path: EventWatcherPath(path),
             r#await: self.r#await,
             change_notify: self.change_notify,
+            ls: None,
         })
     }
 }
@@ -98,6 +108,7 @@ where
             rx,
             path: path,
             change_notify: self.change_notify.take(),
+            obj_ls: self.ls.unwrap(),
         })
     }
 }
@@ -116,6 +127,7 @@ impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatc
             path: EventWatcherNoPath,
             r#await: None,
             change_notify: EventWatcherNoNotify,
+            ls: None,
         }
     }
 }

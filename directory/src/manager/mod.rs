@@ -24,7 +24,7 @@ use crate::{
         Bucket,
         bucket_map::BucketMap,
         key::Key,
-        object::{Object, ObjectName},
+        object::Object,
     },
     grpc_v1::ConnectionAuthMS,
     manager::{
@@ -54,7 +54,7 @@ pub struct Manager {
     grpc: ConnectionAuthMS,
     ws: WebSocket,
     watcher_params: WatcherParams,
-    local_storage: LocalStorage,
+    local_storage: Arc<LocalStorage>,
 }
 
 pub struct ManagerRunning {
@@ -63,7 +63,7 @@ pub struct ManagerRunning {
     state: Arc<RwLock<BucketMap>>,
     grpc: ConnectionAuthMS,
     lst_sender: ListenBucketChSender,
-    local_storage: LocalStorage,
+    local_storage: Arc<LocalStorage>,
 }
 
 impl Manager {
@@ -72,7 +72,7 @@ impl Manager {
         watcher_params: WatcherParams,
         endpoint: Endpoint,
         listen_bk: ListenBucket,
-        local_storage: LocalStorage,
+        local_storage: Arc<LocalStorage>,
     ) -> Self {
         let (tx_sch, rx_sch) = unbounded_channel();
 
@@ -101,6 +101,7 @@ impl Run for Manager {
                     .unwrap()
                     .change_notify(self.tx.clone())
                     .rename_control_await(r#await.unwrap_or(2000))
+                    .local_storage(self.local_storage.clone())
                     .build()
                     .unwrap();
                 task.run();
@@ -160,19 +161,14 @@ impl Task for ManagerRunning {
             match self.rx.recv().await {
                 Some(change) => {
                     match &change {
-                        Change::NewObject { object, .. } => {
-                            self.local_storage.new_object(object).await;
+                        Change::NewObject { object, key, .. } => {
+                            self.local_storage.new_object(object, key).await;
                         }
                         Change::DeleteObject { object, .. } => {
                             self.local_storage.delete_object(object).await;
                         }
-                        Change::NameObject {
-                            bucket,
-                            key,
-                            from,
-                            to,
-                        } => {
-
+                        Change::NameObject { key, to, .. } => {
+                            self.local_storage.sync_object(&key, &to).await;
                         }
                         Change::NewBucket { .. }
                         | Change::DeleteBucket { .. }
@@ -222,7 +218,7 @@ pub enum Change {
     NameObject {
         bucket: Bucket,
         key: Key,
-        from: ObjectName<'static>,
+        from: String,
         to: Object,
     },
     NameBucket {

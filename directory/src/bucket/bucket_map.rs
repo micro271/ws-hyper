@@ -1,6 +1,6 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
-    bucket::{key::Key, object::ObjectName},
+    bucket::key::Key,
     manager::Change,
 };
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ impl BucketMap {
         self.new_bucket(bucket).entry(key).or_default().push(object);
     }
 
-    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: ObjectName<'_>, to: Object) {
+    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: String, to: Object) {
         if let Some(val) = self
             .new_key(bucket, key)
             .iter_mut()
@@ -163,7 +163,7 @@ impl BucketMap {
                 tracing::error!("is object {bks:?} {key:?}");
                 let objs = buckets.get_mut(&bks).unwrap().entry(key).or_default();
                 if !dir.is_dir() {
-                    objs.push(Object::from(dir));
+                    objs.push(futures::executor::block_on(Object::new(&dir)));
                 }
             }
 

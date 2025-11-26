@@ -80,6 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .database(md_database)
         .build();
 
+    let ls = Arc::new(ls);
+
     let (msgs, task) = Manager::new(
         state.clone(),
         match watcher {

@@ -3,10 +3,13 @@ pub mod error;
 pub mod key;
 pub mod object;
 pub mod utils;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{ffi::OsStr, path::Path};
 
-use crate::bucket::utils::NormalizeFileUtf8;
+use crate::bucket::utils::FileNameUtf8;
+
+const DEFAULT_LENGTH_NANOID: usize = 24;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
@@ -16,14 +19,30 @@ impl Bucket {
     where 
         T: AsRef<Path>
     {
-        let file_name = NormalizeFileUtf8::run(path.as_ref()).await.unwrap();
+        let file_name = FileNameUtf8::run(path.as_ref()).await.ok().unwrap();
         Self(file_name)
+    }
+
+    pub fn new<T: AsRef<Path>>(path: &T) -> Self {
+        path.as_ref().file_name().and_then(|x| x.to_str().map(ToString::to_string)).map(Self).unwrap()
+    }
+
+    pub fn new_random(ext: Option<&OsStr>) -> Self {
+        let ext = ext.and_then(|x| x.to_str()).unwrap_or("__unknown");
+        Self::new_unchecked(format!("{}.{ext}", nanoid!(DEFAULT_LENGTH_NANOID)))
+    }
+
+    pub fn new_unchecked<T: Into<String>>(name: T) -> Self {
+        Self(name.into())
     }
 
     pub fn inner(self) -> String {
         self.0
     }
 
+    fn name(&self) -> &str {
+        self.as_ref()
+    }
 }
 
 impl<T> From<T> for Bucket 

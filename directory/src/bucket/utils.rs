@@ -2,16 +2,35 @@ use std::path::{Path, PathBuf};
 
 use nanoid::nanoid;
 
-use crate::bucket::Bucket;
+use crate::bucket::{Bucket, object::EXTENSION_OBJECT};
+
+pub struct NormalizeForObjectName;
+
+impl NormalizeForObjectName {
+    pub async fn run<'a>(path: &'a Path) -> String {
+        let mut to = PathBuf::from(path);
+        to.pop();
+        let new_name = format!("{}.{EXTENSION_OBJECT}", nanoid!(24));
+        to.push(&new_name);
+
+        if let Err(er) = tokio::fs::rename(path, &to).await {
+            tracing::error!("From NormalizeFileUtf - Error to rename file from: {path:?} - to: {to:?}");
+            tracing::error!("IoError: {er}");
+        }
+
+        tracing::warn!("[NormalizeFileUtf] {{ Rename file }} from: {path:?} to: {to:?}");
+        new_name
+    }    
+}
 
 
 #[derive(Debug)]
-pub struct NormalizeFileUtf8;
+pub struct FileNameUtf8;
 
-impl NormalizeFileUtf8 {
-    pub async fn run<'a>(path: &'a Path) -> Option<String> {
+impl FileNameUtf8 {
+    pub async fn run<'a>(path: &'a Path) -> Renamed {
         if let Some(str) = path.file_name().and_then(|x| x.to_str()) {
-            Some(str.to_string())
+            Renamed::Not(str.to_string())
         } else {
             let mut to = PathBuf::from(path);
             to.pop();
@@ -22,20 +41,38 @@ impl NormalizeFileUtf8 {
             if let Err(er) = tokio::fs::rename(path, &to).await {
                 tracing::error!("From NormalizeFileUtf - Error to rename file from: {path:?} - to: {to:?}");
                 tracing::error!("IoError: {er}");
-                return None;
+                return Renamed::Fail(Box::new(er));
             }
-            Some(new_name)
+
+            tracing::warn!("[NormalizeFileUtf] {{ Rename file }} from: {path:?} to: {to:?}");
+            Renamed::Yes(new_name)
         }
     }
 }
 
 
 pub fn find_bucket(root: &Path, path: &Path) -> Option<Bucket> {
-    let child = path;
+    let mut child = path;
     while let Some(parent) = child.parent() {
         if parent == root {
             return Some(Bucket::from(child.file_name().and_then(|x| x.to_str()).unwrap()));
-        }
+        } 
+        child = parent;
     }
     None
+}
+
+pub enum Renamed {
+    Yes(String),
+    Not(String),
+    Fail(Box<dyn std::error::Error>),
+}
+
+impl Renamed {
+    pub fn ok(self) -> Option<String> {
+        match self {
+            Renamed::Yes(str) | Renamed::Not(str)=> Some(str),
+            Renamed::Fail(_) => None,
+        }
+    }
 }

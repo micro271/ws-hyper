@@ -3,6 +3,7 @@ use mongodb::{
     bson::{self, doc},
     options::{ClientOptions, Credential, ServerAddress},
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::bucket::object::Object;
@@ -12,7 +13,7 @@ macro_rules! diff {
         let mut doc = doc!{};
         $(
             if $t1.$field.change(&$t2.$field) {
-                doc.insert(stringify!($field), bson::to_bson(&$t2.$field).unwrap());
+                doc.insert(concat!("object.", stringify!($field)), bson::to_bson(&$t2.$field).unwrap());
             }
         )+
         doc
@@ -20,6 +21,24 @@ macro_rules! diff {
 }
 
 const COLLECTION: &str = "objects";
+
+#[derive(Debug, Serialize)]
+struct AsObjectSerialize<'a> {
+    key: &'a str,
+    object: &'a Object,
+}
+
+impl<'a> AsObjectSerialize<'a> {
+    fn new(key: &'a str, obj: &'a Object) -> Self {
+        Self { key, object: obj }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AsObjectDeserialize {
+    key: String,
+    object: Object,
+}
 
 #[derive(Debug, Default)]
 pub struct LocalStorageBuild {
@@ -36,33 +55,46 @@ pub struct LocalStorage {
 }
 
 impl LocalStorage {
-    pub async fn sync_object(&self, obj: &Object) {
+    pub async fn sync_object(&self, key: &str, obj: &Object) {
         let db = self.pool.default_database().unwrap();
         let tmp = db
-            .collection::<Object>(COLLECTION)
-            .find_one(doc! {"_id": &obj._id})
+            .collection::<AsObjectDeserialize>(COLLECTION)
+            .find_one(doc! {"key": key, "object.file_name": &obj.file_name})
             .await
             .unwrap()
-            .unwrap();
+            .unwrap().object;
+
         let to_update = diff!(
-            tmp, obj, size, name, seen_by, taken_by, modified, accessed, created
+            tmp, obj, name, seen_by, taken_by, modified, accessed, created
         );
-        _ = db.collection::<Object>(COLLECTION)
-            .update_one(doc! {"_id": &obj._id}, to_update)
-            .await;
+        tracing::warn!("{:?}", to_update);
+        _ = db.collection::<AsObjectSerialize>(COLLECTION)
+            .update_one(doc! {"key": key, "object.file_name": &obj.file_name }, doc!{"$set": to_update})
+            .await.unwrap();
     }
 
-    pub async fn new_object(&self, object: &Object) {
+    pub async fn get_object(&self, key: &str, name: &str) -> Option<Object> {
         let tmp = self.pool.default_database().unwrap();
-        _ = tmp.collection::<&Object>(COLLECTION)
-            .insert_one(object)
+        let filter = doc! { "key": key, "object.file_name": name };
+
+        tmp.collection::<AsObjectDeserialize>(COLLECTION)
+            .find_one(filter)
+            .await.ok().flatten().map(|x| x.object)
+    }
+
+    pub async fn new_object(&self, object: &Object, key: &str) {
+        let tmp = self.pool.default_database().unwrap();
+        let new = AsObjectSerialize::new(key, object);
+
+        _ = tmp.collection::<AsObjectSerialize>(COLLECTION)
+            .insert_one(new)
             .await;
     }
 
     pub async fn delete_object(&self, obj: &Object) {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp.collection::<&Object>(COLLECTION)
-            .delete_one(doc! {"_id": &obj._id})
+            .delete_one(doc! {"hash": &obj.file_name})
             .await;
     }
 
@@ -70,8 +102,18 @@ impl LocalStorage {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp.collection::<&Object>(COLLECTION)
             .update_one(
-                doc! {"_id": &obj._id },
+                doc! {"hash": &obj.file_name },
                 doc! { "$addToSet": {"seen_by": id.to_string()} },
+            )
+            .await;
+    }
+
+    pub async fn set_name(&self, key: &str, old_name: &str, new_name: &str) {
+        let tmp = self.pool.default_database().unwrap();
+        _ = tmp.collection::<Object>(COLLECTION)
+            .update_one(
+                doc! {"key": key, "object.name": old_name },
+                doc! { "object.name": new_name },
             )
             .await;
     }

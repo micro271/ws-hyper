@@ -248,7 +248,7 @@ impl<'a, T: Clone> SendAllBucket<'a, T> {
 #[derive(Debug)]
 pub enum ListToNotificationError<'a, T> {
     BucketNotFound(String),
-    KeyNotFound(Cow<'a, str>),
+    KeyNotFound(&'a str),
     SendError(broadcast::error::SendError<T>),
 }
 
