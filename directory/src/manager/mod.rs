@@ -171,8 +171,9 @@ impl Task for ManagerRunning {
                             key,
                             from,
                             to,
-                        } => todo!(),
-
+                        } => {
+                            
+                        }
                         Change::NewBucket { .. }
                         | Change::DeleteBucket { .. }
                         | Change::NameBucket { .. } => {

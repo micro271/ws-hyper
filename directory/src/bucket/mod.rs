@@ -4,36 +4,38 @@ pub mod key;
 pub mod object;
 
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
+use nanoid::nanoid;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
 
 impl Bucket {
-    pub fn name(&self) -> Cow<'_, str> {
-        Cow::Borrowed(self.0.as_str())
-    }
-
-    pub fn new_unchk_from_path<T>(path: T) -> Self
-    where
-        T: AsRef<Path>,
+    pub fn new_or_rename<T>(path: T) -> Self 
+    where 
+        T: AsRef<Path>
     {
-        Self(path.as_ref().to_str().map(ToString::to_string).unwrap())
-    }
-
-    pub fn new_unchk<P: Into<String>>(path: P) -> Self {
-        Self(path.into())
-    }
-
-    pub fn path(&self) -> PathBuf {
-        PathBuf::from(self.as_ref())
+        let path = path.as_ref();
+        let file_name = match path.file_name() {
+            Some(e) => e.to_string_lossy().into_owned(),
+            None => {
+                format!("{}.{}", nanoid!(24), if let Some(ext) = path.extension() {ext.to_string_lossy().into_owned()} else { "unknown".to_string() })
+            }
+        };
+        Self(file_name)
     }
 
     pub fn inner(self) -> String {
         self.0
+    }
+}
+
+impl<T> From<T> for Bucket 
+where 
+    T: Into<String>
+{
+    fn from(value: T) -> Self {
+        Self(value.into())
     }
 }
 
@@ -43,15 +45,15 @@ impl std::fmt::Display for Bucket {
     }
 }
 
-impl From<String> for Bucket {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
 impl AsRef<str> for Bucket {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl AsRef<Path> for Bucket {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
     }
 }
 
@@ -71,13 +73,13 @@ where
     T: AsRef<str>,
 {
     fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
-        self.as_ref().partial_cmp(other.as_ref())
+        <Self as AsRef<str>>::as_ref(self).partial_cmp(other.as_ref())
     }
 }
 
 impl std::cmp::Ord for Bucket {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.as_ref().cmp(other.as_ref())
+        <Self as AsRef<str>>::as_ref(self).cmp(other.as_ref())
     }
 }
 

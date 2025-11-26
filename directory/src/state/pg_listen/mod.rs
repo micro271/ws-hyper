@@ -48,7 +48,7 @@ impl Task for ListenBucket {
         self.lst.listen(&self.channel).await.unwrap();
 
         let mut rx = self.rx.take().unwrap();
-
+        tracing::info!("Listen Bucket task started");
         loop {
             select! {
                 msg = self.lst.recv() => {
@@ -146,18 +146,18 @@ pub async fn rename(new: PathBuf, old: PathBuf) {
 pub async fn change_(change: Change, mut workdir: PathBuf) {
     match change {
         Change::NewBucket { bucket } => {
-            workdir.push(bucket.as_ref());
+            workdir.push(&bucket);
             new(workdir).await;
         }
         Change::NameBucket { from, to } => {
             let mut from_ = workdir.clone();
-            from_.push(from.as_ref());
+            from_.push(&from);
 
-            workdir.push(to.as_ref());
+            workdir.push(&to);
             rename(from_, workdir).await;
         }
         Change::DeleteBucket { bucket } => {
-            workdir.push(bucket.as_ref());
+            workdir.push(&bucket);
             delete(workdir, false).await;
         }
         _ => {}

@@ -60,72 +60,71 @@ impl SplitTask for WebSocket {
 }
 
 impl Task for WebSocket {
-    fn task(mut self) -> impl Future<Output = ()> + Send + 'static
+    async fn task(mut self)
     where
         Self: Sized,
     {
-        async move {
-            let mut users = ListToNotification::<Change>::new();
-            tracing::debug!("Web socket manage init");
+        let mut users = ListToNotification::<Change>::new();
+        tracing::info!("Web socket manage init");
 
-            loop {
-                let msg = self.rx.recv().await;
-                tracing::trace!("{msg:?}");
-                match msg {
-                    Some(MsgWs::Change(change)) => match change.scope() {
-                        Scope::Bucket(bucket) => match users.send_all_in_bucket(&bucket) {
-                            Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                            Ok(snd) => {
-                                if let Err(er) = snd.send(change) {
-                                    tracing::error!(
-                                        "We had a problem sending the message to this keys {er:?}"
-                                    );
-                                }
+        loop {
+            let msg = self.rx.recv().await;
+            tracing::trace!("{msg:?}");
+            match msg {
+                Some(MsgWs::Change(change)) => match change.scope() {
+                    Scope::Bucket(bucket) => match users.send_all_in_bucket(&bucket) {
+                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
+                        Ok(snd) => {
+                            if let Err(er) = snd.send(change) {
+                                tracing::error!(
+                                    "We had a problem sending the message to this keys {er:?}"
+                                );
                             }
-                        },
-                        Scope::Key(bucket, key) => match users.send_message(&bucket, &key) {
-                            Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                            Ok(snd) => {
-                                if let Err(er) = snd.send(change) {
-                                    tracing::error!(
-                                        "We had a problem sending the message to this key {er:?}"
-                                    );
-                                }
-                            }
-                        },
+                        }
                     },
-                    Some(MsgWs::NewUser {
-                        bucket,
-                        key,
-                        sender,
-                    }) => {
-                        let mut rx = users.rcv_or_create(bucket, key);
-
-                        let (tx_client, rx_client) = sender.await.unwrap().split();
-                        let tx_client = Arc::new(Mutex::new(tx_client));
-                        let tx_client_clone = tx_client.clone();
-                        tokio::spawn(async move {
-                            while let Ok(change) = rx.recv().await {
-                                if let Err(err) = tx_client_clone
-                                    .lock()
-                                    .await
-                                    .send(Message::Text(json!(change).to_string().into()))
-                                    .await
-                                {
-                                    tracing::error!("{err}");
-                                }
+                    Scope::Key(bucket, key) => match users.send_message(&bucket, &key) {
+                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
+                        Ok(snd) => {
+                            if let Err(er) = snd.send(change) {
+                                tracing::error!(
+                                    "We had a problem sending the message to this key {er:?}"
+                                );
                             }
-                        });
+                        }
+                    },
+                },
+                Some(MsgWs::NewUser {
+                    bucket,
+                    key,
+                    sender,
+                }) => {
+                    let mut rx = users.rcv_or_create(bucket, key);
 
-                        tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
-                    }
-                    _ => {
-                        tracing::debug!("Peer tx_ws closed");
-                        break;
-                    }
+                    let (tx_client, rx_client) = sender.await.unwrap().split();
+                    let tx_client = Arc::new(Mutex::new(tx_client));
+                    let tx_client_clone = tx_client.clone();
+                    tokio::spawn(async move {
+                        while let Ok(change) = rx.recv().await {
+                            if let Err(err) = tx_client_clone
+                                .lock()
+                                .await
+                                .send(Message::Text(json!(change).to_string().into()))
+                                .await
+                            {
+                                tracing::error!("{err}");
+                            }
+                        }
+                    });
+
+                    tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
+                }
+                _ => {
+                    tracing::debug!("Peer tx_ws closed");
+                    break;
                 }
             }
         }
+        
     }
 }
 
@@ -196,7 +195,7 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
         let sender = self
             .0
             .get(bucket)
-            .ok_or(ListToNotificationError::BucketNotFound(bucket.name()))
+            .ok_or(ListToNotificationError::BucketNotFound(bucket.to_string()))
             .and_then(|x| {
                 x.get(key)
                     .ok_or(ListToNotificationError::KeyNotFound(key.name()))
@@ -210,7 +209,7 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
         bucket: &'a Bucket,
     ) -> Result<SendAllBucket<'a, T>, ListToNotificationError<'a, T>> {
         Ok(SendAllBucket(self.0.get(bucket).ok_or(
-            ListToNotificationError::BucketNotFound(bucket.name()),
+            ListToNotificationError::BucketNotFound(bucket.to_string()),
         )?))
     }
 
@@ -248,7 +247,7 @@ impl<'a, T: Clone> SendAllBucket<'a, T> {
 
 #[derive(Debug)]
 pub enum ListToNotificationError<'a, T> {
-    BucketNotFound(Cow<'a, str>),
+    BucketNotFound(String),
     KeyNotFound(Cow<'a, str>),
     SendError(broadcast::error::SendError<T>),
 }

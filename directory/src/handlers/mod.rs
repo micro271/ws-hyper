@@ -88,7 +88,7 @@ pub async fn server_upgrade(
         ))?;
 
     let mut path = path.split("/");
-    let bucket = Bucket::new_unchk(
+    let bucket = Bucket::from(
         path.next()
             .ok_or(ResponseError::status(StatusCode::BAD_REQUEST))?,
     );
