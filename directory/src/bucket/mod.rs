@@ -2,32 +2,28 @@ pub mod bucket_map;
 pub mod error;
 pub mod key;
 pub mod object;
-
+pub mod utils;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use nanoid::nanoid;
+
+use crate::bucket::utils::NormalizeFileUtf8;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
 
 impl Bucket {
-    pub fn new_or_rename<T>(path: T) -> Self 
+    pub async fn new_or_rename<T>(path: T) -> Self 
     where 
         T: AsRef<Path>
     {
-        let path = path.as_ref();
-        let file_name = match path.file_name() {
-            Some(e) => e.to_string_lossy().into_owned(),
-            None => {
-                format!("{}.{}", nanoid!(24), if let Some(ext) = path.extension() {ext.to_string_lossy().into_owned()} else { "unknown".to_string() })
-            }
-        };
+        let file_name = NormalizeFileUtf8::run(path.as_ref()).await.unwrap();
         Self(file_name)
     }
 
     pub fn inner(self) -> String {
         self.0
     }
+
 }
 
 impl<T> From<T> for Bucket 

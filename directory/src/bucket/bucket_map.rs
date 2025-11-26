@@ -123,7 +123,7 @@ impl BucketMap {
                             entry
                                 .path()
                                 .file_name()
-                                .map(|x| Bucket::new_or_rename(x.to_string_lossy().into_owned()))
+                                .map(|x| Bucket::from(x.to_string_lossy().into_owned()))
                                 .unwrap(),
                             BTreeMap::<Key, Vec<Object>>::new(),
                         )

@@ -96,7 +96,7 @@ where
             rename_control_sender: rename_control,
             tx,
             rx,
-            path: path.to_string_lossy().into_owned(),
+            path: path,
             change_notify: self.change_notify.take(),
         })
     }

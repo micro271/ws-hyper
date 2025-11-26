@@ -33,7 +33,7 @@ use crate::{
         websocker::{MsgWs, WebSocket, WebSocketChSender},
     },
     state::{
-        local_storage::{self, LocalStorage},
+        local_storage::LocalStorage,
         pg_listen::{ListenBucket, ListenBucketChSender},
     },
 };
@@ -172,7 +172,7 @@ impl Task for ManagerRunning {
                             from,
                             to,
                         } => {
-                            
+
                         }
                         Change::NewBucket { .. }
                         | Change::DeleteBucket { .. }

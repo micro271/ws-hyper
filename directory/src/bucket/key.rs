@@ -1,6 +1,8 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, path::{Path, PathBuf}};
 
 use serde::{Deserialize, Serialize};
+
+use crate::bucket::Bucket;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct Key(String);
@@ -16,6 +18,12 @@ impl Key {
 
     pub fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed(self.0.as_ref())
+    }
+
+    pub fn from_bucket<T: AsRef<Path>>(bucket: &Bucket, path: T) -> Option<Self> {
+        let path = path.as_ref().to_str()?;
+        let name: &str = bucket.as_ref();
+        path.split(&format!("{name}/")).nth(1).map(Self::new)
     }
 }
 

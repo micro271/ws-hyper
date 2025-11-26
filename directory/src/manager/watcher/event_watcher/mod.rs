@@ -15,7 +15,7 @@ use crate::{
     bucket::{
         Bucket,
         key::Key,
-        object::{Object, ObjectName},
+        object::{Object, ObjectName}, utils::{NormalizeFileUtf8, find_bucket},
     },
     manager::{
         utils::{AsyncRecv, OneshotSender, SplitTask, Task},
@@ -31,7 +31,7 @@ pub struct EventWatcher<Tx, Rx, TxChange> {
     tx: Tx,
     rx: Rx,
     change_notify: TxChange,
-    path: String,
+    path: PathBuf,
     rename_control_sender: RenameControlCh,
 }
 
@@ -44,45 +44,40 @@ where
     async fn task(mut self) {
         tracing::warn!("Watcher notify manage init");
 
-        let root = &self.path[..];
+        let root = self.path.as_path();
         let tx_rename = self.rename_control_sender.inner();
         while let Some(Ok(event)) = self.rx.recv().await {
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
-                    tracing::trace!("{event:?}");
-                    let mut path = event.paths;
-                    let path = path.pop().unwrap();
+                    let mut paths = event.paths;
+                    let Some(path) = paths.pop() else {
+                        continue;
+                    };
 
-                    if path.parent().filter(|x| root == *x).is_some() {
-                        let bucket = Bucket::new_or_rename(&path);
-                        if let Err(err) = self.change_notify.send(Change::NewBucket { bucket })
-                        {
+                    let Some(file_name) = NormalizeFileUtf8::run(&path).await else {
+                        continue;
+                    };
+                    
+                    if path.parent().is_some_and(|x| x == path) {
+                        let bucket = Bucket::from(file_name);
+                        if let Err(err) = self.change_notify.send(Change::NewBucket { bucket }) {
                             tracing::error!(
-                                "[Event Watcher] {{ Create folder (bucket) }} New directory nofity error: {err} - {:?}",
-                                path.file_name()
-                            );
-                        }
-                    } else {
-                        let tmp = path
-                            .strip_prefix(root)
-                            .ok()
-                            .and_then(|x| x.to_str())
-                            .unwrap();
-                        let mut iter = tmp.split('/');
-                        let bucket = iter.nth(0);
-                        let key = iter.collect::<Vec<&str>>().join("/");
-
-                        let bucket = Bucket::from(bucket.unwrap());
-
-                        if let Err(err) = self.change_notify.send(Change::NewKey {
-                            bucket,
-                            key: Key::new(key),
-                        }) {
-                            tracing::error!(
-                                "[Event Watcher] {{ Create foler (key) }} New directory nofity error: {err} - key: {:?}",
+                                "[Event Watcher] {{ New Bucket }} nofity error: {err} - path: {:?}",
                                 path
                             );
                         }
+                    } else {
+                        if let Some(bucket) = find_bucket(root, &path) && let Some(key) = Key::from_bucket(&bucket, &path) {
+                            if let Err(err) = self.change_notify.send(Change::NewKey { bucket, key  }) {
+                                tracing::error!(
+                                    "[Event Watcher] {{ New Key }} nofity error: {err} - path: {:?}",
+                                    path
+                                );
+                            }
+                        } else {
+                            tracing::error!("Bucket not found {path:?}");
+                        }
+                        
                     }
                 }
                 notify::EventKind::Create(action) => {
@@ -141,8 +136,8 @@ where
 
                     if to.is_dir() {
                         if from.parent().is_some_and(|x| x == root) {
-                            let from = Bucket::new_or_rename(&from);
-                            let to = Bucket::new_or_rename(&to);
+                            let from = Bucket::new_or_rename(&from).await;
+                            let to = Bucket::new_or_rename(&to).await;
                             if let Err(er) =
                                 self.change_notify.send(Change::NameBucket { from, to })
                             {
