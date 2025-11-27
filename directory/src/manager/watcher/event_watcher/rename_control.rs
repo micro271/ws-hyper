@@ -52,62 +52,60 @@ impl SplitTask for RenameControl {
 }
 
 impl Task for RenameControl {
-    fn task(self) -> impl Future<Output = ()> + Send + 'static
+    async fn task(self)
     where
         Self: Sized,
     {
-        async move {
-            let RenameControl {
-                tx: _,
-                mut rx,
-                r#await,
-                sender_watcher,
-            } = self;
+        let RenameControl {
+            tx: _,
+            mut rx,
+            r#await,
+            sender_watcher,
+        } = self;
 
-            let duration = Duration::from_millis(r#await);
-            let files = Arc::new(Mutex::new(
-                HashMap::<PathBuf, UnboundedSender<DropDelete>>::new(),
-            ));
+        let duration = Duration::from_millis(r#await);
+        let files = Arc::new(Mutex::new(
+            HashMap::<PathBuf, UnboundedSender<DropDelete>>::new(),
+        ));
 
-            loop {
-                let files_inner = files.clone();
-                match rx.recv().await {
-                    Some(Rename::From(RenameFrom(from))) => {
-                        let (tx_inner, mut rx_inner) = unbounded_channel::<DropDelete>();
-                        files_inner.lock().await.insert(from.clone(), tx_inner);
-                        let sender_watcher = sender_watcher.clone();
-                        tokio::spawn(async move {
-                            tokio::select! {
-                                () = tokio::time::sleep(duration) => {
-                                    if files_inner.lock().await.remove(&from).is_some() {
-                                        tracing::trace!("[RenameControl] {{ Time expired }} Delete {from:?}");
-                                        let event = Event::new(notify::EventKind::Remove(RemoveKind::Any)).add_path(from);
-                                        if let Err(err) = sender_watcher.send(Ok(event)) {
-                                            tracing::error!("[RenameControl] From tx_watcher {err}");
-                                        }
+        loop {
+            let files_inner = files.clone();
+            match rx.recv().await {
+                Some(Rename::From(RenameFrom(from))) => {
+                    let (tx_inner, mut rx_inner) = unbounded_channel::<DropDelete>();
+                    files_inner.lock().await.insert(from.clone(), tx_inner);
+                    let sender_watcher = sender_watcher.clone();
+                    tokio::spawn(async move {
+                        tokio::select! {
+                            () = tokio::time::sleep(duration) => {
+                                if files_inner.lock().await.remove(&from).is_some() {
+                                    tracing::trace!("[RenameControl] {{ Time expired }} Delete {from:?}");
+                                    let event = Event::new(notify::EventKind::Remove(RemoveKind::Any)).add_path(from);
+                                    if let Err(err) = sender_watcher.send(Ok(event)) {
+                                        tracing::error!("[RenameControl] From tx_watcher {err}");
                                     }
                                 }
-                                resp = rx_inner.recv() => {
-                                    tracing::trace!("[RenameControl Inner task] Decline {from:?}");
-                                    if resp.is_none() {
-                                        tracing::error!("tx_inner of the RenameControl closed");
-                                    }
-                                }
-                            };
-                        });
-                    }
-                    Some(Rename::Decline(path)) => {
-                        if let Some(sender) = files.lock().await.remove(&path) {
-                            tracing::trace!("[RenameControl] Decline from Watcher, path: {path:?}");
-                            if let Err(err) = sender.send(DropDelete) {
-                                tracing::error!("{err}");
                             }
+                            resp = rx_inner.recv() => {
+                                tracing::trace!("[RenameControl Inner task] Decline {from:?}");
+                                if resp.is_none() {
+                                    tracing::error!("tx_inner of the RenameControl closed");
+                                }
+                            }
+                        };
+                    });
+                }
+                Some(Rename::Decline(path)) => {
+                    if let Some(sender) = files.lock().await.remove(&path) {
+                        tracing::trace!("[RenameControl] Decline from Watcher, path: {path:?}");
+                        if let Err(err) = sender.send(DropDelete) {
+                            tracing::error!("{err}");
                         }
                     }
-                    _ => {
-                        tracing::error!("[RenameControl] Sender was close");
-                        break;
-                    }
+                }
+                _ => {
+                    tracing::error!("[RenameControl] Sender was close");
+                    break;
                 }
             }
         }

@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum, command};
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, path::PathBuf};
 use tonic::transport::Endpoint;
 use tracing::Level;
 
@@ -10,7 +10,7 @@ pub struct Args {
     pub watcher: TypeWatcher,
 
     #[arg(long = "watcher-path", env = "ROOT_PATH")]
-    pub watcher_path: String,
+    pub watcher_path: PathBuf,
 
     #[arg(long, short, env = "IP_ADDRESS", default_value = "0.0.0.0")]
     pub listen: Ipv4Addr,

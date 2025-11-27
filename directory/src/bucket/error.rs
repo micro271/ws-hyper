@@ -7,6 +7,8 @@ pub enum BucketMapErr {
     ReadDir(Box<dyn std::error::Error>),
     ReadOnly(PathBuf),
     PermissionDenied(PathBuf),
+    RootPathIsNotDirectory(PathBuf),
+    RootPathNotFound(PathBuf),
 }
 
 impl std::fmt::Display for BucketMapErr {
@@ -17,6 +19,8 @@ impl std::fmt::Display for BucketMapErr {
             Self::ReadDir(e) => write!(f, "ReadDir Error: {e}"),
             Self::ReadOnly(dir) => write!(f, "The directory {dir:?} is read only"),
             Self::PermissionDenied(dir) => write!(f, "Permission denied: {dir:?}"),
+            Self::RootPathIsNotDirectory(path) => write!(f, "Path {path:?} isn't an directory"),
+            Self::RootPathNotFound(path) => write!(f, "Path {path:?} not found"),
         }
     }
 }

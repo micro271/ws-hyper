@@ -1,7 +1,11 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
-    bucket::key::Key,
+    bucket::{
+        key::Key,
+        object::{CheckSum, ObjectBuilder},
+    },
     manager::Change,
+    state::local_storage::LocalStorage,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-type BucketMapType = HashMap<Bucket, BTreeMap<Key, Vec<Object>>>;
+pub type BucketMapType = HashMap<Bucket, BTreeMap<Key, Vec<Object>>>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BucketMap {
@@ -33,13 +37,13 @@ impl BucketMap {
         self.new_bucket(bucket).entry(key).or_default().push(object);
     }
 
-    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: String, to: Object) {
+    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: String, to: String) {
         if let Some(val) = self
             .new_key(bucket, key)
             .iter_mut()
             .find(|x| x.name == *from)
         {
-            *val = to;
+            val.name = to;
         }
     }
 
@@ -110,11 +114,8 @@ impl BucketMap {
         self.path.as_path()
     }
 
-    pub fn new(mut path: String) -> Result<Self, BucketMapErr> {
-        Self::validate(&mut path)?;
-        let mut path = PathBuf::from(path);
-
-        let mut buckets = std::fs::read_dir(&path)?
+    pub async fn build(&mut self, local_storage: &LocalStorage) -> Result<(), BucketMapErr> {
+        let mut buckets = std::fs::read_dir(&self.path)?
             .filter_map(|x| {
                 x.ok()
                     .filter(|x| x.file_type().map(|x| x.is_dir()).unwrap_or_default())
@@ -123,7 +124,7 @@ impl BucketMap {
                             entry
                                 .path()
                                 .file_name()
-                                .map(|x| Bucket::from(x.to_string_lossy().into_owned()))
+                                .map(|x| Bucket::from(x.to_str().unwrap()))
                                 .unwrap(),
                             BTreeMap::<Key, Vec<Object>>::new(),
                         )
@@ -131,66 +132,108 @@ impl BucketMap {
             })
             .collect::<HashMap<_, _>>();
 
-        tracing::trace!("Existing buckets {buckets:#?}");
-
-        let bk_keys = buckets.keys().cloned().collect::<Vec<_>>();
-        for bks in bk_keys {
-            path.push(&bks);
-            let mut list_dirs = path
-                .as_path()
+        let mut path = self.path.clone();
+        for (bks, map) in &mut buckets {
+            path.push(bks);
+            tracing::error!("{path:?}");
+            
+            let mut list_dirs = VecDeque::new();
+            list_dirs.push_back(path.clone());
+            
+            list_dirs.extend(path
                 .read_dir()?
-                .filter(|x| x.is_ok())
-                .map(|x| x.unwrap().path())
-                .collect::<VecDeque<_>>();
+                .filter_map(|x| x.ok().filter(|y| y.path().is_dir()).map(|x| x.path()))
+                .collect::<Vec<_>>());
+
+            tracing::error!("{list_dirs:?}");
             while let Some(dir) = list_dirs.pop_front() {
-                if dir.is_dir() {
-                    let tmp = dir
-                        .read_dir()?
-                        .filter(|x| x.is_ok())
-                        .map(|x| x.unwrap().path())
-                        .collect::<Vec<_>>();
-                    tracing::error!("is dir: {bks:?} {tmp:?}");
-                    list_dirs.extend(tmp);
-                }
-                let key = Key::new(
-                    dir.parent()
-                        .unwrap()
-                        .strip_prefix(&path)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                );
-                tracing::error!("is object {bks:?} {key:?}");
-                let objs = buckets.get_mut(&bks).unwrap().entry(key).or_default();
-                if !dir.is_dir() {
-                    objs.push(futures::executor::block_on(Object::new(&dir)));
-                }
+                let (dirs, objs) = dir_objects(&dir);
+                list_dirs.extend(dirs);
+                let key = Key::from_bucket(bks, &dir).unwrap();
+                let objects = sync_objects(objs, bks, &key, local_storage).await;
+                tracing::warn!("bucket {bks} - key {key:?} - {objects:?} - path: {path:?}");
+                map.insert(key, objects);
             }
 
             path.pop();
         }
-
-        tracing::info!("Bucket Tree {buckets:#?}");
-
-        Ok(BucketMap {
-            inner: buckets,
-            path,
-        })
-    }
-
-    fn validate(path: &mut String) -> Result<(), BucketMapErr> {
-        let _path = std::fs::canonicalize(&path)?;
-
-        if _path.metadata().unwrap().permissions().readonly() {
-            return Err(BucketMapErr::ReadOnly(_path));
-        } else if !_path.is_dir() {
-            return Err(BucketMapErr::IsNotABucket(_path));
-        }
-
-        *path = _path.to_string_lossy().into_owned();
+        self.inner = buckets;
 
         Ok(())
     }
+
+    pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
+        if !path.exists() {
+            return Err(BucketMapErr::RootPathNotFound(path));
+        }
+
+        if !path.is_dir() {
+            return Err(BucketMapErr::RootPathNotFound(path));
+        }
+
+        Ok(BucketMap {
+            inner: Default::default(),
+            path: path.canonicalize()?,
+        })
+    }
+}
+
+async fn sync_objects(
+    vec: Vec<PathBuf>,
+    bucket: &str,
+    key: &str,
+    local_storage: &LocalStorage,
+) -> Vec<Object> {
+    let mut resp = Vec::new();
+    for path in vec {
+         
+        if let Some(name) = path.file_name().and_then(|x| x.to_str()) && let Some(object) = local_storage.get_object(bucket, key, name).await {
+            tracing::info!("[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}");
+            resp.push(object);
+        } else {
+            let Ok(chk) = CheckSum::new(&path).check_sum() else {
+                tracing::error!("[ fn_sync_object ] {{ Calculate error }} invalid checksum of {path:?}");
+                continue;
+            };
+            if let Some(obj) = local_storage.get_object_hashfile(bucket, key, &chk).await {
+                let mut to = path.clone();
+                to.pop();
+                to.push(&obj.file_name);
+                tracing::warn!("[ fn_sync_object ] {{ Object found (Method:chaksum) }} {chk}");
+                tracing::warn!("[ fn_sync_object ] {{ Object rename }} path {path:?} to {to:?}");
+
+                if let Err(er) = tokio::fs::rename(&path, to).await {
+                    tracing::error!("[ fn_sync_object ] {{ Rename Error }} Error to rename the file {:?} to {:?} - Error: {er}", path.file_name().unwrap(), obj.file_name);
+                }
+                resp.push(obj);
+            } else {
+                tracing::warn!("[ fn_sync_object ] {{ Object not found (Method:chaksum) }} Object: {path:?}");
+                let object = ObjectBuilder::default().chechsum(chk).path(path).build().await;
+                tracing::warn!("[ fn_sync_object ] {{ Create new object }} Object: {object:?}");
+                local_storage.new_object(bucket, key, &object).await;
+                resp.push(object);
+            }
+        }
+    }
+    resp
+}
+
+fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut dirs = Vec::new();
+    let mut objects = Vec::new();
+    tracing::error!("entry {entry:?}");
+    let mut reader = entry.read_dir().unwrap();
+
+    while let Some(Ok(path)) = reader.next() {
+        let path = path.path();
+        if path.is_dir() {
+            dirs.push(path);
+        } else {
+            objects.push(path);
+        }
+    }
+    tracing::error!("{dirs:?} - {objects:?}");
+    (dirs, objects)
 }
 
 impl std::ops::Deref for BucketMap {

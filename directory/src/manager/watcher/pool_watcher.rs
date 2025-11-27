@@ -64,15 +64,13 @@ impl PollWatcherNotify {
 }
 
 impl Task for PollWatcherNotify {
-    fn task(mut self) -> impl Future<Output = ()> + Send + 'static
+    async fn task(mut self)
     where
         Self: Sized,
     {
-        async move {
-            let mut rx = self.rx.take().unwrap();
-            loop {
-                rx.recv().await;
-            }
+        let mut rx = self.rx.take().unwrap();
+        loop {
+            rx.recv().await;
         }
     }
 }

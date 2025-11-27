@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .workdir(state.read().await.path().to_string_lossy().into_owned())
         .build()
         .await;
-    
+
     let ls = LocalStorageBuild::default()
         .host(md_host)
         .port(md_port)
@@ -81,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let ls = Arc::new(ls);
+    state.write().await.build(ls.as_ref()).await.unwrap();
 
     let (msgs, task) = Manager::new(
         state.clone(),

@@ -15,16 +15,19 @@ const DEFAULT_LENGTH_NANOID: usize = 24;
 pub struct Bucket(String);
 
 impl Bucket {
-    pub async fn new_or_rename<T>(path: T) -> Self 
-    where 
-        T: AsRef<Path>
+    pub async fn new_or_rename<T>(path: T) -> Self
+    where
+        T: AsRef<Path>,
     {
         let file_name = FileNameUtf8::run(path.as_ref()).await.ok().unwrap();
         Self(file_name)
     }
 
-    pub fn new<T: AsRef<Path>>(path: &T) -> Self {
-        path.as_ref().file_name().and_then(|x| x.to_str().map(ToString::to_string)).map(Self).unwrap()
+    pub fn new<T: AsRef<Path>>(path: &T) -> Option<Self> {
+        path.as_ref()
+            .file_name()
+            .and_then(|x| x.to_str().map(ToString::to_string))
+            .map(Self)
     }
 
     pub fn new_random(ext: Option<&OsStr>) -> Self {
@@ -40,14 +43,14 @@ impl Bucket {
         self.0
     }
 
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         self.as_ref()
     }
 }
 
-impl<T> From<T> for Bucket 
-where 
-    T: Into<String>
+impl<T> From<T> for Bucket
+where
+    T: Into<String>,
 {
     fn from(value: T) -> Self {
         Self(value.into())

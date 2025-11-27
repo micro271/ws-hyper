@@ -5,12 +5,12 @@ pub mod pg_listen;
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
     grpc_v1::Permissions,
-    manager::{ManagerChSenders, new_file_tba::CreateRateLimit, websocker::MsgWs},
+    manager::{ManagerChSenders, new_file_tba::CreateRateLimit},
 };
 use hyper_tungstenite::HyperWebsocket;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::sync::{RwLock, RwLockReadGuard, mpsc::Sender};
+use tokio::sync::{RwLock, RwLockReadGuard};
 use uuid::Uuid;
 
 #[derive(Debug)]

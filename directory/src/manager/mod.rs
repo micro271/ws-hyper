@@ -20,12 +20,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    bucket::{
-        Bucket,
-        bucket_map::BucketMap,
-        key::Key,
-        object::Object,
-    },
+    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
     grpc_v1::ConnectionAuthMS,
     manager::{
         utils::{Run, SplitTask, Task},
@@ -161,14 +156,27 @@ impl Task for ManagerRunning {
             match self.rx.recv().await {
                 Some(change) => {
                     match &change {
-                        Change::NewObject { object, key, .. } => {
-                            self.local_storage.new_object(object, key).await;
+                        Change::NewObject {
+                            object,
+                            key,
+                            bucket,
+                        } => {
+                            self.local_storage.new_object(bucket, key, object).await;
                         }
-                        Change::DeleteObject { object, .. } => {
-                            self.local_storage.delete_object(object).await;
+                        Change::DeleteObject {
+                            object,
+                            bucket,
+                            key,
+                        } => {
+                            self.local_storage.delete_object(bucket, key, object).await;
                         }
-                        Change::NameObject { key, to, .. } => {
-                            self.local_storage.sync_object(&key, &to).await;
+                        Change::NameObject {
+                            key,
+                            to,
+                            bucket,
+                            from,
+                        } => {
+                            self.local_storage.set_name(bucket, key, from, to).await;
                         }
                         Change::NewBucket { .. }
                         | Change::DeleteBucket { .. }
@@ -219,7 +227,7 @@ pub enum Change {
         bucket: Bucket,
         key: Key,
         from: String,
-        to: Object,
+        to: String,
     },
     NameBucket {
         from: Bucket,

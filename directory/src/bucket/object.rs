@@ -4,7 +4,7 @@ use std::{
     fs::Metadata,
     io::Read,
     os::unix::fs::MetadataExt,
-    path::Path,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
@@ -45,7 +45,11 @@ macro_rules! impl_canged {
     ($i:ident) => {
         impl crate::state::local_storage::Changed for $i {
             fn change(&self, other: &Self) -> bool {
-                other.0.as_ref().and_then(|x| self.0.as_ref().map(|y| y > x)).unwrap_or_default()
+                other
+                    .0
+                    .as_ref()
+                    .and_then(|x| self.0.as_ref().map(|y| y > x))
+                    .unwrap_or_default()
             }
         }
     };
@@ -73,6 +77,17 @@ impl_canged!(ObjectCreated);
 impl_canged!(ObjectAccessed);
 impl_canged!(ObjectModified);
 
+pub struct BuilderObjNotPath;
+pub struct BuilderObjPath(PathBuf);
+
+pub struct ObjectBuilder<T> {
+    path: T,
+    name: Option<String>,
+    chechsum: Option<String>,
+    seen_by: Option<Vec<String>>,
+    taken_by: Option<Vec<String>>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
     pub name: String,
@@ -87,23 +102,6 @@ pub struct Object {
 }
 
 impl Object {
-    pub async fn new_from_object<T: AsRef<Path>>(path: T, obj: &Object) -> Self {
-        let path = path.as_ref();
-        let meta = path.metadata().ok();
-        let (modified, accessed, created, size) = get_info_metadata(meta);
-
-        Self {
-            modified,
-            accessed,
-            created,
-            size,
-            name: obj.name.clone(),
-            file_name: obj.file_name.clone(),
-            chechsum: obj.chechsum.clone(),
-            seen_by: obj.seen_by.clone(),
-            taken_by: obj.taken_by.clone(),
-        }
-    }
     pub async fn new<T>(path: T) -> Self
     where
         T: AsRef<Path>,
@@ -117,8 +115,12 @@ impl Object {
             .await
             .unwrap();
 
-        let file_name = NormalizeForObjectName::run(&path).await;
-        let name = path.file_name().and_then(|x| x.to_str()).map(ToString::to_string).unwrap_or(file_name.clone());
+        let file_name = NormalizeForObjectName::run(path).await;
+        let name = path
+            .file_name()
+            .and_then(|x| x.to_str())
+            .map(ToString::to_string)
+            .unwrap_or(file_name.clone());
 
         Self {
             name,
@@ -131,10 +133,7 @@ impl Object {
             ..Default::default()
         }
     }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
+    
 }
 
 fn get_info_metadata(
@@ -174,7 +173,7 @@ impl<T: AsRef<Path>> CheckSum<T> {
         Self { path: path }
     }
 
-    fn check_sum(self) -> std::io::Result<String> {
+    pub fn check_sum(self) -> std::io::Result<String> {
         let file = std::fs::File::open(self.path)?;
         let mut reader = std::io::BufReader::new(file);
         let mut buffer = [0u8; 8192];
@@ -196,5 +195,80 @@ impl<T: AsRef<Path> + Send + 'static> CheckSum<T> {
         tokio::task::spawn_blocking(|| self.check_sum())
             .await
             .unwrap()
+    }
+}
+
+impl std::default::Default for ObjectBuilder<BuilderObjNotPath> {
+    fn default() -> Self {
+        Self {
+            path: BuilderObjNotPath,
+            name: None,
+            chechsum: None,
+            seen_by: None,
+            taken_by: None,
+        }
+    }
+}
+
+impl ObjectBuilder<BuilderObjNotPath> {
+    pub fn path(self, path: PathBuf) -> ObjectBuilder<BuilderObjPath> {
+        ObjectBuilder {
+            path: BuilderObjPath(path),
+            name: self.name,
+            chechsum: self.chechsum,
+            seen_by: self.seen_by,
+            taken_by: self.taken_by,
+        }
+    }
+}
+
+impl<T> ObjectBuilder<T> {
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+    pub fn chechsum(mut self, chechsum: String) -> Self {
+        self.chechsum = Some(chechsum);
+        self
+    }
+    pub fn seen_by(mut self, seen_by: Vec<String>) -> Self {
+        self.seen_by = Some(seen_by);
+        self
+    }
+    pub fn taken_by(mut self, taken_by: Vec<String>) -> Self {
+        self.taken_by = Some(taken_by);
+        self
+    }
+}
+
+impl ObjectBuilder<BuilderObjPath> {
+    pub async fn build(self) -> Object {
+        let BuilderObjPath(path) = self.path;
+        let meta = path.metadata().ok();
+        let (modified, accessed, created, size) = get_info_metadata(meta);
+
+        let chechsum = if let Some(chk) = self.chechsum {
+            chk
+        } else {
+            CheckSum::new(path.to_path_buf())
+                .check_sum_async()
+                .await
+                .unwrap()
+        };
+
+        let file_name = NormalizeForObjectName::run(&path).await;
+        
+        let name = self.name.unwrap_or(path.file_name().and_then(|x| x.to_str()).map_or(file_name.clone(), |x| x.to_string()));
+
+        Object {
+            name,
+            file_name,
+            chechsum,
+            size,
+            modified,
+            accessed,
+            created,
+            ..Default::default()
+        }
     }
 }

@@ -3,10 +3,13 @@ use std::sync::Arc;
 use notify::{Error, Event};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::{manager::{
-    Change,
-    utils::{OneshotSender, Run, SplitTask, TakeOwn},
-}, state::local_storage::LocalStorage};
+use crate::{
+    manager::{
+        Change,
+        utils::{OneshotSender, Run, SplitTask, TakeOwn},
+    },
+    state::local_storage::LocalStorage,
+};
 
 use super::{
     EventWatcher, PathBuf, RecursiveMode, RenameControl, Watcher, WatcherErr, unbounded_channel,

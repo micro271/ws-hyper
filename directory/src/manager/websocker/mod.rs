@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use futures::{
     SinkExt, StreamExt,
@@ -124,14 +124,12 @@ impl Task for WebSocket {
                 }
             }
         }
-        
     }
 }
 
 impl WebSocket {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel(128);
-        Self { rx, tx }
+        Self::default()
     }
     async fn client_messages_handler(
         mut ws: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
@@ -167,6 +165,13 @@ impl WebSocket {
         }
 
         Ok(())
+    }
+}
+
+impl std::default::Default for WebSocket {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel(128);
+        Self { rx, tx }
     }
 }
 

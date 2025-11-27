@@ -23,8 +23,12 @@ impl Key {
     pub fn from_bucket<T: AsRef<Path>>(bucket: &Bucket, path: T) -> Option<Self> {
         let path = path.as_ref().to_str()?;
         let name = bucket.name();
-        
-        Some(path.split(&format!("{name}/")).nth(1).and_then(|x| x.strip_prefix("/")).map_or(Self("".to_string()),Self::new))
+        tracing::error!("from_bucket {path} - namr: {name}");
+        path.split(&format!("{name}"))
+            .nth(1)
+            .map(|x| if x.starts_with("/") { x.strip_prefix("/").unwrap() } else { x })
+            .map(|x| if x.is_empty() { "." } else { x })
+            .map(Self::new)
     }
 }
 
@@ -38,5 +42,11 @@ impl std::ops::Deref for Key {
     type Target = str;
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
+    }
+}
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
