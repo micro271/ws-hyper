@@ -96,7 +96,11 @@ impl Run for Manager {
         Self: Sized,
     {
         match self.watcher_params {
-            WatcherParams::Event { path, r#await, ignore_rename_suffix } => {
+            WatcherParams::Event {
+                path,
+                r#await,
+                ignore_rename_suffix,
+            } => {
                 let task = EventWatcherBuilder::default()
                     .path(path)
                     .unwrap()

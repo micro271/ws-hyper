@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_username,
         md_pass,
         md_database,
-        ignore_rename_suffix
+        ignore_rename_suffix,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();

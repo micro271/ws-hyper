@@ -24,7 +24,9 @@ impl Key {
         let path = path.as_ref().to_str()?;
         let name = bucket.name();
         tracing::trace!("[ Key::fn_from_bucket ] path: {path} - name: {name}");
-        path.split_once(name).map(|(_,x)| x.strip_prefix("/").unwrap_or(x) ).map(|x| Self::new( if x.is_empty() { "." } else {x} ))
+        path.split_once(name)
+            .map(|(_, x)| x.strip_prefix("/").unwrap_or(x))
+            .map(|x| Self::new(if x.is_empty() { "." } else { x }))
     }
 }
 

@@ -12,11 +12,11 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    bucket::{
-        Bucket, key::Key, object::Object, utils::{FileNameUtf8, Renamed, find_bucket}
-    },
     manager::{
-        utils::{AsyncRecv, OneshotSender, SplitTask, Task},
+        utils::{
+            hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_watcher, AsyncRecv,
+            OneshotSender, SplitTask, Task,
+        },
         watcher::{NotifyChType, error::WatcherErr},
     },
     state::local_storage::LocalStorage,
@@ -53,47 +53,18 @@ where
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
                     let mut paths = event.paths;
+
                     let Some(path) = paths.pop() else {
-                        tracing::debug!("[Event Watcher] Paths is empty");
                         continue;
                     };
 
-                    let file_name = match FileNameUtf8::run(&path).await {
-                        Renamed::Yes(name) => {
-                            tracing::warn!(
-                                "[Event Watcher] {{ Rename bucket }} from: {path:?} to: {name:?}"
-                            );
-                            continue;
+                    match hd_new_bucket_or_key_watcher(path, root).await {
+                        Ok(ch) => {
+                            if let Err(err) = self.change_notify.send(ch) {
+                                tracing::error!("[Event Wtcher] Sender error: {err}");
+                            }
                         }
-                        Renamed::Not(str) => str,
-                        Renamed::Fail(error) => {
-                            tracing::error!(
-                                "[Event Watcher] {{ Error to obtain the bucket name }} Path: {path:?} - Error: {error}"
-                            );
-                            continue;
-                        }
-                    };
-
-                    if path.parent().is_some_and(|x| x == path) {
-                        let bucket = Bucket::from(file_name);
-                        if let Err(err) = self.change_notify.send(Change::NewBucket { bucket }) {
-                            tracing::error!(
-                                "[Event Watcher] {{ New Bucket }} nofity error: {err} - path: {:?}",
-                                path
-                            );
-                        }
-                    } else if let Some(bucket) = find_bucket(root, &path)
-                        && let Some(key) = Key::from_bucket(&bucket, &path)
-                    {
-                        tracing::info!("[Event Watcher] Ket key in the bucket {bucket} - key: {key:?}");
-                        if let Err(err) = self.change_notify.send(Change::NewKey { bucket, key }) {
-                            tracing::error!(
-                                "[Event Watcher] {{ New Key }} nofity error: {err} - path: {:?}",
-                                path
-                            );
-                        }
-                    } else {
-                        tracing::error!("Bucket not found {path:?}");
+                        Err(_) => todo!(),
                     }
                 }
                 notify::EventKind::Create(action) => {
@@ -107,35 +78,18 @@ where
                         );
                         continue;
                     };
-                    if path.file_name().and_then(|x| x.to_str()).is_some_and(|x| x.ends_with(&self.ignore_rename_prefix)) {
-                        tracing::info!("[Event Watcher] {{ Ignore object }} {path:?} ");
-                        continue;
+
+                    match hd_new_object_watcher(path, root, &self.ignore_rename_prefix).await {
+                        Ok((filename, ch)) => {
+                            if let Err(er) = self.change_notify.send(ch) {
+                                tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
+                                continue;
+                            }
+
+                            rename_skip.push(filename);
+                        }
+                        Err(()) => todo!(),
                     }
-
-                    let Some(parent) = path.parent().filter(|x| x != &root) else {
-                        tracing::error!("[Event Watcher] Objects aren't allowed in the root path");
-                        continue;
-                    };
-
-                    let bucket = find_bucket(root, &path).unwrap();
-                    let key = Key::from_bucket(&bucket, parent).unwrap();
-                    let object = Object::new(&path).await;
-
-                    tracing::trace!(
-                        "[Event Watcher] bucket: {bucket} - key: {key} - object: {object:?}"
-                    );
-                    let file_name = object.file_name.clone();
-
-                    if let Err(er) = self.change_notify.send(Change::NewObject {
-                        bucket,
-                        key,
-                        object,
-                    }) {
-                        tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
-                        continue;
-                    }
-
-                    rename_skip.push(file_name);
                 }
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
                     let mut path = event.paths;
@@ -144,6 +98,7 @@ where
                     tracing::debug!(
                         "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
                     );
+
                     if let Err(err) = tx_rename.send(Rename::From(RenameFrom::new(path))) {
                         tracing::error!("{err}");
                     }
@@ -152,7 +107,7 @@ where
                     tracing::trace!("Modify both {:?}", event.paths);
                     let mut paths = event.paths;
 
-                    let (Some(mut to), Some(mut from)) = (paths.pop(), paths.pop()) else {
+                    let (Some(to), Some(from)) = (paths.pop(), paths.pop()) else {
                         continue;
                     };
 
@@ -160,105 +115,22 @@ where
                         tracing::error!("{err}");
                     }
 
-                    let file_name = match FileNameUtf8::run(&to).await {
-                        Renamed::Yes(name) => {
-                            tracing::debug!(
-                                "[Event Watcher] {{ Rename tracking }} new name: {name:?} - from: {from:?}"
-                            );
-                            rename_tracking.insert(name, from);
-                            continue;
-                        }
-                        Renamed::Not(name) => {
-                            if let Some(from_) = rename_tracking.remove(&name) {
-                                from = from_;
-                            } else if rename_skip.pop_if(|x| *x == name).is_some() {
-                                continue;
-                            }
-                            name
-                        }
-                        Renamed::Fail(error) => {
-                            tracing::error!("{error}");
-                            continue;
-                        }
-                    };
-
-                    if to.is_dir() {
-                        if from.parent().is_some_and(|x| x == root) {
-                            if let Some(from) = Bucket::new(&from)
-                                && let Some(to) = Bucket::new(&to)
-                                && let Err(er) =
-                                    self.change_notify.send(Change::NameBucket { from, to })
-                            {
-                                tracing::error!("[Event Watcher] {{ Modify Name Bucket }} {er}");
-                            }
-                        } else {
-                            let Some(bucket) = find_bucket(root, &from) else {
-                                continue;
-                            };
-
-                            if let Some(_from) = Key::from_bucket(&bucket, &from)
-                                && let Some(to) = Key::from_bucket(&bucket, &to)
-                                && let Err(er) = self.change_notify.send(Change::NameKey {
-                                    bucket,
-                                    from: _from,
-                                    to,
-                                })
-                            {
-                                tracing::error!(
-                                    "[Event Watcher] {{ Sender error }} {er} - {:?}",
-                                    from
-                                );
-                            } else {
-                                tracing::error!(
-                                    "[Event Watcher] {{ Fail to obtain the key from: {from:?} - to: {to:?} }}"
-                                );
+                    match hd_rename_watcher(
+                        root,
+                        from,
+                        to,
+                        &mut rename_tracking,
+                        &mut rename_skip,
+                        &self.obj_ls,
+                    )
+                    .await
+                    {
+                        Ok(ch) => {
+                            if let Err(err) = self.change_notify.send(ch) {
+                                tracing::error!("{err}");
                             }
                         }
-                    } else {
-                        let Some(bucket) = find_bucket(root, &from) else {
-                            tracing::error!(
-                                "[Event Watcher] {{ find_bucket }} Bucket {from:?} not found"
-                            );
-                            continue;
-                        };
-
-                        let key = Key::from_bucket(&bucket, from.parent().unwrap()).unwrap();
-                        to.pop();
-                        to.push(&file_name);
-
-                        let Some(object) = self
-                            .obj_ls
-                            .get_object_filename(
-                                &bucket,
-                                &key,
-                                from.file_name().and_then(|x| x.to_str()).unwrap(),
-                            )
-                            .await
-                        else {
-                            tracing::error!(
-                                "[Event Watcher] {{ LocalStorage }} object {file_name:?} not found"
-                            );
-                            todo!()
-                        };
-                        tracing::error!("{:#?}", object);
-
-                        tracing::error!("{to:?} - {from:?}");
-
-                        if let Err(er) = tokio::fs::rename(to, from).await {
-                            tracing::error!("[Event Watcher] {{ Restore Name Error }} {er}");
-                            continue;
-                        }
-
-                        rename_skip.push(file_name.clone());
-
-                        if let Err(er) = self.change_notify.send(Change::NameObject {
-                            bucket,
-                            key,
-                            from: object.name,
-                            to: file_name,
-                        }) {
-                            tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
-                        }
+                        Err(_) => todo!(),
                     }
                 }
                 notify::EventKind::Remove(_) => {

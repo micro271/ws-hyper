@@ -1,9 +1,5 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
-use crate::{
-    bucket::key::Key,
-    manager::Change,
-    state::local_storage::LocalStorage,
-};
+use crate::{bucket::key::Key, manager::Change, state::local_storage::LocalStorage};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},

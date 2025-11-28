@@ -120,7 +120,7 @@ where
             path,
             change_notify: self.change_notify.take(),
             obj_ls: self.ls.unwrap(),
-            ignore_rename_prefix: self.ignore_rename_prefix.unwrap()
+            ignore_rename_prefix: self.ignore_rename_prefix.unwrap(),
         })
     }
 }
