@@ -21,6 +21,7 @@ pub struct EventWatcherBuilder<P, ChNot> {
     r#await: Option<u64>,
     change_notify: ChNot,
     ls: Option<Arc<LocalStorage>>,
+    ignore_rename_prefix: Option<String>,
 }
 
 impl<P, ChNot> EventWatcherBuilder<P, ChNot> {
@@ -33,6 +34,11 @@ impl<P, ChNot> EventWatcherBuilder<P, ChNot> {
         self.ls = Some(local_storage);
         self
     }
+
+    pub fn ignore_rename_prefix(mut self, suffix: String) -> Self {
+        self.ignore_rename_prefix = Some(suffix);
+        self
+    }
 }
 
 impl<P> EventWatcherBuilder<P, EventWatcherNoNotify> {
@@ -42,6 +48,7 @@ impl<P> EventWatcherBuilder<P, EventWatcherNoNotify> {
             r#await: self.r#await,
             change_notify: EventWatcherNotify(tx),
             ls: None,
+            ignore_rename_prefix: None,
         }
     }
 }
@@ -61,6 +68,7 @@ impl<CN> EventWatcherBuilder<EventWatcherNoPath, CN> {
             path: EventWatcherPath(path),
             r#await: self.r#await,
             change_notify: self.change_notify,
+            ignore_rename_prefix: self.ignore_rename_prefix,
             ls: None,
         })
     }
@@ -109,9 +117,10 @@ where
             rename_control_sender: rename_control,
             tx,
             rx,
-            path: path,
+            path,
             change_notify: self.change_notify.take(),
             obj_ls: self.ls.unwrap(),
+            ignore_rename_prefix: self.ignore_rename_prefix.unwrap()
         })
     }
 }
@@ -128,9 +137,10 @@ impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatc
     fn default() -> Self {
         Self {
             path: EventWatcherNoPath,
-            r#await: None,
             change_notify: EventWatcherNoNotify,
+            r#await: None,
             ls: None,
+            ignore_rename_prefix: None,
         }
     }
 }

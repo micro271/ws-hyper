@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_username,
         md_pass,
         md_database,
+        ignore_rename_suffix
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -58,9 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = BucketMap::new(watcher_path)?;
-
-    let state = Arc::new(RwLock::new(state));
+    let state = Arc::new(RwLock::new(BucketMap::new(watcher_path)?));
     let listen_b = ListenBucketBuilder::default()
         .username(username)
         .database(database_name)
@@ -78,7 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .password(md_pass)
         .username(md_username)
         .database(md_database)
-        .build();
+        .build()
+        .await;
 
     let ls = Arc::new(ls);
     state.write().await.build(ls.as_ref()).await.unwrap();
@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli::TypeWatcher::Event => WatcherParams::Event {
                 path: PathBuf::from(state.read().await.path()),
                 r#await: None,
+                ignore_rename_suffix,
             },
         },
         grpc_auth_server,

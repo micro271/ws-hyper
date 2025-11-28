@@ -88,8 +88,7 @@ impl Task for ListenBucket {
     }
 }
 
-pub async fn delete(bk: PathBuf, force: bool) {
-    let mut path = PathBuf::from(bk);
+pub async fn delete(mut path: PathBuf, force: bool) {
     if !path.exists() {
         tracing::warn!("dir: {path:?} not found");
         return;

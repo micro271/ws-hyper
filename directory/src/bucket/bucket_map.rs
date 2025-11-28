@@ -1,9 +1,6 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
-    bucket::{
-        key::Key,
-        object::{CheckSum, ObjectBuilder},
-    },
+    bucket::key::Key,
     manager::Change,
     state::local_storage::LocalStorage,
 };
@@ -135,23 +132,24 @@ impl BucketMap {
         let mut path = self.path.clone();
         for (bks, map) in &mut buckets {
             path.push(bks);
-            tracing::error!("{path:?}");
-            
+            tracing::trace!("[BucketMap] {{ build }} bucket found: {bks}");
+
             let mut list_dirs = VecDeque::new();
             list_dirs.push_back(path.clone());
-            
-            list_dirs.extend(path
-                .read_dir()?
-                .filter_map(|x| x.ok().filter(|y| y.path().is_dir()).map(|x| x.path()))
-                .collect::<Vec<_>>());
 
-            tracing::error!("{list_dirs:?}");
+            list_dirs.extend(
+                path.read_dir()?
+                    .filter_map(|x| x.ok().filter(|y| y.path().is_dir()).map(|x| x.path()))
+                    .collect::<Vec<_>>(),
+            );
+
+            tracing::trace!("[BucketMap] {{ Directories }} {list_dirs:?}");
             while let Some(dir) = list_dirs.pop_front() {
                 let (dirs, objs) = dir_objects(&dir);
                 list_dirs.extend(dirs);
                 let key = Key::from_bucket(bks, &dir).unwrap();
                 let objects = sync_objects(objs, bks, &key, local_storage).await;
-                tracing::warn!("bucket {bks} - key {key:?} - {objects:?} - path: {path:?}");
+                tracing::trace!("bucket {bks} - key {key:?} - {objects:?} - path: {path:?}");
                 map.insert(key, objects);
             }
 
@@ -186,33 +184,21 @@ async fn sync_objects(
 ) -> Vec<Object> {
     let mut resp = Vec::new();
     for path in vec {
-         
-        if let Some(name) = path.file_name().and_then(|x| x.to_str()) && let Some(object) = local_storage.get_object(bucket, key, name).await {
-            tracing::info!("[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}");
+        if let Some(name) = path.file_name().and_then(|x| x.to_str())
+            && let Some(object) = local_storage.get_object_filename(bucket, key, name).await
+        {
+            tracing::info!(
+                "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"
+            );
             resp.push(object);
-        } else {
-            let Ok(chk) = CheckSum::new(&path).check_sum() else {
-                tracing::error!("[ fn_sync_object ] {{ Calculate error }} invalid checksum of {path:?}");
-                continue;
-            };
-            if let Some(obj) = local_storage.get_object_hashfile(bucket, key, &chk).await {
-                let mut to = path.clone();
-                to.pop();
-                to.push(&obj.file_name);
-                tracing::warn!("[ fn_sync_object ] {{ Object found (Method:chaksum) }} {chk}");
-                tracing::warn!("[ fn_sync_object ] {{ Object rename }} path {path:?} to {to:?}");
 
-                if let Err(er) = tokio::fs::rename(&path, to).await {
-                    tracing::error!("[ fn_sync_object ] {{ Rename Error }} Error to rename the file {:?} to {:?} - Error: {er}", path.file_name().unwrap(), obj.file_name);
-                }
-                resp.push(obj);
-            } else {
-                tracing::warn!("[ fn_sync_object ] {{ Object not found (Method:chaksum) }} Object: {path:?}");
-                let object = ObjectBuilder::default().chechsum(chk).path(path).build().await;
-                tracing::warn!("[ fn_sync_object ] {{ Create new object }} Object: {object:?}");
-                local_storage.new_object(bucket, key, &object).await;
-                resp.push(object);
+            continue;
+        } else {
+            let obj = Object::new(path).await;
+            if let Err(er) = local_storage.new_object(bucket, key, &obj).await {
+                tracing::error!("{er}");
             }
+            resp.push(obj);
         }
     }
     resp
@@ -221,7 +207,7 @@ async fn sync_objects(
 fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut dirs = Vec::new();
     let mut objects = Vec::new();
-    tracing::error!("entry {entry:?}");
+    tracing::trace!("[ fn_dir_objects ] entry {entry:?}");
     let mut reader = entry.read_dir().unwrap();
 
     while let Some(Ok(path)) = reader.next() {
@@ -232,7 +218,9 @@ fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             objects.push(path);
         }
     }
-    tracing::error!("{dirs:?} - {objects:?}");
+    tracing::trace!(
+        "[ fn_dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
+    );
     (dirs, objects)
 }
 

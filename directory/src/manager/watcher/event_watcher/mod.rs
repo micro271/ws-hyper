@@ -13,10 +13,7 @@ use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
     bucket::{
-        Bucket,
-        key::Key,
-        object::Object,
-        utils::{FileNameUtf8, Renamed, find_bucket},
+        Bucket, key::Key, object::Object, utils::{FileNameUtf8, Renamed, find_bucket}
     },
     manager::{
         utils::{AsyncRecv, OneshotSender, SplitTask, Task},
@@ -36,6 +33,7 @@ pub struct EventWatcher<Tx, Rx, TxChange> {
     path: PathBuf,
     rename_control_sender: RenameControlCh,
     obj_ls: Arc<LocalStorage>,
+    ignore_rename_prefix: String,
 }
 
 impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
@@ -85,8 +83,9 @@ where
                             );
                         }
                     } else if let Some(bucket) = find_bucket(root, &path)
-                        && let Some(key) = Key::from_bucket(&bucket, &path) {
-                        tracing::error!("KEYYY {key:?}");
+                        && let Some(key) = Key::from_bucket(&bucket, &path)
+                    {
+                        tracing::info!("[Event Watcher] Ket key in the bucket {bucket} - key: {key:?}");
                         if let Err(err) = self.change_notify.send(Change::NewKey { bucket, key }) {
                             tracing::error!(
                                 "[Event Watcher] {{ New Key }} nofity error: {err} - path: {:?}",
@@ -108,21 +107,23 @@ where
                         );
                         continue;
                     };
-
-                    if path.parent().is_some_and(|x| x == root) {
-                        tracing::error!("[Event Watcher] Objects aren't allowed in the root path");
+                    if path.file_name().and_then(|x| x.to_str()).is_some_and(|x| x.ends_with(&self.ignore_rename_prefix)) {
+                        tracing::info!("[Event Watcher] {{ Ignore object }} {path:?} ");
                         continue;
                     }
 
+                    let Some(parent) = path.parent().filter(|x| x != &root) else {
+                        tracing::error!("[Event Watcher] Objects aren't allowed in the root path");
+                        continue;
+                    };
+
                     let bucket = find_bucket(root, &path).unwrap();
-                    tracing::trace!("[Event Watcher] bucket: {bucket}");
-
-                    let key = Key::from_bucket(&bucket, &path).unwrap();
-                    tracing::trace!("[Event Watcher] key: {key:?}");
-
+                    let key = Key::from_bucket(&bucket, parent).unwrap();
                     let object = Object::new(&path).await;
 
-                    tracing::trace!("[Event Watcher] object: {object:?}");
+                    tracing::trace!(
+                        "[Event Watcher] bucket: {bucket} - key: {key} - object: {object:?}"
+                    );
                     let file_name = object.file_name.clone();
 
                     if let Err(er) = self.change_notify.send(Change::NewObject {
@@ -227,7 +228,7 @@ where
 
                         let Some(object) = self
                             .obj_ls
-                            .get_object(
+                            .get_object_filename(
                                 &bucket,
                                 &key,
                                 from.file_name().and_then(|x| x.to_str()).unwrap(),

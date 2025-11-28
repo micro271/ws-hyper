@@ -61,6 +61,9 @@ pub struct Args {
 
     #[arg(long = "md-database-name", env = "MD_DATABASE_NAME")]
     pub md_database: String,
+
+    #[arg(long = "ignore-rename-suffix", env = "IGNORE_RENAME_SUFFIX", default_value = ".__stream-in-progress")]
+    pub ignore_rename_suffix: String,
 }
 
 #[derive(Clone, ValueEnum)]

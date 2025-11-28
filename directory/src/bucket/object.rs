@@ -120,7 +120,7 @@ impl Object {
             .file_name()
             .and_then(|x| x.to_str())
             .map(ToString::to_string)
-            .unwrap_or(file_name.clone());
+            .unwrap_or(file_name.clone().replace(EXTENSION_OBJECT, "__unknown"));
 
         Self {
             name,
@@ -133,7 +133,6 @@ impl Object {
             ..Default::default()
         }
     }
-    
 }
 
 fn get_info_metadata(
@@ -170,7 +169,7 @@ pub struct CheckSum<T> {
 
 impl<T: AsRef<Path>> CheckSum<T> {
     pub fn new(path: T) -> Self {
-        Self { path: path }
+        Self { path }
     }
 
     pub fn check_sum(self) -> std::io::Result<String> {
@@ -257,8 +256,12 @@ impl ObjectBuilder<BuilderObjPath> {
         };
 
         let file_name = NormalizeForObjectName::run(&path).await;
-        
-        let name = self.name.unwrap_or(path.file_name().and_then(|x| x.to_str()).map_or(file_name.clone(), |x| x.to_string()));
+
+        let name = self.name.unwrap_or(
+            path.file_name()
+                .and_then(|x| x.to_str())
+                .map_or(file_name.clone(), |x| x.to_string()),
+        );
 
         Object {
             name,

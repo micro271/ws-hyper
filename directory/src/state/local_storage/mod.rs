@@ -1,15 +1,25 @@
-use std::collections::{HashMap, HashSet};
+pub mod error;
 
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use mongodb::{
-    Client,
+    Client, IndexModel,
     bson::{self, Document, doc},
-    options::{ClientOptions, Credential, ServerAddress},
+    options::{ClientOptions, Credential, IndexOptions, ServerAddress},
+    results::{InsertOneResult, UpdateResult},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::bucket::{Bucket, bucket_map::{BucketMap, BucketMapType}, key::Key, object::{self, Object}};
+use crate::{
+    bucket::{
+        Bucket,
+        bucket_map::{BucketMap, BucketMapType},
+        key::Key,
+        object::Object,
+    },
+    state::local_storage::error::LsError,
+};
 
 macro_rules! diff {
     ($t1: expr, $t2: expr $(,$field: ident)+) => {{
@@ -91,62 +101,103 @@ impl LocalStorage {
 
     pub async fn clear(&self, map: BucketMap) {
         let db = self.pool.default_database().unwrap();
-        let mut cursor = db.collection::<AsObjectDeserialize>(COLLECTION).find(doc! {}).await.unwrap();
+        let mut cursor = db
+            .collection::<AsObjectDeserialize>(COLLECTION)
+            .find(doc! {})
+            .await
+            .unwrap();
         let mut tree_aux: BucketMapType = Default::default();
 
         loop {
             match cursor.next().await {
                 Some(Ok(item)) => {
-                    let tmp = tree_aux.entry(Bucket::new_unchecked(item.bucket)).or_default();
+                    let tmp = tree_aux
+                        .entry(Bucket::new_unchecked(item.bucket))
+                        .or_default();
                     let tmp = tmp.entry(Key::new(item.key)).or_default();
                     tmp.push(item.object);
-                },
+                }
                 Some(Err(er)) => tracing::error!("{er}"),
                 None => break,
             }
         }
-        let bucket_map = map.keys().map(|x| x.clone()).collect::<HashSet<_>>();
-        let bucket_db = tree_aux.keys().map(|x| x.clone()).collect::<HashSet<_>>();
+        let bucket_map = map.keys().cloned().collect::<HashSet<_>>();
+        let bucket_db = tree_aux.keys().cloned().collect::<HashSet<_>>();
         let dif = bucket_db.difference(&bucket_map).collect::<HashSet<_>>();
         for i in dif {
-            if let Err(er) = db.collection::<Document>(COLLECTION).delete_many(doc! {"bucket": i.name()}).await {
+            if let Err(er) = db
+                .collection::<Document>(COLLECTION)
+                .delete_many(doc! {"bucket": i.name()})
+                .await
+            {
                 tracing::error!("[LocalStorage] {{ Delete Bucket in Db }} Error: {er}");
             }
             let branch = tree_aux.remove(i);
             tracing::warn!("[LocalStorage] {{ Delete Branch }} bucket: {branch:#?}");
         }
-        
+
         for i in bucket_map {
-            let key_map = map.get(&i).unwrap().keys().map(|x| x.clone()).collect::<HashSet<Key>>();
-            let key_db = tree_aux.get(&i).unwrap().keys().map(|x| x.clone()).collect::<HashSet<Key>>();
+            let key_map = map
+                .get(&i)
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<HashSet<Key>>();
+            let key_db = tree_aux
+                .get(&i)
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<HashSet<Key>>();
             let dif = key_db.difference(&key_map).collect::<HashSet<_>>();
             for j in dif {
-                if let Err(er) = db.collection::<Document>(COLLECTION).delete_many(doc! {"key": j.name()}).await {
+                if let Err(er) = db
+                    .collection::<Document>(COLLECTION)
+                    .delete_many(doc! {"key": j.name()})
+                    .await
+                {
                     tracing::error!("[LocalStorage] {{ Delete Bucket in Db }} Error: {er}");
                 }
                 let branch = tree_aux.get_mut(&i).unwrap();
-                branch.remove(&j);
+                branch.remove(j);
                 tracing::warn!("[LocalStorage] {{ Delete Branch }} key: {branch:#?}");
             }
             for m in key_map {
-                let vec_map  = map.get(&i).and_then(|x| x.get(&m)).unwrap();
+                let vec_map = map.get(&i).and_then(|x| x.get(&m)).unwrap();
                 let vec_db = tree_aux.get(&i).and_then(|x| x.get(&m)).unwrap();
-                let to_delete = vec_db.iter().filter(|x| !vec_map.iter().any(|y| y.chechsum == x.chechsum)).collect::<Vec<_>>();
+                let to_delete = vec_db
+                    .iter()
+                    .filter(|x| !vec_map.iter().any(|y| y.chechsum == x.chechsum))
+                    .collect::<Vec<_>>();
                 for n in to_delete {
-                    if let Err(er) = db.collection::<Document>(COLLECTION).update_one(doc! {"bucket": i.name(), "key": m.name()} ,doc! {"$pull": { "object.checksum": &n.chechsum }}).await {
+                    if let Err(er) = db
+                        .collection::<Document>(COLLECTION)
+                        .update_one(
+                            doc! {"bucket": i.name(), "key": m.name()},
+                            doc! {"$pull": { "object.checksum": &n.chechsum }},
+                        )
+                        .await
+                    {
                         tracing::error!("[LocalStorage] {{ Delete Object in Db }} Error: {er}");
                     } else {
-                        tracing::error!("[LocalStorage] {{ Delete Object in Db }} bucket: {i}, key: {m:?}, object.name: {:?}", n.name);
+                        tracing::error!(
+                            "[LocalStorage] {{ Delete Object in Db }} bucket: {i}, key: {m:?}, object.name: {:?}",
+                            n.name
+                        );
                     }
                 }
             }
         }
-        
     }
 
-    pub async fn get_object(&self, bucket: &str, key: &str, name: &str) -> Option<Object> {
+    pub async fn get_object_filename(
+        &self,
+        bucket: &str,
+        key: &str,
+        filename: &str,
+    ) -> Option<Object> {
         let tmp = self.pool.default_database().unwrap();
-        let filter = doc! { "bucket": bucket, "key": key, "object.file_name": name };
+        let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
 
         tmp.collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
@@ -156,9 +207,9 @@ impl LocalStorage {
             .map(|x| x.object)
     }
 
-    pub async fn get_object_hashfile(&self, bucket: &str, key: &str, hash: &str) -> Option<Object> {
+    pub async fn get_object_name(&self, bucket: &str, key: &str, name: &str) -> Option<Object> {
         let tmp = self.pool.default_database().unwrap();
-        let filter = doc! { "bucket": bucket, "key": key, "object.chechsum": hash };
+        let filter = doc! { "bucket": bucket, "key": key, "object.name": name };
 
         tmp.collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
@@ -168,14 +219,19 @@ impl LocalStorage {
             .map(|x| x.object)
     }
 
-    pub async fn new_object(&self, bucket: &str, key: &str, object: &Object) {
+    pub async fn new_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        object: &Object,
+    ) -> Result<InsertOneResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
         let new = AsObjectSerialize::new(bucket, key, object);
 
-        _ = tmp
+        Ok(tmp
             .collection::<AsObjectSerialize>(COLLECTION)
             .insert_one(new)
-            .await;
+            .await?)
     }
 
     pub async fn delete_object(&self, bucket: &str, key: &str, object: &Object) {
@@ -197,15 +253,21 @@ impl LocalStorage {
             .await;
     }
 
-    pub async fn set_name(&self, bucket: &str, key: &str, old_name: &str, new_name: &str) {
+    pub async fn set_name(
+        &self,
+        bucket: &str,
+        key: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<UpdateResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        _ = tmp
+        Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_one(
                 doc! {"bucket": bucket, "key": key, "object.name": old_name },
                 doc! { "object.name": new_name },
             )
-            .await;
+            .await?)
     }
 }
 
@@ -235,7 +297,7 @@ impl LocalStorageBuild {
         self
     }
 
-    pub fn build(self) -> LocalStorage {
+    pub async fn build(self) -> LocalStorage {
         let Self {
             password,
             database,
@@ -254,9 +316,22 @@ impl LocalStorageBuild {
         }];
         opts.credential = Some(cred);
 
-        LocalStorage {
+        let ls = LocalStorage {
             pool: Client::with_options(opts).unwrap(),
-        }
+        };
+
+        let index_opts = IndexOptions::builder().unique(true).build();
+        let index = IndexModel::builder()
+            .keys(doc! { "key": 1, "bucket": 1, "object.name": 1 })
+            .options(index_opts)
+            .build();
+        let db = ls.pool.default_database().unwrap();
+
+        db.collection::<Document>(COLLECTION)
+            .create_index(index)
+            .await
+            .unwrap();
+        ls
     }
 }
 

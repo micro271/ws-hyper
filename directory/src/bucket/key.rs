@@ -23,12 +23,8 @@ impl Key {
     pub fn from_bucket<T: AsRef<Path>>(bucket: &Bucket, path: T) -> Option<Self> {
         let path = path.as_ref().to_str()?;
         let name = bucket.name();
-        tracing::error!("from_bucket {path} - namr: {name}");
-        path.split(&format!("{name}"))
-            .nth(1)
-            .map(|x| if x.starts_with("/") { x.strip_prefix("/").unwrap() } else { x })
-            .map(|x| if x.is_empty() { "." } else { x })
-            .map(Self::new)
+        tracing::trace!("[ Key::fn_from_bucket ] path: {path} - name: {name}");
+        path.split_once(name).map(|(_,x)| x.strip_prefix("/").unwrap_or(x) ).map(|x| Self::new( if x.is_empty() { "." } else {x} ))
     }
 }
 

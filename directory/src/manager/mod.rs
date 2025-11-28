@@ -20,7 +20,13 @@ use tokio::sync::{
 };
 
 use crate::{
-    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
+    bucket::{
+        Bucket,
+        bucket_map::BucketMap,
+        key::Key,
+        object::Object,
+        utils::{NewObjNameHandlerBuilder, RenameObjHandlerBuilder},
+    },
     grpc_v1::ConnectionAuthMS,
     manager::{
         utils::{Run, SplitTask, Task},
@@ -90,13 +96,14 @@ impl Run for Manager {
         Self: Sized,
     {
         match self.watcher_params {
-            WatcherParams::Event { path, r#await } => {
+            WatcherParams::Event { path, r#await, ignore_rename_suffix } => {
                 let task = EventWatcherBuilder::default()
                     .path(path)
                     .unwrap()
                     .change_notify(self.tx.clone())
                     .rename_control_await(r#await.unwrap_or(2000))
                     .local_storage(self.local_storage.clone())
+                    .ignore_rename_prefix(ignore_rename_suffix)
                     .build()
                     .unwrap();
                 task.run();
@@ -154,14 +161,20 @@ impl Task for ManagerRunning {
 
         loop {
             match self.rx.recv().await {
-                Some(change) => {
-                    match &change {
+                Some(mut change) => {
+                    match &mut change {
                         Change::NewObject {
                             object,
                             key,
                             bucket,
                         } => {
-                            self.local_storage.new_object(bucket, key, object).await;
+                            NewObjNameHandlerBuilder::default()
+                                .bucket(bucket)
+                                .key(key)
+                                .object(object)
+                                .build()
+                                .run(self.local_storage.clone())
+                                .await;
                         }
                         Change::DeleteObject {
                             object,
@@ -176,7 +189,14 @@ impl Task for ManagerRunning {
                             bucket,
                             from,
                         } => {
-                            self.local_storage.set_name(bucket, key, from, to).await;
+                            RenameObjHandlerBuilder::default()
+                                .bucket(bucket)
+                                .key(key)
+                                .to(to)
+                                .from(from)
+                                .build()
+                                .run(self.local_storage.clone())
+                                .await;
                         }
                         Change::NewBucket { .. }
                         | Change::DeleteBucket { .. }
@@ -288,6 +308,7 @@ pub enum WatcherParams {
     Event {
         path: PathBuf,
         r#await: Option<u64>,
+        ignore_rename_suffix: String,
     },
     Poll {
         path: PathBuf,
