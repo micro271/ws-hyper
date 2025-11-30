@@ -105,13 +105,13 @@ impl<'a> RenameObjHandler<'a> {
 }
 
 fn name_generator(name: &mut String) {
-    let regex_replace_prefix = Regex::new(r"(^(~.*\$).*)__-").unwrap();
+    let regex_replace_prefix = Regex::new(r"(^(~.*\$).*)").unwrap();
     if regex_replace_prefix.is_match(name) {
         *name = regex_replace_prefix
-            .replace(name, &format!("~{}${}", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH), name))
+            .replace(name, &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)))
             .into_owned();
     } else {
         name
-            .insert_str(0, &format!("~{}${}", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH), name));
+            .insert_str(0, &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)));
     }
 }
