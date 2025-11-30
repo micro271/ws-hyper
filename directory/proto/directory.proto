@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package directory_handler;
+
+service Directory {
+    rpc CreateObject(FileNameReq) returns (FileNameReply);
+    rpc FileName(FileNameReq) returns (FileNameReply);
+}
+
+message FileNameReq {
+    string bucket = 1;
+    string key = 2;
+    string name = 3;
+}
+
+message FileNameReply {
+    string file_name = 1;
+}

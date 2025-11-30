@@ -25,7 +25,7 @@ use crate::{
         bucket_map::BucketMap,
         key::Key,
         object::Object,
-        utils::{NewObjNameHandlerBuilder, RenameObjHandlerBuilder},
+        utils::rename_handlers::{NewObjNameHandlerBuilder, RenameObjHandlerBuilder},
     },
     grpc_v1::ConnectionAuthMS,
     manager::{

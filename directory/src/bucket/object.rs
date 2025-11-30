@@ -110,10 +110,15 @@ impl Object {
         let meta = path.metadata().ok();
         let (modified, accessed, created, size) = get_info_metadata(meta);
 
-        let chechsum = CheckSum::new(path.to_path_buf())
-            .check_sum_async()
-            .await
-            .unwrap();
+        let chechsum = match CheckSum::new(path.to_path_buf()).check_sum_async().await {
+            Ok(msg) => msg,
+            Err(er) => {
+                tracing::error!(
+                    "[ Object::new ] Error to obtain the checksum, file: {path:?} - Error {er}"
+                );
+                String::default()
+            }
+        };
 
         let file_name = NormalizeForObjectName::run(path).await;
         let name = path

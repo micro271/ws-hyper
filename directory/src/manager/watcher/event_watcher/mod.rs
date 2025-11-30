@@ -14,8 +14,8 @@ use tokio::sync::mpsc::unbounded_channel;
 use crate::{
     manager::{
         utils::{
-            hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_watcher, AsyncRecv,
-            OneshotSender, SplitTask, Task,
+            AsyncRecv, OneshotSender, SplitTask, Task, hd_new_bucket_or_key_watcher,
+            hd_new_object_watcher, hd_rename_watcher,
         },
         watcher::{NotifyChType, error::WatcherErr},
     },
@@ -58,18 +58,20 @@ where
                         continue;
                     };
 
-                    match hd_new_bucket_or_key_watcher(path, root).await {
+                    match hd_new_bucket_or_key_watcher(path, root, &mut rename_skip).await {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Wtcher] Sender error: {err}");
                             }
                         }
-                        Err(_) => todo!(),
+                        Err(()) => {
+                            tracing::error!("[ CreateKinfFolder ] Error")
+                        }
                     }
                 }
                 notify::EventKind::Create(action) => {
                     tracing::trace!("Event: {event:?}");
-                    tracing::trace!("Object Type: {action:?}");
+                    tracing::trace!("Action: {action:?}");
                     let mut path = event.paths;
 
                     let Some(path) = path.pop() else {
@@ -79,16 +81,23 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(path, root, &self.ignore_rename_prefix).await {
-                        Ok((filename, ch)) => {
+                    match hd_new_object_watcher(
+                        path,
+                        root,
+                        &self.ignore_rename_prefix,
+                        &mut rename_skip,
+                    )
+                    .await
+                    {
+                        Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
                                 continue;
                             }
-
-                            rename_skip.push(filename);
                         }
-                        Err(()) => todo!(),
+                        Err(()) => {
+                            tracing::error!("[ CreateKinfOther ] Error")
+                        }
                     }
                 }
                 notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
@@ -130,11 +139,13 @@ where
                                 tracing::error!("{err}");
                             }
                         }
-                        Err(_) => todo!(),
+                        Err(()) => {
+                            tracing::error!("[ ModifyKind::Rename ] Error")
+                        }
                     }
                 }
-                notify::EventKind::Remove(_) => {
-                    todo!()
+                notify::EventKind::Remove(er) => {
+                    tracing::error!("{er:?}");
                 }
                 _ => {}
             }

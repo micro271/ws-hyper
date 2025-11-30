@@ -1,5 +1,9 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
-use crate::{bucket::key::Key, manager::Change, state::local_storage::LocalStorage};
+use crate::{
+    bucket::key::Key,
+    manager::Change,
+    state::local_storage::{LocalStorage, utils::sync_object_to_database},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
@@ -18,21 +22,39 @@ pub struct BucketMap {
 }
 
 impl BucketMap {
-    pub fn new_bucket(&mut self, bucket: Bucket) -> &mut BTreeMap<Key, Vec<Object>> {
+    pub fn new_bucket(&mut self, bucket: Bucket) {
+        self.inner.insert(bucket, Default::default());
+    }
+
+    pub fn get_tree_or_insert_default(
+        &mut self,
+        bucket: Bucket,
+    ) -> &mut BTreeMap<Key, Vec<Object>> {
         self.inner.entry(bucket).or_default()
     }
 
-    pub fn new_key(&mut self, bucket: Bucket, key: Key) -> &mut Vec<Object> {
-        self.new_bucket(bucket).entry(key).or_default()
+    pub fn new_key(&mut self, bucket: Bucket, key: Key) {
+        self.inner
+            .get_mut(&bucket)
+            .map(|x| x.insert(key, Default::default()));
+    }
+
+    pub fn get_objs_or_insert_default(&mut self, bucket: Bucket, key: Key) -> &mut Vec<Object> {
+        self.get_tree_or_insert_default(bucket)
+            .entry(key)
+            .or_default()
     }
 
     pub fn new_object(&mut self, bucket: Bucket, key: Key, object: Object) {
-        self.new_bucket(bucket).entry(key).or_default().push(object);
+        self.get_tree_or_insert_default(bucket)
+            .entry(key)
+            .or_default()
+            .push(object);
     }
 
     pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: String, to: String) {
         if let Some(val) = self
-            .new_key(bucket, key)
+            .get_objs_or_insert_default(bucket, key)
             .iter_mut()
             .find(|x| x.name == *from)
         {
@@ -42,8 +64,10 @@ impl BucketMap {
 
     pub fn set_key(&mut self, bucket: Bucket, from: Key, to: Key) {
         let bk = self.get_mut(&bucket).unwrap();
-        let objs = bk.remove(&from).unwrap();
-        bk.insert(to, objs);
+
+        if let Some(objs) = bk.remove(&from) {
+            bk.insert(to, objs);
+        }
     }
 
     pub fn set_name_bucket(&mut self, from: Bucket, to: Bucket) {
@@ -152,7 +176,7 @@ impl BucketMap {
             path.pop();
         }
         self.inner = buckets;
-
+        sync_object_to_database(local_storage, self).await;
         Ok(())
     }
 
@@ -181,7 +205,7 @@ async fn sync_objects(
     let mut resp = Vec::new();
     for path in vec {
         if let Some(name) = path.file_name().and_then(|x| x.to_str())
-            && let Some(object) = local_storage.get_object_filename(bucket, key, name).await
+            && let Ok(Some(object)) = local_storage.get_object_filename(bucket, key, name).await
         {
             tracing::info!(
                 "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"

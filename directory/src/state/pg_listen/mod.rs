@@ -77,8 +77,8 @@ impl Task for ListenBucket {
                     }
                 }
                 change = rx.recv() => {
-                    if let Some(some) = change {
-                        change_(some, self.workdir.clone()).await
+                    if let Some(_some) = change {
+                        continue;
                     } else {
                         break;
                     }

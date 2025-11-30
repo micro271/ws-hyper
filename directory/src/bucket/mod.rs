@@ -7,9 +7,9 @@ use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::Path};
 
-use crate::bucket::utils::FileNameUtf8;
+use crate::bucket::utils::normalizeds::NormalizeFileUtf8;
 
-const DEFAULT_LENGTH_NANOID: usize = 24;
+const DEFAULT_LENGTH_NANOID: usize = 21;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
@@ -19,7 +19,7 @@ impl Bucket {
     where
         T: AsRef<Path>,
     {
-        let file_name = FileNameUtf8::run(path.as_ref()).await.ok().unwrap();
+        let file_name = NormalizeFileUtf8::run(path.as_ref()).await.ok().unwrap();
         Self(file_name)
     }
 
@@ -45,6 +45,19 @@ impl Bucket {
 
     pub fn name(&self) -> &str {
         self.as_ref()
+    }
+
+    pub fn find_bucket(root: &Path, path: &Path) -> Option<Bucket> {
+        let mut child = path;
+        while let Some(parent) = child.parent() {
+            if parent == root {
+                return Some(Bucket::from(
+                    child.file_name().and_then(|x| x.to_str()).unwrap(),
+                ));
+            }
+            child = parent;
+        }
+        None
     }
 }
 

@@ -3,13 +3,13 @@ use mongodb::error::{Error, WriteFailure};
 #[derive(Debug)]
 pub enum LsError {
     DuplicateKey,
-    MongoDb(Box<dyn std::error::Error>),
+    MongoDb(Box<dyn std::error::Error + Send>),
 }
 
 impl From<Error> for LsError {
     fn from(value: Error) -> Self {
         match *value.kind {
-            mongodb::error::ErrorKind::Write(WriteFailure::WriteError(er)) if er.code == 1100 => {
+            mongodb::error::ErrorKind::Write(WriteFailure::WriteError(er)) if er.code == 11000 => {
                 Self::DuplicateKey
             }
             e => Self::MongoDb(Box::new(e)),

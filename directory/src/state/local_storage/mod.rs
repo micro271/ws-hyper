@@ -1,25 +1,16 @@
 pub mod error;
-
-use futures::StreamExt;
+pub mod utils;
 use mongodb::{
-    Client, IndexModel,
-    bson::{self, Document, doc},
+    Client, Database, IndexModel,
+    bson::{self, doc},
     options::{ClientOptions, Credential, IndexOptions, ServerAddress},
     results::{InsertOneResult, UpdateResult},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+
 use uuid::Uuid;
 
-use crate::{
-    bucket::{
-        Bucket,
-        bucket_map::{BucketMap, BucketMapType},
-        key::Key,
-        object::Object,
-    },
-    state::local_storage::error::LsError,
-};
+use crate::{bucket::object::Object, state::local_storage::error::LsError};
 
 macro_rules! diff {
     ($t1: expr, $t2: expr $(,$field: ident)+) => {{
@@ -74,6 +65,10 @@ pub struct LocalStorage {
 }
 
 impl LocalStorage {
+    pub fn raw(&self) -> Database {
+        self.pool.default_database().unwrap()
+    }
+
     pub async fn sync_object(&self, bucket: &str, key: &str, obj: &Object) {
         let db = self.pool.default_database().unwrap();
         let tmp = db
@@ -99,124 +94,36 @@ impl LocalStorage {
             .unwrap();
     }
 
-    pub async fn clear(&self, map: BucketMap) {
-        let db = self.pool.default_database().unwrap();
-        let mut cursor = db
-            .collection::<AsObjectDeserialize>(COLLECTION)
-            .find(doc! {})
-            .await
-            .unwrap();
-        let mut tree_aux: BucketMapType = Default::default();
-
-        loop {
-            match cursor.next().await {
-                Some(Ok(item)) => {
-                    let tmp = tree_aux
-                        .entry(Bucket::new_unchecked(item.bucket))
-                        .or_default();
-                    let tmp = tmp.entry(Key::new(item.key)).or_default();
-                    tmp.push(item.object);
-                }
-                Some(Err(er)) => tracing::error!("{er}"),
-                None => break,
-            }
-        }
-        let bucket_map = map.keys().cloned().collect::<HashSet<_>>();
-        let bucket_db = tree_aux.keys().cloned().collect::<HashSet<_>>();
-        let dif = bucket_db.difference(&bucket_map).collect::<HashSet<_>>();
-        for i in dif {
-            if let Err(er) = db
-                .collection::<Document>(COLLECTION)
-                .delete_many(doc! {"bucket": i.name()})
-                .await
-            {
-                tracing::error!("[LocalStorage] {{ Delete Bucket in Db }} Error: {er}");
-            }
-            let branch = tree_aux.remove(i);
-            tracing::warn!("[LocalStorage] {{ Delete Branch }} bucket: {branch:#?}");
-        }
-
-        for i in bucket_map {
-            let key_map = map
-                .get(&i)
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect::<HashSet<Key>>();
-            let key_db = tree_aux
-                .get(&i)
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect::<HashSet<Key>>();
-            let dif = key_db.difference(&key_map).collect::<HashSet<_>>();
-            for j in dif {
-                if let Err(er) = db
-                    .collection::<Document>(COLLECTION)
-                    .delete_many(doc! {"key": j.name()})
-                    .await
-                {
-                    tracing::error!("[LocalStorage] {{ Delete Bucket in Db }} Error: {er}");
-                }
-                let branch = tree_aux.get_mut(&i).unwrap();
-                branch.remove(j);
-                tracing::warn!("[LocalStorage] {{ Delete Branch }} key: {branch:#?}");
-            }
-            for m in key_map {
-                let vec_map = map.get(&i).and_then(|x| x.get(&m)).unwrap();
-                let vec_db = tree_aux.get(&i).and_then(|x| x.get(&m)).unwrap();
-                let to_delete = vec_db
-                    .iter()
-                    .filter(|x| !vec_map.iter().any(|y| y.chechsum == x.chechsum))
-                    .collect::<Vec<_>>();
-                for n in to_delete {
-                    if let Err(er) = db
-                        .collection::<Document>(COLLECTION)
-                        .update_one(
-                            doc! {"bucket": i.name(), "key": m.name()},
-                            doc! {"$pull": { "object.checksum": &n.chechsum }},
-                        )
-                        .await
-                    {
-                        tracing::error!("[LocalStorage] {{ Delete Object in Db }} Error: {er}");
-                    } else {
-                        tracing::error!(
-                            "[LocalStorage] {{ Delete Object in Db }} bucket: {i}, key: {m:?}, object.name: {:?}",
-                            n.name
-                        );
-                    }
-                }
-            }
-        }
-    }
-
     pub async fn get_object_filename(
         &self,
         bucket: &str,
         key: &str,
         filename: &str,
-    ) -> Option<Object> {
+    ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
         let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
 
-        tmp.collection::<AsObjectDeserialize>(COLLECTION)
+        Ok(tmp
+            .collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
-            .await
-            .ok()
-            .flatten()
-            .map(|x| x.object)
+            .await?
+            .map(|x| x.object))
     }
 
-    pub async fn get_object_name(&self, bucket: &str, key: &str, name: &str) -> Option<Object> {
+    pub async fn get_object_name(
+        &self,
+        bucket: &str,
+        key: &str,
+        name: &str,
+    ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
         let filter = doc! { "bucket": bucket, "key": key, "object.name": name };
 
-        tmp.collection::<AsObjectDeserialize>(COLLECTION)
+        Ok(tmp
+            .collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
-            .await
-            .ok()
-            .flatten()
-            .map(|x| x.object)
+            .await?
+            .map(|x| x.object))
     }
 
     pub async fn new_object(
@@ -248,7 +155,7 @@ impl LocalStorage {
             .collection::<AsObjectSerialize>(COLLECTION)
             .update_one(
                 doc! {"bucket": bucket, "key": key, "object.file_name": &obj.file_name },
-                doc! { "$addToSet": {"seen_by": id.to_string()} },
+                doc! { "$addToSet": {"object.seen_by": id.to_string()} },
             )
             .await;
     }
@@ -265,7 +172,7 @@ impl LocalStorage {
             .collection::<Object>(COLLECTION)
             .update_one(
                 doc! {"bucket": bucket, "key": key, "object.name": old_name },
-                doc! { "object.name": new_name },
+                doc! { "$set": { "object.name": new_name } },
             )
             .await?)
     }
@@ -327,7 +234,7 @@ impl LocalStorageBuild {
             .build();
         let db = ls.pool.default_database().unwrap();
 
-        db.collection::<Document>(COLLECTION)
+        db.collection::<AsObjectSerialize>(COLLECTION)
             .create_index(index)
             .await
             .unwrap();
