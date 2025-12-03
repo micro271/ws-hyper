@@ -32,7 +32,10 @@ impl<'a> NewObjNameHandler<'a> {
 
         loop {
             if count == MAX_RENAME_ATTEMPTS {
-                tracing::error!("[ RenameObjHandler] Mas attempts reached - object.name: {}", self.object.name);
+                tracing::error!(
+                    "[ RenameObjHandler] Mas attempts reached - object.name: {}",
+                    self.object.name
+                );
                 break;
             }
             match ls.new_object(self.bucket, self.key, self.object).await {
@@ -66,12 +69,14 @@ impl<'a> NewObjNameHandler<'a> {
 
 impl<'a> RenameObjHandler<'a> {
     pub async fn run(&mut self, ls: Arc<LocalStorage>) {
-        
         let mut count = 0;
-        
+
         loop {
             if count == MAX_RENAME_ATTEMPTS {
-                tracing::error!("[ RenameObjHandler] Mas attempts reached - from: {}", self.from);
+                tracing::error!(
+                    "[ RenameObjHandler] Mas attempts reached - from: {}",
+                    self.from
+                );
                 break;
             }
 
@@ -108,10 +113,12 @@ fn name_generator(name: &mut String) {
     let regex_replace_prefix = Regex::new(r"(^(~.*\$).*)").unwrap();
     if regex_replace_prefix.is_match(name) {
         *name = regex_replace_prefix
-            .replace(name, &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)))
+            .replace(
+                name,
+                &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)),
+            )
             .into_owned();
     } else {
-        name
-            .insert_str(0, &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)));
+        name.insert_str(0, &format!("~{}$", nanoid!(COLISION_DEFAULT_PREFIX_LENGTH)));
     }
 }

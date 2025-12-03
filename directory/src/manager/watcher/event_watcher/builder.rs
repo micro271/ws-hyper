@@ -1,14 +1,9 @@
-use std::sync::Arc;
-
 use notify::{Error, Event};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::{
-    manager::{
-        Change,
-        utils::{OneshotSender, Run, SplitTask, TakeOwn},
-    },
-    state::local_storage::LocalStorage,
+use crate::manager::{
+    Change,
+    utils::{OneshotSender, Run, SplitTask, TakeOwn},
 };
 
 use super::{
@@ -20,18 +15,12 @@ pub struct EventWatcherBuilder<P, ChNot> {
     path: P,
     r#await: Option<u64>,
     change_notify: ChNot,
-    ls: Option<Arc<LocalStorage>>,
     ignore_rename_prefix: Option<String>,
 }
 
 impl<P, ChNot> EventWatcherBuilder<P, ChNot> {
     pub fn rename_control_await(mut self, r#await: u64) -> Self {
         self.r#await = Some(r#await);
-        self
-    }
-
-    pub fn local_storage(mut self, local_storage: Arc<LocalStorage>) -> Self {
-        self.ls = Some(local_storage);
         self
     }
 
@@ -47,7 +36,6 @@ impl<P> EventWatcherBuilder<P, EventWatcherNoNotify> {
             path: self.path,
             r#await: self.r#await,
             change_notify: EventWatcherNotify(tx),
-            ls: None,
             ignore_rename_prefix: None,
         }
     }
@@ -69,7 +57,6 @@ impl<CN> EventWatcherBuilder<EventWatcherNoPath, CN> {
             r#await: self.r#await,
             change_notify: self.change_notify,
             ignore_rename_prefix: self.ignore_rename_prefix,
-            ls: None,
         })
     }
 }
@@ -119,7 +106,6 @@ where
             rx,
             path,
             change_notify: self.change_notify.take(),
-            obj_ls: self.ls.unwrap(),
             ignore_rename_prefix: self.ignore_rename_prefix.unwrap(),
         })
     }
@@ -139,7 +125,6 @@ impl std::default::Default for EventWatcherBuilder<EventWatcherNoPath, EventWatc
             path: EventWatcherNoPath,
             change_notify: EventWatcherNoNotify,
             r#await: None,
-            ls: None,
             ignore_rename_prefix: None,
         }
     }

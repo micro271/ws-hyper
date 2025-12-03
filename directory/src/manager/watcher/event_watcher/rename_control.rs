@@ -80,6 +80,7 @@ impl Task for RenameControl {
                             () = tokio::time::sleep(duration) => {
                                 if files_inner.lock().await.remove(&from).is_some() {
                                     tracing::trace!("[RenameControl] {{ Time expired }} Delete {from:?}");
+                                    
                                     let event = Event::new(notify::EventKind::Remove(RemoveKind::Any)).add_path(from);
                                     if let Err(err) = sender_watcher.send(Ok(event)) {
                                         tracing::error!("[RenameControl] From tx_watcher {err}");

@@ -8,18 +8,15 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{
-    manager::{
-        utils::{
-            AsyncRecv, OneshotSender, SplitTask, Task, hd_new_bucket_or_key_watcher,
-            hd_new_object_watcher, hd_rename_watcher,
-        },
-        watcher::{NotifyChType, error::WatcherErr},
+use crate::manager::{
+    utils::{
+        AsyncRecv, OneshotSender, SplitTask, Task, ToSkip, hd_new_bucket_or_key_watcher,
+        hd_new_object_watcher, hd_rename_object, hd_rename_path,
     },
-    state::local_storage::LocalStorage,
+    watcher::{NotifyChType, error::WatcherErr},
 };
 
 #[derive(Debug, Clone)]
@@ -32,7 +29,6 @@ pub struct EventWatcher<Tx, Rx, TxChange> {
     change_notify: TxChange,
     path: PathBuf,
     rename_control_sender: RenameControlCh,
-    obj_ls: Arc<LocalStorage>,
     ignore_rename_prefix: String,
 }
 
@@ -47,8 +43,7 @@ where
 
         let root = self.path.as_path();
         let tx_rename = self.rename_control_sender.inner();
-        let mut rename_tracking = HashMap::new();
-        let mut rename_skip = Vec::new();
+        let mut rename_skip = ToSkip::default();
         while let Some(Ok(event)) = self.rx.recv().await {
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
@@ -81,14 +76,7 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(
-                        path,
-                        root,
-                        &self.ignore_rename_prefix,
-                        &mut rename_skip,
-                    )
-                    .await
-                    {
+                    match hd_new_object_watcher(path, root, &self.ignore_rename_prefix).await {
                         Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
@@ -124,16 +112,13 @@ where
                         tracing::error!("{err}");
                     }
 
-                    match hd_rename_watcher(
-                        root,
-                        from,
-                        to,
-                        &mut rename_tracking,
-                        &mut rename_skip,
-                        &self.obj_ls,
-                    )
-                    .await
-                    {
+                    let ch = if to.is_dir() {
+                        hd_rename_path(root, from, to, &mut rename_skip).await
+                    } else {
+                        hd_rename_object(root, from, to).await
+                    };
+
+                    match ch {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("{err}");

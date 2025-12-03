@@ -52,11 +52,11 @@ impl BucketMap {
             .push(object);
     }
 
-    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, from: String, to: String) {
+    pub fn set_name_object(&mut self, bucket: Bucket, key: Key, file_name: String, to: String) {
         if let Some(val) = self
             .get_objs_or_insert_default(bucket, key)
             .iter_mut()
-            .find(|x| x.name == *from)
+            .find(|x| x.file_name == file_name)
         {
             val.name = to;
         }
@@ -106,10 +106,10 @@ impl BucketMap {
             Change::NameObject {
                 bucket,
                 key,
-                from,
+                file_name,
                 to,
             } => {
-                self.set_name_object(bucket, key, from, to);
+                self.set_name_object(bucket, key, file_name, to);
             }
             Change::NameBucket { from, to } => self.set_name_bucket(from, to),
             Change::NameKey { bucket, from, to } => self.set_key(bucket, from, to),

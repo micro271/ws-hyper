@@ -43,7 +43,7 @@ macro_rules! default_time {
 
 macro_rules! impl_canged {
     ($i:ident) => {
-        impl crate::state::local_storage::Changed for $i {
+        impl crate::bucket::utils::Changed for $i {
             fn change(&self, other: &Self) -> bool {
                 other
                     .0
@@ -137,6 +137,14 @@ impl Object {
             created,
             ..Default::default()
         }
+    }
+}
+
+impl std::cmp::PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.file_name == other.file_name
+            && self.chechsum == other.chechsum
     }
 }
 

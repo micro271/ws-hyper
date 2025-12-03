@@ -7,22 +7,12 @@ use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::Path};
 
-use crate::bucket::utils::normalizeds::NormalizeFileUtf8;
-
-const DEFAULT_LENGTH_NANOID: usize = 21;
+pub const DEFAULT_LENGTH_NANOID: usize = 21;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct Bucket(String);
 
 impl Bucket {
-    pub async fn new_or_rename<T>(path: T) -> Self
-    where
-        T: AsRef<Path>,
-    {
-        let file_name = NormalizeFileUtf8::run(path.as_ref()).await.ok().unwrap();
-        Self(file_name)
-    }
-
     pub fn new<T: AsRef<Path>>(path: &T) -> Option<Self> {
         path.as_ref()
             .file_name()

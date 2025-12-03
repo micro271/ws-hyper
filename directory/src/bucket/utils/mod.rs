@@ -9,6 +9,10 @@ use crate::{
         Bucket, DEFAULT_LENGTH_NANOID,
         key::Key,
         object::{EXTENSION_OBJECT, Object},
+        utils::{
+            normalizeds::RenamedTo,
+            rename_handlers::{RenamedToNoTo, RenamedToWithTo},
+        },
     },
     state::local_storage::{LocalStorage, error::LsError},
 };
@@ -35,18 +39,19 @@ impl NormalizeForObjectName {
 }
 
 #[derive(Debug)]
-pub enum Renamed {
-    Yes(String),
-    NeedRestore,
+pub enum Renamed<'a> {
+    Yes(RenamedTo<'a, RenamedToWithTo>),
+    NeedRestore(RenamedTo<'a, RenamedToNoTo>),
     Not(String),
     Fail(Box<dyn std::error::Error + Send + 'static>),
 }
 
-impl Renamed {
-    pub fn ok(self) -> Option<String> {
-        match self {
-            Renamed::Yes(str) | Renamed::Not(str) => Some(str),
-            Renamed::Fail(_) | Self::NeedRestore => None,
-        }
+pub trait Changed<Rhs = Self> {
+    fn change(&self, other: &Rhs) -> bool;
+}
+
+impl<T, K: PartialEq<T>> Changed<T> for K {
+    fn change(&self, other: &T) -> bool {
+        self.ne(other)
     }
 }

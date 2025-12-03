@@ -105,8 +105,7 @@ impl Run for Manager {
                     .path(path)
                     .unwrap()
                     .change_notify(self.tx.clone())
-                    .rename_control_await(r#await.unwrap_or(2000))
-                    .local_storage(self.local_storage.clone())
+                    .rename_control_await(r#await.unwrap_or(3000))
                     .ignore_rename_prefix(ignore_rename_suffix)
                     .build()
                     .unwrap();
@@ -191,13 +190,13 @@ impl Task for ManagerRunning {
                             key,
                             to,
                             bucket,
-                            from,
+                            file_name,
                         } => {
                             RenameObjHandlerBuilder::default()
                                 .bucket(bucket)
                                 .key(key)
                                 .to(to)
-                                .from(from)
+                                .from(file_name)
                                 .build()
                                 .run(self.local_storage.clone())
                                 .await;
@@ -250,7 +249,7 @@ pub enum Change {
     NameObject {
         bucket: Bucket,
         key: Key,
-        from: String,
+        file_name: String,
         to: String,
     },
     NameBucket {

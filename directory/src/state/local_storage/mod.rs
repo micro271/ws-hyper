@@ -1,5 +1,6 @@
 pub mod error;
 pub mod utils;
+use crate::bucket::utils::Changed;
 use mongodb::{
     Client, Database, IndexModel,
     bson::{self, doc},
@@ -7,7 +8,6 @@ use mongodb::{
     results::{InsertOneResult, UpdateResult},
 };
 use serde::{Deserialize, Serialize};
-
 use uuid::Uuid;
 
 use crate::{bucket::object::Object, state::local_storage::error::LsError};
@@ -164,14 +164,14 @@ impl LocalStorage {
         &self,
         bucket: &str,
         key: &str,
-        old_name: &str,
+        file_name: &str,
         new_name: &str,
     ) -> Result<UpdateResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
         Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket, "key": key, "object.name": old_name },
+                doc! {"bucket": bucket, "key": key, "object.file_name": file_name },
                 doc! { "$set": { "object.name": new_name } },
             )
             .await?)
@@ -239,15 +239,5 @@ impl LocalStorageBuild {
             .await
             .unwrap();
         ls
-    }
-}
-
-pub trait Changed<Rhs = Self> {
-    fn change(&self, other: &Rhs) -> bool;
-}
-
-impl<T, K: PartialEq<T>> Changed<T> for K {
-    fn change(&self, other: &T) -> bool {
-        self.ne(other)
     }
 }
