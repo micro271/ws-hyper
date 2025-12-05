@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::LazyLock,
 };
 use tokio::sync::mpsc::error::SendError;
 
@@ -17,6 +17,12 @@ use crate::{
     },
     manager::Change,
 };
+
+pub static REGEX_OBJECT_NAME: LazyLock<Regex> = LazyLock::new(|| {
+        let patt = format!("^data_.{{{DEFAULT_LENGTH_NANOID}}}.__object$",);
+        Regex::new(&patt).unwrap()
+    }
+);
 
 pub type SenderErrorTokio<T> = Result<(), tokio::sync::mpsc::error::SendError<T>>;
 
@@ -191,18 +197,6 @@ pub async fn hd_new_object_watcher(
     })
 }
 
-pub async fn hd_rename_watcher(
-    root: &Path,
-    from: PathBuf,
-    to: PathBuf,
-    skipped: &mut ToSkip,
-) -> Result<Change, ()> {
-    if to.is_dir() {
-        hd_rename_path(root, from, to, skipped).await
-    } else {
-        hd_rename_object(root, from, to).await
-    }
-}
 
 pub async fn hd_rename_path(
     root: &Path,
@@ -277,13 +271,10 @@ pub async fn hd_rename_path(
 }
 
 pub async fn hd_rename_object(root: &Path, from: PathBuf, to: PathBuf) -> Result<Change, ()> {
-    let patt = format!("^data_.{{{DEFAULT_LENGTH_NANOID}}}.__object$",);
-
-    let reg = Regex::new(&patt).unwrap();
-
+    
     let from_ = from.file_name().and_then(|x| x.to_str()).unwrap();
 
-    if reg.is_match(from_) {
+    if REGEX_OBJECT_NAME.is_match(from_) {
         let bucket = Bucket::find_bucket(root, &to);
         let (Some(key), Some(bucket)) = (
             bucket
@@ -342,10 +333,8 @@ impl ToSkip {
                 tracing::info!("[ ToSkip ] {{ Delete Key }} {key:?} ");
                 resp = true;
             }
-            if keys.is_empty() {
-                if self.keys.remove(&bucket).is_some() {
-                    tracing::error!("[ ToSKip ] {{ Delete Bucket in Key }} {bucket:?}");
-                }
+            if keys.is_empty() && self.keys.remove(bucket).is_some() {
+                tracing::error!("[ ToSKip ] {{ Delete Bucket in Key }} {bucket:?}");
             }
         }
         resp

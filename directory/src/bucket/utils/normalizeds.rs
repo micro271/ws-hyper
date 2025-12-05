@@ -114,7 +114,7 @@ impl NormalizePathUtf8 {
     }
 
     pub async fn run(self, to: &Path) -> Renamed<'_> {
-        let renamed = if let Some(str) = to.file_name().and_then(|x| x.to_str()) {
+        if let Some(str) = to.file_name().and_then(|x| x.to_str()) {
             let allowed_name = Regex::new(r"^[a-zA-Z0-9_@][A-Za-z0-9:@_-]+$").unwrap();
 
             if allowed_name.is_match(str) {
@@ -141,9 +141,8 @@ impl NormalizePathUtf8 {
             Renamed::Yes(RenamedTo::new(to).to(to_))
         } else {
             Renamed::NeedRestore(RenamedTo::new(to))
-        };
+        }
 
-        renamed
     }
 }
 

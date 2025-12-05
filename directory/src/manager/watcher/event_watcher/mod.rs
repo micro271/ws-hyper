@@ -11,12 +11,15 @@ pub use rename_control::*;
 use std::path::PathBuf;
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::manager::{
-    utils::{
-        AsyncRecv, OneshotSender, SplitTask, Task, ToSkip, hd_new_bucket_or_key_watcher,
-        hd_new_object_watcher, hd_rename_object, hd_rename_path,
+use crate::{
+    bucket::{Bucket, key::Key},
+    manager::{
+        utils::{
+            AsyncRecv, OneshotSender, REGEX_OBJECT_NAME, SplitTask, Task, ToSkip,
+            hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_object, hd_rename_path,
+        },
+        watcher::{NotifyChType, error::WatcherErr},
     },
-    watcher::{NotifyChType, error::WatcherErr},
 };
 
 #[derive(Debug, Clone)]
@@ -130,7 +133,33 @@ where
                     }
                 }
                 notify::EventKind::Remove(er) => {
-                    tracing::error!("{er:?}");
+                    tracing::trace!("{er:?}");
+                    let mut path = event.paths;
+                    let Some(path) = path.pop() else {
+                        continue;
+                    };
+
+                    let Some(name) = path.file_name().and_then(|x| x.to_str()) else { continue ;};
+
+                    let change = if REGEX_OBJECT_NAME.is_match(name)
+                        && let Some(bucket) = Bucket::find_bucket(root, &path)
+                        && let Some(key) = Key::from_bucket(&bucket, &path)
+                    {
+                        Change::DeleteObject { bucket, key, file_name: name.to_string() }
+                    } else if let Some(path) = path.parent() && path == root {
+                            let bucket = Bucket::from(name);
+                            Change::DeleteBucket { bucket }
+                        } else if let Some(bucket) = Bucket::find_bucket(root, &path) && let Some(key) = Key::from_bucket(&bucket, &path) {
+                            Change::DeleteKey { bucket, key }
+                        } else {
+                            tracing::error!("[ Event Watcher ] {{ Error to delete path }} {path:?}");
+                            continue;
+                        };
+                    
+                    if let Err(er) = self.change_notify.send(change) {
+                        tracing::error!("[ EventWatcher ] {{ Remove file }} Error: {er}");
+                    }
+
                 }
                 _ => {}
             }

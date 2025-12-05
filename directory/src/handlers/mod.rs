@@ -1,9 +1,10 @@
 pub mod error;
+mod xform;
 
 use crate::{
     bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::State,
+    state::State, user::Claim,
 };
 
 use http::{StatusCode, header};
@@ -12,24 +13,26 @@ use hyper::{
     Request, Response,
     body::{Bytes, Incoming},
 };
+use serde_json::json;
+use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 use std::{convert::Infallible, sync::Arc};
 
 type TypeState = Arc<State>;
 
+pub type ResponseHttp = Result<Response<Full<Bytes>>, ResponseError>;
+
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
-    let repo = req.extensions().get::<TypeState>().unwrap();
 
-    let response = if path.starts_with("/monitor") {
-        server_upgrade(req).await
-    } else if path == "/tree" {
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Full::new(Bytes::from(
-                repo.tree_as_json().await.to_string(),
-            )))
-            .unwrap_or_default())
+    let response = if path == "login" {
+        todo!()
+    } else if path.starts_with("/monitor") {
+        middleware_jwt(req, server_upgrade).await
+    } else if path.starts_with("/tree") {
+        let mut path = path.split("/").skip(2).collect::<Vec<&str>>();
+        let key = Key::new(path.drain(1..).collect::<Vec<&str>>().join("/"));
+        let bucket = Bucket::from(path.pop().unwrap().to_string());
+        middleware_jwt(req, async |x| get_path(x, bucket, key).await).await
     } else {
         Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
@@ -43,14 +46,28 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     }
 }
 
-pub async fn middleware_jwt<T>(
-    req: Request<Incoming>,
+async fn get_path(req: Request<Incoming>, bucket: Bucket, key: Key) -> ResponseHttp {
+    let state = req.extensions().get::<TypeState>().unwrap();
+    let reader = state.read().await;
+    let body = reader.get(&bucket).unwrap();
+
+    // TODO: we need to obtain all keys contained whithin a single key
+
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .status(StatusCode::OK)
+        .body(Full::new(Bytes::from_owner(json!(body).to_string())))
+        .unwrap_or_default())
+
+}
+
+async fn middleware_jwt<T>(
+    mut req: Request<Incoming>,
     next: T,
-) -> Result<Response<Full<Bytes>>, Infallible>
+) -> ResponseHttp
 where
-    T: AsyncFn(Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible>,
+    T: AsyncFnOnce(Request<Incoming>) -> ResponseHttp,
 {
-    /*
     let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
         return Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -69,7 +86,6 @@ where
         }
     };
     req.extensions_mut().insert(claims);
-    */
 
     next(req).await
 }

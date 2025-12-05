@@ -141,11 +141,11 @@ impl LocalStorage {
             .await?)
     }
 
-    pub async fn delete_object(&self, bucket: &str, key: &str, object: &Object) {
+    pub async fn delete_object(&self, bucket: &str, key: &str, filename: &str) {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp
             .collection::<&Object>(COLLECTION)
-            .delete_one(doc! {"bucket": bucket, "key": key, "object.file_name": &object.file_name})
+            .delete_one(doc! {"bucket": bucket, "key": key, "object.file_name": filename })
             .await;
     }
 

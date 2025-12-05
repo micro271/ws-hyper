@@ -75,12 +75,12 @@ impl BucketMap {
         self.inner.insert(to, tmp);
     }
 
-    pub fn remove_object(&mut self, bucket: Bucket, key: Key, object: Object) -> Object {
+    pub fn remove_object(&mut self, bucket: Bucket, key: Key, file_name: &str) -> Object {
         self.get_mut(&bucket)
             .unwrap()
             .get_mut(&key)
             .unwrap()
-            .pop_if(|x| x.name == object.name)
+            .pop_if(|x| x.file_name == file_name)
             .unwrap()
     }
 
@@ -116,9 +116,9 @@ impl BucketMap {
             Change::DeleteObject {
                 bucket,
                 key,
-                object,
+                file_name,
             } => {
-                self.remove_object(bucket, key, object);
+                self.remove_object(bucket, key, &file_name);
             }
             Change::DeleteKey { bucket, key } => {
                 self.remove_key(bucket, key);

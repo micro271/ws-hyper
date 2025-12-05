@@ -180,11 +180,11 @@ impl Task for ManagerRunning {
                                 .await;
                         }
                         Change::DeleteObject {
-                            object,
+                            file_name,
                             bucket,
                             key,
                         } => {
-                            self.local_storage.delete_object(bucket, key, object).await;
+                            self.local_storage.delete_object(bucket, key, file_name).await;
                         }
                         Change::NameObject {
                             key,
@@ -264,7 +264,7 @@ pub enum Change {
     DeleteObject {
         bucket: Bucket,
         key: Key,
-        object: Object,
+        file_name: String,
     },
     DeleteKey {
         bucket: Bucket,

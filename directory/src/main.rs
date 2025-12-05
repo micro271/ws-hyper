@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 io,
                 service_with_state(state, move |mut req| {
                     req.extensions_mut().insert(peer);
-                    handlers::middleware_jwt(req, handlers::entry)
+                    handlers::entry(req)
                 }),
             )
             .with_upgrades();

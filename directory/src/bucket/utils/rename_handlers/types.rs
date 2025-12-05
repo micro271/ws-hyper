@@ -34,12 +34,6 @@ impl PathObject {
     }
 }
 
-#[derive(Debug, Clone)]
-struct PathKey {
-    bucket: Bucket,
-    key: Key,
-    object: Object,
-}
 
 #[derive(Debug)]
 pub struct RenamedToNoTo;
