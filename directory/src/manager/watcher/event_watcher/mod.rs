@@ -139,27 +139,36 @@ where
                         continue;
                     };
 
-                    let Some(name) = path.file_name().and_then(|x| x.to_str()) else { continue ;};
+                    let Some(name) = path.file_name().and_then(|x| x.to_str()) else {
+                        continue;
+                    };
 
                     let change = if REGEX_OBJECT_NAME.is_match(name)
                         && let Some(bucket) = Bucket::find_bucket(root, &path)
                         && let Some(key) = Key::from_bucket(&bucket, &path)
                     {
-                        Change::DeleteObject { bucket, key, file_name: name.to_string() }
-                    } else if let Some(path) = path.parent() && path == root {
-                            let bucket = Bucket::from(name);
-                            Change::DeleteBucket { bucket }
-                        } else if let Some(bucket) = Bucket::find_bucket(root, &path) && let Some(key) = Key::from_bucket(&bucket, &path) {
-                            Change::DeleteKey { bucket, key }
-                        } else {
-                            tracing::error!("[ Event Watcher ] {{ Error to delete path }} {path:?}");
-                            continue;
-                        };
-                    
+                        Change::DeleteObject {
+                            bucket,
+                            key,
+                            file_name: name.to_string(),
+                        }
+                    } else if let Some(path) = path.parent()
+                        && path == root
+                    {
+                        let bucket = Bucket::from(name);
+                        Change::DeleteBucket { bucket }
+                    } else if let Some(bucket) = Bucket::find_bucket(root, &path)
+                        && let Some(key) = Key::from_bucket(&bucket, &path)
+                    {
+                        Change::DeleteKey { bucket, key }
+                    } else {
+                        tracing::error!("[ Event Watcher ] {{ Error to delete path }} {path:?}");
+                        continue;
+                    };
+
                     if let Err(er) = self.change_notify.send(change) {
                         tracing::error!("[ EventWatcher ] {{ Remove file }} Error: {er}");
                     }
-
                 }
                 _ => {}
             }

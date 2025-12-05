@@ -34,7 +34,6 @@ impl PathObject {
     }
 }
 
-
 #[derive(Debug)]
 pub struct RenamedToNoTo;
 

@@ -1,10 +1,10 @@
 pub mod error;
-mod xform;
 
 use crate::{
     bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::State, user::Claim,
+    state::State,
+    user::Claim,
 };
 
 use http::{StatusCode, header};
@@ -14,8 +14,8 @@ use hyper::{
     body::{Bytes, Incoming},
 };
 use serde_json::json;
-use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 use std::{convert::Infallible, sync::Arc};
+use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
 
 type TypeState = Arc<State>;
 
@@ -58,13 +58,9 @@ async fn get_path(req: Request<Incoming>, bucket: Bucket, key: Key) -> ResponseH
         .status(StatusCode::OK)
         .body(Full::new(Bytes::from_owner(json!(body).to_string())))
         .unwrap_or_default())
-
 }
 
-async fn middleware_jwt<T>(
-    mut req: Request<Incoming>,
-    next: T,
-) -> ResponseHttp
+async fn middleware_jwt<T>(mut req: Request<Incoming>, next: T) -> ResponseHttp
 where
     T: AsyncFnOnce(Request<Incoming>) -> ResponseHttp,
 {

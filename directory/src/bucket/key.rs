@@ -8,6 +8,14 @@ use crate::bucket::Bucket;
 pub struct Key(String);
 
 impl Key {
+
+    pub fn is_parent(&self, child: &Key) -> bool {
+        let self_name = self.name();
+        let child_name = child.name();
+        
+        child_name.strip_prefix(self_name).is_some()
+    }
+
     pub fn new<K: Into<String>>(inner: K) -> Self {
         Self(inner.into())
     }
@@ -46,5 +54,11 @@ impl std::ops::Deref for Key {
 impl std::fmt::Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl<T: Into<String>> From<T> for Key {
+    fn from(value: T) -> Self {
+        Self(value.into())
     }
 }

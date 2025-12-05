@@ -26,27 +26,22 @@ impl BucketMap {
         self.inner.insert(bucket, Default::default());
     }
 
-    pub fn get_tree_or_insert_default(
-        &mut self,
-        bucket: Bucket,
-    ) -> &mut BTreeMap<Key, Vec<Object>> {
-        self.inner.entry(bucket).or_default()
-    }
-
     pub fn new_key(&mut self, bucket: Bucket, key: Key) {
         self.inner
-            .get_mut(&bucket)
-            .map(|x| x.insert(key, Default::default()));
+            .entry(bucket)
+            .and_modify(|x| {
+                x.insert(key.clone(), Default::default());
+            })
+            .or_insert(BTreeMap::from([(key, Default::default())]));
     }
 
     pub fn get_objs_or_insert_default(&mut self, bucket: Bucket, key: Key) -> &mut Vec<Object> {
-        self.get_tree_or_insert_default(bucket)
-            .entry(key)
-            .or_default()
+        self.entry(bucket).or_default().entry(key).or_default()
     }
 
     pub fn new_object(&mut self, bucket: Bucket, key: Key, object: Object) {
-        self.get_tree_or_insert_default(bucket)
+        self.entry(bucket)
+            .or_default()
             .entry(key)
             .or_default()
             .push(object);
@@ -64,9 +59,12 @@ impl BucketMap {
 
     pub fn set_key(&mut self, bucket: Bucket, from: Key, to: Key) {
         let bk = self.get_mut(&bucket).unwrap();
+        let keys = bk.keys().cloned().filter(|x| from.is_parent(x)).collect::<Vec<Key>>();
 
-        if let Some(objs) = bk.remove(&from) {
-            bk.insert(to, objs);
+        for key in keys {
+            let objs = bk.remove(&key).unwrap();
+            let new_key = key.inner().replace(from.name(), to.name()).into();
+            bk.insert(new_key, objs);
         }
     }
 

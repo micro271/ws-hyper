@@ -142,7 +142,6 @@ impl NormalizePathUtf8 {
         } else {
             Renamed::NeedRestore(RenamedTo::new(to))
         }
-
     }
 }
 

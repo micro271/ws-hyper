@@ -1,7 +1,8 @@
 use regex::Regex;
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf}, sync::LazyLock,
+    path::{Path, PathBuf},
+    sync::LazyLock,
 };
 use tokio::sync::mpsc::error::SendError;
 
@@ -19,10 +20,9 @@ use crate::{
 };
 
 pub static REGEX_OBJECT_NAME: LazyLock<Regex> = LazyLock::new(|| {
-        let patt = format!("^data_.{{{DEFAULT_LENGTH_NANOID}}}.__object$",);
-        Regex::new(&patt).unwrap()
-    }
-);
+    let patt = format!("^data_.{{{DEFAULT_LENGTH_NANOID}}}.__object$",);
+    Regex::new(&patt).unwrap()
+});
 
 pub type SenderErrorTokio<T> = Result<(), tokio::sync::mpsc::error::SendError<T>>;
 
@@ -197,7 +197,6 @@ pub async fn hd_new_object_watcher(
     })
 }
 
-
 pub async fn hd_rename_path(
     root: &Path,
     from: PathBuf,
@@ -271,7 +270,6 @@ pub async fn hd_rename_path(
 }
 
 pub async fn hd_rename_object(root: &Path, from: PathBuf, to: PathBuf) -> Result<Change, ()> {
-    
     let from_ = from.file_name().and_then(|x| x.to_str()).unwrap();
 
     if REGEX_OBJECT_NAME.is_match(from_) {

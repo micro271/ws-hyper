@@ -184,7 +184,9 @@ impl Task for ManagerRunning {
                             bucket,
                             key,
                         } => {
-                            self.local_storage.delete_object(bucket, key, file_name).await;
+                            self.local_storage
+                                .delete_object(bucket, key, file_name)
+                                .await;
                         }
                         Change::NameObject {
                             key,
