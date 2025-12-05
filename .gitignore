@@ -23,3 +23,7 @@ directory/target
 directory/.env
 directory/Cargo.lock
 directory/prueba
+
+directory/macros/target
+directory/macros/.env
+directory/macros/Cargo.lock
