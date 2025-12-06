@@ -7,7 +7,7 @@ use crate::{
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
-use hyper::{server::conn::http1};
+use hyper::server::conn::http1;
 use std::sync::Arc;
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .serve(gprc_ceck_user)
             .await
     });
-    
+
     loop {
         let (stream, _) = listener.accept().await?;
 

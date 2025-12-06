@@ -1,8 +1,8 @@
-mod repository;
-mod queries;
 pub mod error;
+mod queries;
+mod repository;
 mod types;
 
-pub use repository::*;
 pub use queries::*;
+pub use repository::*;
 pub use types::*;

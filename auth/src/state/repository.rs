@@ -1,4 +1,4 @@
-use super::{queries::*, error::RepositoryError, Types};
+use super::{Types, error::RepositoryError, queries::*};
 
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
@@ -146,4 +146,3 @@ pub trait Table {
     fn columns() -> &'static [&'static str];
     fn values(self) -> Self::ValuesOutput;
 }
-

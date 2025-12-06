@@ -6,11 +6,11 @@ pub mod user;
 
 use http_body_util::Full;
 use hyper::{
-    Method, Request, Response, StatusCode, body::{Bytes, Incoming}, http::Extensions
+    Method, Request, Response, StatusCode, body::{Bytes, Incoming}, header, http::Extensions
 };
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtHandle, JwtHeader, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
+use utils::{JwtCookie, JwtHandle, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -31,7 +31,6 @@ type Repo = Arc<PgRepository>;
 const PREFIX_PATH: &str = "/api/v1";
 
 pub async fn cors(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    
     let cors = CorsBuilder::default()
         .allow_origin("http://localhost:5173")
         .next(entry)
@@ -39,6 +38,10 @@ pub async fn cors(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infal
         .allow_method(Method::GET)
         .allow_method(Method::OPTIONS)
         .allow_method(Method::PATCH)
+        .allow_header(header::CONTENT_TYPE)
+        .allow_header(header::COOKIE)
+        .allow_header(header::AUTHORIZATION)
+        .allow_credentials(true)
         .build();
     tracing::error!("{req:?}");
     let tmp = cors.middleware(req).await;
@@ -63,7 +66,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
         (path, _) if path.starts_with(PREFIX_PATH) => {
-            let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
+            let Some(token) = Token::<JwtCookie>::get_token(req.headers()) else {
                 return Ok(ResponseErr::status(StatusCode::UNAUTHORIZED).into());
             };
 

@@ -1,7 +1,11 @@
-use std::{collections::{HashMap, HashSet}, fmt::Write as _,  marker::PhantomData};
-use sqlx::{Postgres, postgres::PgArguments, query::Query};
+use super::{Table, Types};
 use crate::models::Permissions;
-use super::{Types, Table};
+use sqlx::{Postgres, postgres::PgArguments, query::Query};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write as _,
+    marker::PhantomData,
+};
 
 #[macro_export]
 macro_rules! bind {

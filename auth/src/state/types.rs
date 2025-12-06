@@ -1,6 +1,9 @@
 use uuid::Uuid;
 
-use crate::models::{Permissions, user::{Role, UserState}};
+use crate::models::{
+    Permissions,
+    user::{Role, UserState},
+};
 
 macro_rules! to_types {
     ($ty:ty, $variant: path) => {

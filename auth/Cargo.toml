@@ -25,6 +25,7 @@ tonic-prost = "0.14.2"
 url = "2.5.7"
 futures = "0.3.31"
 future-utils = "0.12.1"
+cookie = "0.18.1"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
