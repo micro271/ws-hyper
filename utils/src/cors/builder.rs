@@ -1,6 +1,6 @@
 use super::Cors;
 
-use std::{convert::Infallible, marker::PhantomData};
+use std::{collections::HashSet, convert::Infallible, marker::PhantomData};
 
 use http::{HeaderValue, Method, Request, Response};
 use hyper::body::Body;
@@ -13,14 +13,18 @@ pub struct NoNext;
 
 pub struct CorsBuilder<T, F, Res, Req> {
     allow_origin: T,
-    allow_methods: Vec<Method>,
+    allow_methods: HashSet<Method>,
     allow_credentials: Option<bool>,
-    allow_headers: Vec<HeaderValue>,
+    allow_headers: HashSet<HeaderValue>,
     next: F,
     _ph: PhantomData<(Res, Req)>,
 }
 
-impl<Res, Req> std::default::Default for CorsBuilder<Any, NoNext, Res, Req> {
+impl<Res, Req> std::default::Default for CorsBuilder<Any, NoNext, Res, Req> 
+where 
+    Res: Body + Default,
+    Req: Body,
+{
     fn default() -> Self {
         CorsBuilder {
             allow_origin: Any,
@@ -33,9 +37,13 @@ impl<Res, Req> std::default::Default for CorsBuilder<Any, NoNext, Res, Req> {
     }
 }
 
-impl<T, F, Res, Req> CorsBuilder<T, F, Res, Req> {
+impl<T, F, Res, Req> CorsBuilder<T, F, Res, Req> 
+where 
+    Res: Body + Default,
+    Req: Body,
+{
     pub fn allow_method(mut self, methods: Method) -> Self {
-        self.allow_methods.push(methods);
+        self.allow_methods.insert(methods);
 
         self
     }
@@ -44,7 +52,7 @@ impl<T, F, Res, Req> CorsBuilder<T, F, Res, Req> {
     where
         V: Into<HeaderValue>
     {
-        self.allow_headers.push(key.into());
+        self.allow_headers.insert(key.into());
 
         self
     }
@@ -60,7 +68,11 @@ impl<T, F, Res, Req> CorsBuilder<T, F, Res, Req> {
     }
 }
 
-impl<F, Res, Req> CorsBuilder<Any, F, Res, Req> {
+impl<F, Res, Req> CorsBuilder<Any, F, Res, Req> 
+where
+    Res: Body + Default,
+    Req: Body,
+{
     pub fn allow_origin<T: Into<String>>(self, origin: T) -> CorsBuilder<Origin, F, Res, Req> {
         let Self { allow_origin: Any, allow_methods, allow_credentials, allow_headers, next, _ph } = self;
         let mut allow_origin = Origin::new();
@@ -70,8 +82,7 @@ impl<F, Res, Req> CorsBuilder<Any, F, Res, Req> {
 }
 
 impl<F, Res, Req> CorsBuilder<Origin, F, Res, Req> 
-where 
-    F: AsyncFn(Request<Req>) -> Result<Response<Res>, Infallible>,
+where
     Res: Body + Default,
     Req: Body,
 {

@@ -15,7 +15,7 @@ use p256::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use std::{fs, marker::PhantomData, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc};
-const JWT_IDENTIFIED: &str = "JWT";
+pub const JWT_IDENTIFIED: &str = "JWT";
 const ECDS_PRIV_FILE: &str = "ec_priv_key.pem";
 const ECDS_PUB_FILE: &str = "ec_pub_key.pem";
 const PKI: &str = "pki_auth";
