@@ -111,6 +111,6 @@ where
         let allow_methods = allow_methods.is_empty().then_some("*".to_string()).unwrap_or(allow_methods);
         let allow_headers = allow_headers.iter().map(|x| x.to_str().unwrap()).collect::<Vec<_>>().join(", ");
         let allow_headers = allow_headers.is_empty().then_some("*".to_string()).unwrap_or(allow_headers);
-        Cors { origin, methods: allow_methods, headers: allow_headers, credential: allow_credentials.unwrap_or_default(), next, _ph }
+        Cors { origin, methods: allow_methods, headers: allow_headers, credential: allow_credentials, next, _ph }
     }
 }

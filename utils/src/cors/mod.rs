@@ -10,7 +10,7 @@ pub struct Cors<F, Res, Req> {
     origin: Vec<String>,
     methods: String,
     headers: String,
-    credential: bool,
+    credential: Option<bool>,
     next: F,
     _ph: PhantomData<(Res, Req)>,
 }
@@ -48,15 +48,19 @@ where
                 .status(StatusCode::OK)
                 .body(<Res as Default>::default())
                 .unwrap_or_default();
-            if self.credential {
-                r.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_static("true"));
+            if let Some(cred) = self.credential {
+                r.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_str(&cred.to_string()).unwrap());
             }
 
             Ok(r)
         } else {
             let origin = origin.to_string();
             (self.next)(req).await.map(|mut x| {
-                x.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_str(origin.as_str()).unwrap());
+                let header = x.headers_mut();
+                if let Some(cred) = self.credential {
+                    header.insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_str(&cred.to_string()).unwrap());
+                }
+                header.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_str(origin.as_str()).unwrap());
                 x
             })
         };
