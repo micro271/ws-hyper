@@ -3,11 +3,11 @@ mod handler;
 mod models;
 mod state;
 use crate::{
-    grpc_v1::user_control::InfoUserProgram, handler::entry, models::user::default_account_admin,
+    grpc_v1::user_control::InfoUserProgram, handler::cors, models::user::default_account_admin,
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
-use hyper::server::conn::http1;
+use hyper::{server::conn::http1};
 use std::sync::Arc;
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gprc_ceck_user = "[::]:50051".parse()?;
     let user_check = InfoUserProgram::new(repo.clone());
 
-    tracing::info!("Listening {}:{}", db_host, db_port);
+    tracing::info!("Listening {}:{}", app_host, app_port);
 
     tokio::spawn(async move {
         Server::builder()
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .serve(gprc_ceck_user)
             .await
     });
-
+    
     loop {
         let (stream, _) = listener.accept().await?;
 
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     io,
                     service_with_state(repo, move |mut req| {
                         req.extensions_mut().insert(peer);
-                        entry(req)
+                        cors(req)
                     }),
                 )
                 .await

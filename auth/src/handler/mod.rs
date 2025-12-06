@@ -6,13 +6,11 @@ pub mod user;
 
 use http_body_util::Full;
 use hyper::{
-    Method, Request, Response, StatusCode,
-    body::{Bytes, Incoming},
-    http::Extensions,
+    Method, Request, Response, StatusCode, body::{Bytes, Incoming}, http::Extensions
 };
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtHandle, JwtHeader, Peer, Token, VerifyTokenEcdsa};
+use utils::{JwtHandle, JwtHeader, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -31,6 +29,22 @@ type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 type Repo = Arc<PgRepository>;
 
 const PREFIX_PATH: &str = "/api/v1";
+
+pub async fn cors(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+    
+    let cors = CorsBuilder::default()
+        .allow_origin("http://localhost:5173")
+        .next(entry)
+        .allow_method(Method::PUT)
+        .allow_method(Method::GET)
+        .allow_method(Method::OPTIONS)
+        .allow_method(Method::PATCH)
+        .build();
+    tracing::error!("{req:?}");
+    let tmp = cors.middleware(req).await;
+    tracing::error!("{tmp:?}");
+    tmp
+}
 
 pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();

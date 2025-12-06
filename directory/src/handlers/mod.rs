@@ -25,13 +25,19 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     let path = req.uri().path();
 
     let response = if path == "login" {
-        todo!()
+        Ok(not_found(req).await.into())
     } else if path.starts_with("/monitor") {
         middleware_jwt(req, server_upgrade).await
     } else if path.starts_with("/tree") {
-        let mut path = path.split("/").skip(2).collect::<Vec<&str>>();
-        let key = Key::new(path.drain(1..).collect::<Vec<&str>>().join("/"));
-        let bucket = Bucket::from(path.pop().unwrap().to_string());
+        let mut path = path.split("/").skip(2).collect::<Vec<_>>();
+        let (bucket, key) = if path.is_empty() {
+            return Ok(not_found(req).await.into());
+        } else if path.len() == 1 {
+            (Some(Bucket::from(path.pop().unwrap())), None)
+        } else {
+            (Bucket::from(path.pop().unwrap()).into(), Key::from(path.drain(1..).collect::<Vec<_>>().join("/")).into())
+        };
+        
         middleware_jwt(req, async |x| get_path(x, bucket, key).await).await
     } else {
         Ok(Response::builder()
@@ -46,10 +52,10 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     }
 }
 
-async fn get_path(req: Request<Incoming>, bucket: Bucket, key: Key) -> ResponseHttp {
+async fn get_path(req: Request<Incoming>, bucket: Option<Bucket>, key: Option<Key>) -> ResponseHttp {
     let state = req.extensions().get::<TypeState>().unwrap();
     let reader = state.read().await;
-    let body = reader.get(&bucket).unwrap();
+    let body = reader.get(bucket.as_ref().unwrap()).unwrap();
 
     // TODO: we need to obtain all keys contained whithin a single key
 
@@ -115,4 +121,8 @@ pub async fn server_upgrade(
             .body(Full::default())
             .unwrap_or_default())
     }
+}
+
+pub async fn not_found(req: Request<Incoming>) -> ResponseError {
+    ResponseError::new(format!("Path {:?} not found", req.uri().path()), StatusCode::NOT_FOUND)
 }

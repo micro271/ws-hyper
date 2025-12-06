@@ -1,3 +1,5 @@
+pub mod cors;
+
 use http::{HeaderMap, Request, Response, header};
 use http_body_util::BodyExt;
 use hyper::{
@@ -272,7 +274,7 @@ where
 impl<C, ReqBody, ResBody, F, E, Repo> Service<Request<ReqBody>>
     for ServiceWithState<C, ReqBody, Repo>
 where
-    C: Fn(Request<ReqBody>) -> F + Copy,
+    C: Fn(Request<ReqBody>) -> F,
     ReqBody: Body,
     F: Future<Output = Result<Response<ResBody>, E>>,
     ResBody: Body,
