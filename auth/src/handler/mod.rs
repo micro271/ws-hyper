@@ -10,7 +10,7 @@ use hyper::{
 };
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtCookie, JwtHandle, JwtHeader, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
+use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -43,9 +43,7 @@ pub async fn cors(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infal
         .allow_header(header::AUTHORIZATION)
         .allow_credentials(true)
         .build();
-    tracing::error!("{req:?}");
     let tmp = cors.middleware(req).await;
-    tracing::error!("{tmp:?}");
     tmp
 }
 
@@ -66,13 +64,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
         (path, _) if path.starts_with(PREFIX_PATH) => {
-            let mut token = Token::<JwtCookie>::get_token(req.headers());
-
-            if token.is_none() && let r @ Some(_) = Token::<JwtHeader>::get_token(req.headers()) {
-                token = r;
-            }
-
-            let Some(token) = token else {
+            let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
                 return Ok(ResponseErr::new("Token not found", StatusCode::UNAUTHORIZED).into());
             };
 
