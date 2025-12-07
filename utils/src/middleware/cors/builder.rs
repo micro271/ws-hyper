@@ -22,8 +22,8 @@ pub struct CorsBuilder<T, F, Res, Req> {
 
 impl<Res, Req> std::default::Default for CorsBuilder<Any, NoNext, Res, Req> 
 where 
-    Res: Body + Default,
-    Req: Body,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     fn default() -> Self {
         CorsBuilder {
@@ -39,8 +39,8 @@ where
 
 impl<T, F, Res, Req> CorsBuilder<T, F, Res, Req> 
 where 
-    Res: Body + Default,
-    Req: Body,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     pub fn allow_method(mut self, methods: Method) -> Self {
         self.allow_methods.insert(methods);
@@ -57,10 +57,12 @@ where
         self
     }
 
-    pub fn next<NextFn>(self, next_fn: NextFn) -> CorsBuilder<T, Next<NextFn>, Res, Req> 
+    pub fn next<NextFn, Fut>(self, next_fn: NextFn) -> CorsBuilder<T, Next<NextFn>, Res, Req> 
     where 
-        NextFn: AsyncFn(Request<Req>) -> Result<Response<Res>, Infallible>,
-        Res: Body + Default,
+        NextFn: Fn(Request<Req>) -> Fut,
+        Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
+        Res: Body + Default + Sync + Send,
+        Req: Body + Sync + Send,
     {
         let Self { allow_origin, allow_methods, allow_credentials, allow_headers, next:_, _ph } = self;
         
@@ -70,8 +72,8 @@ where
 
 impl<F, Res, Req> CorsBuilder<Any, F, Res, Req> 
 where
-    Res: Body + Default,
-    Req: Body,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     pub fn allow_origin<T: Into<String>>(self, origin: T) -> CorsBuilder<Origin, F, Res, Req> {
         let Self { allow_origin: Any, allow_methods, allow_credentials, allow_headers, next, _ph } = self;
@@ -83,8 +85,8 @@ where
 
 impl<F, Res, Req> CorsBuilder<Origin, F, Res, Req> 
 where
-    Res: Body + Default,
-    Req: Body,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     pub fn allow_origin<T: Into<String>>(mut self, origin: T) -> CorsBuilder<Origin, F, Res, Req> {
         self.allow_origin.push(origin.into()).unwrap();
@@ -99,11 +101,12 @@ where
     }
 }
 
-impl<F, Res, Req> CorsBuilder<Origin, Next<F>, Res, Req> 
+impl<F, Fut, Res, Req> CorsBuilder<Origin, Next<F>, Res, Req> 
 where 
-    F: AsyncFn(Request<Req>) -> Result<Response<Res>, Infallible>,
-    Res: Body + Default,
-    Req: Body,
+    F: Fn(Request<Req>) -> Fut,
+    Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     pub fn build(self) -> Cors<F, Res, Req> {
         let CorsBuilder { allow_origin: Origin(origin), allow_methods, allow_credentials, allow_headers, next: Next(next), _ph } = self;

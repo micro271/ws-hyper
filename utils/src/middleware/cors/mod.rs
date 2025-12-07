@@ -18,8 +18,8 @@ pub struct Cors<F, Res, Req> {
 impl<F, Res, Req> Cors<F, Res, Req> 
 where 
     F: AsyncFn(Request<Req>) -> Result<Response<Res>, Infallible>,
-    Res: Body + Default,
-    Req: Body,
+    Res: Body + Default + Send + Sync,
+    Req: Body + Send + Sync,
 {
     pub async fn middleware(&self, req: Request<Req>) -> Result<Response<Res>, Infallible> {
         let Some(origin) = req.headers().get(header::ORIGIN).and_then(|x| x.to_str().ok()) else {
