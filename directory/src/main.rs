@@ -12,6 +12,7 @@ pub mod ws;
 use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
+    handlers::entry,
     manager::{
         Manager, WatcherParams,
         utils::{Run, SplitTask},
@@ -19,12 +20,13 @@ use crate::{
     state::{State, local_storage::LocalStorageBuild, pg_listen::builder::ListenBucketBuilder},
 };
 use clap::Parser;
+use http::{Method, header};
 use hyper::server::conn::http1;
 use std::{env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::Level;
 use tracing_subscriber::fmt;
-use utils::{Io, Peer, service_with_state};
+use utils::{Io, Peer, middleware::cors::CorsBuilder, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,6 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_pass,
         md_database,
         ignore_rename_suffix,
+        pki_dir,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -105,23 +108,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(State::new(state, msgs).await);
     task.run();
+    let cors = Arc::new(
+        CorsBuilder::default()
+            .allow_origin("http://localhost:5173")
+            .next(entry)
+            .allow_method(Method::PUT)
+            .allow_method(Method::GET)
+            .allow_method(Method::OPTIONS)
+            .allow_method(Method::PATCH)
+            .allow_header(header::CONTENT_TYPE)
+            .allow_header(header::COOKIE)
+            .allow_header(header::AUTHORIZATION)
+            .allow_credentials(true)
+            .build(),
+    );
 
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
         let state = state.clone();
         let io = Io::new(stream);
-        let conn = http
-            .serve_connection(
-                io,
-                service_with_state(state, move |mut req| {
-                    req.extensions_mut().insert(peer);
-                    handlers::entry(req)
-                }),
-            )
-            .with_upgrades();
+        let cors = cors.clone();
+
         tokio::task::spawn(async move {
-            if let Err(e) = conn.await {
+            if let Err(e) = http1::Builder::new()
+                .serve_connection(
+                    io,
+                    service_with_state(state, |mut req| {
+                        req.extensions_mut().insert(peer);
+                        cors.middleware(req)
+                    }),
+                )
+                .with_upgrades()
+                .await
+            {
                 tracing::error!("{e}");
             }
         });
