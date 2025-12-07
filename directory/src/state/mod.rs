@@ -61,7 +61,7 @@ impl State {
         &self.create_limit
     }
 
-    pub async fn tree_as_json(&self) -> Value {
-        json!(&*self.tree.read().await)
+    pub async fn tree_as_json(&self) -> String {
+        json!(&*self.tree.read().await).to_string()
     }
 }

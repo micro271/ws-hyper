@@ -7,7 +7,7 @@ use crate::{
     user::Claim,
 };
 
-use http::{StatusCode, header};
+use http::{Method, StatusCode, header};
 use http_body_util::Full;
 use hyper::{
     Request, Response,
@@ -15,7 +15,7 @@ use hyper::{
 };
 use serde_json::json;
 use std::{convert::Infallible, sync::Arc};
-use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa};
+use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa, cors::CorsBuilder};
 
 type TypeState = Arc<State>;
 
@@ -31,13 +31,20 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     } else if path.starts_with("/tree") {
         let mut path = path.split("/").skip(2).collect::<Vec<_>>();
         let (bucket, key) = if path.is_empty() {
-            return Ok(not_found(req).await.into());
+            let tmp = req.extensions().get::<TypeState>().unwrap();
+            return Ok(Response::new(Full::new(Bytes::from(
+                tmp.tree_as_json().await,
+            ))));
+            //return Ok(not_found(req).await.into());
         } else if path.len() == 1 {
             (Some(Bucket::from(path.pop().unwrap())), None)
         } else {
-            (Bucket::from(path.pop().unwrap()).into(), Key::from(path.drain(1..).collect::<Vec<_>>().join("/")).into())
+            (
+                Bucket::from(path.pop().unwrap()).into(),
+                Key::from(path.drain(1..).collect::<Vec<_>>().join("/")).into(),
+            )
         };
-        
+
         middleware_jwt(req, async |x| get_path(x, bucket, key).await).await
     } else {
         Ok(Response::builder()
@@ -52,7 +59,11 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
     }
 }
 
-async fn get_path(req: Request<Incoming>, bucket: Option<Bucket>, key: Option<Key>) -> ResponseHttp {
+async fn get_path(
+    req: Request<Incoming>,
+    bucket: Option<Bucket>,
+    key: Option<Key>,
+) -> ResponseHttp {
     let state = req.extensions().get::<TypeState>().unwrap();
     let reader = state.read().await;
     let body = reader.get(bucket.as_ref().unwrap()).unwrap();
@@ -70,25 +81,26 @@ async fn middleware_jwt<T>(mut req: Request<Incoming>, next: T) -> ResponseHttp
 where
     T: AsyncFnOnce(Request<Incoming>) -> ResponseHttp,
 {
-    let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
-        return Ok(Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .body(Full::default())
-            .unwrap_or_default());
-    };
-
-    let claims = match JwtHandle::verify_token::<Claim>(&token) {
-        Ok(claims) => claims,
-        Err(err) => {
-            tracing::error!("[Midleware jwt] {err}");
+    /*
+        let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
             return Ok(Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body(Full::default())
                 .unwrap_or_default());
-        }
-    };
-    req.extensions_mut().insert(claims);
+        };
 
+        let claims = match JwtHandle::verify_token::<Claim>(&token) {
+            Ok(claims) => claims,
+            Err(err) => {
+                tracing::error!("[Midleware jwt] {err}");
+                return Ok(Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Full::default())
+                    .unwrap_or_default());
+            }
+        };
+        req.extensions_mut().insert(claims);
+    */
     next(req).await
 }
 
@@ -124,5 +136,8 @@ pub async fn server_upgrade(
 }
 
 pub async fn not_found(req: Request<Incoming>) -> ResponseError {
-    ResponseError::new(format!("Path {:?} not found", req.uri().path()), StatusCode::NOT_FOUND)
+    ResponseError::new(
+        format!("Path {:?} not found", req.uri().path()),
+        StatusCode::NOT_FOUND,
+    )
 }

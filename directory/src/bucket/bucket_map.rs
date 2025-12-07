@@ -23,7 +23,11 @@ pub struct BucketMap {
 
 impl BucketMap {
     pub fn new_bucket(&mut self, bucket: Bucket) {
-        self.inner.insert(bucket, Default::default());
+        self.inner
+            .entry(bucket)
+            .or_default()
+            .entry(Key::from("."))
+            .or_default();
     }
 
     pub fn new_key(&mut self, bucket: Bucket, key: Key) {
@@ -59,7 +63,11 @@ impl BucketMap {
 
     pub fn set_key(&mut self, bucket: Bucket, from: Key, to: Key) {
         let bk = self.get_mut(&bucket).unwrap();
-        let keys = bk.keys().cloned().filter(|x| from.is_parent(x)).collect::<Vec<Key>>();
+        let keys = bk
+            .keys()
+            .cloned()
+            .filter(|x| from.is_parent(x))
+            .collect::<Vec<Key>>();
 
         for key in keys {
             let objs = bk.remove(&key).unwrap();
