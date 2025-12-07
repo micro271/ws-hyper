@@ -68,6 +68,9 @@ pub struct Args {
         default_value = ".__stream-in-progress"
     )]
     pub ignore_rename_suffix: String,
+
+    #[arg(long = "pki-dir", env = "PKI_DIR")]
+    pub pki_dir: String,
 }
 
 #[derive(Clone, ValueEnum)]
