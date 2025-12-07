@@ -1,4 +1,4 @@
-pub mod cors;
+pub mod middleware;
 
 use http::{HeaderMap, Request, Response, header};
 use http_body_util::BodyExt;
