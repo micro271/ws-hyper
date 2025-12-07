@@ -1,7 +1,7 @@
 mod entry;
 pub mod error;
 pub mod login;
-mod programas;
+mod bucket;
 pub mod user;
 
 use http_body_util::Full;
@@ -10,7 +10,7 @@ use hyper::{
 };
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa, cors::CorsBuilder};
+use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa, middleware::cors::CorsBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -29,23 +29,6 @@ type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 type Repo = Arc<PgRepository>;
 
 const PREFIX_PATH: &str = "/api/v1";
-
-pub async fn cors(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    let cors = CorsBuilder::default()
-        .allow_origin("http://localhost:5173")
-        .next(entry)
-        .allow_method(Method::PUT)
-        .allow_method(Method::GET)
-        .allow_method(Method::OPTIONS)
-        .allow_method(Method::PATCH)
-        .allow_header(header::CONTENT_TYPE)
-        .allow_header(header::COOKIE)
-        .allow_header(header::AUTHORIZATION)
-        .allow_credentials(true)
-        .build();
-    let tmp = cors.middleware(req).await;
-    tmp
-}
 
 pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
@@ -145,24 +128,24 @@ pub async fn endpoint_admin(req: Request<Incoming>) -> ResponseHandlers {
                 get(req, id).await
             }
         }
-        ("/programa", Method::POST) => programas::new(req).await, /* To excecute this action, it is required que the microservice directory is ready */
-        ("/programas", Method::GET) => programas::get_all(req).await,
+        ("/bucket", Method::POST) => bucket::new(req).await,
+        ("/bucket", Method::GET) => bucket::get_all(req).await,
         (program, method @ (Method::PATCH | Method::GET | Method::DELETE))
-            if path.starts_with("/programa") =>
+            if path.starts_with("/bucket") =>
         {
             let program = program
-                .strip_prefix("/programa/")
+                .strip_prefix("/bucket/")
                 .ok_or(ResponseErr::status(StatusCode::BAD_REQUEST))
                 .and_then(|x| {
                     x.parse::<Uuid>()
                         .map_err(|_| ResponseErr::new("Invalid format", StatusCode::BAD_REQUEST))
                 })?;
             if Method::PATCH == method {
-                programas::update(req, program).await
+                bucket::update(req, program).await
             } else if Method::DELETE == method {
-                programas::delete(req, program).await
+                bucket::delete(req, program).await
             } else {
-                programas::get(req, program).await
+                bucket::get(req, program).await
             }
         }
         _ => Err(ResponseErr::new("Path Not Found", StatusCode::BAD_REQUEST)),

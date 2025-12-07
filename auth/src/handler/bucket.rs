@@ -1,6 +1,6 @@
 use crate::{
     handler::{GetRepo, ResponseHandlers, error::ResponseErr},
-    models::bucket::{Buckets, update::ProgramaUpdate},
+    models::bucket::{Buckets, update::BucketUpdate},
     state::{Insert, InsertOwn, QueryOwn, QueryResult, UpdateOwn},
 };
 use hyper::{Request, StatusCode, body::Incoming};
@@ -9,22 +9,22 @@ use uuid::Uuid;
 
 pub async fn new(req: Request<Incoming>) -> ResponseHandlers {
     let (parts, body) = req.into_parts();
-    let programa: Buckets = ParseBodyToStruct::get(body)
+    let bucket: Buckets = ParseBodyToStruct::get(body)
         .await
         .map_err(|x| ResponseErr::new(x, StatusCode::BAD_GATEWAY))?;
-    // This action requires creating a new directory to store the videos
+
     Ok(GetRepo::get(&parts.extensions)?
-        .insert(InsertOwn::insert(programa))
+        .insert(InsertOwn::insert(bucket))
         .await?
         .into())
 }
 
 pub async fn update(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
     let (parts, body) = req.into_parts();
-    let program: ProgramaUpdate = ParseBodyToStruct::get(body)
+    let program: BucketUpdate = ParseBodyToStruct::get(body)
         .await
         .map_err(|_| ResponseErr::status(StatusCode::BAD_REQUEST))?;
-    // This action requires modifying the directory name
+
     Ok(GetRepo::get(&parts.extensions)?
         .update(UpdateOwn::<'_, Buckets>::new().wh("id", id).from(program))
         .await?
@@ -50,7 +50,6 @@ pub async fn get_all(req: Request<Incoming>) -> ResponseHandlers {
 }
 
 pub async fn delete(req: Request<Incoming>, id: Uuid) -> ResponseHandlers {
-    // If the directory of the program have elements, we'll need to force to delete all elements even main directory.
     let _force = url::form_urlencoded::parse(req.uri().query().unwrap_or_default().as_bytes())
         .find(|(k, _)| k == "force")
         .and_then(|(_, v)| v.parse::<bool>().ok())
