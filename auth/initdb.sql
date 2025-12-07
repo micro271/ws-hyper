@@ -72,8 +72,8 @@ DECLARE
     adm_id UUID;
 BEGIN
     SELECT
-        array_agg(id) FILTER (WHERE role = 'Operator'),
-        array_agg(id) FILTER (WHERE role = 'Admin')
+        coalesce(array_agg(id) FILTER (WHERE role = 'Operator'), '{}'),
+        coalesce(array_agg(id) FILTER (WHERE role = 'Admin'), '{}')
     INTO operators_ids, admin_ids FROM users;
 
     FOREACH op_id IN ARRAY operators_ids LOOP
