@@ -1,8 +1,8 @@
-use crate::middleware::Next;
 use super::Cors;
-use std::{collections::HashSet, convert::Infallible, marker::PhantomData};
+use crate::middleware::Next;
 use http::{HeaderValue, Method, Request, Response};
 use hyper::body::Body;
+use std::{collections::HashSet, convert::Infallible, marker::PhantomData};
 
 use super::{Any, Origin};
 
@@ -35,41 +35,65 @@ impl<T, F> CorsBuilder<T, F> {
         self
     }
 
-    pub fn allow_header<V>(mut self, key: V) -> Self 
+    pub fn allow_header<V>(mut self, key: V) -> Self
     where
-        V: Into<HeaderValue>
+        V: Into<HeaderValue>,
     {
         self.allow_headers.insert(key.into());
 
         self
     }
 
-    pub fn next<NextFn, Fut, Req, Res>(self, next_fn: NextFn) -> CorsBuilder<T, Next<NextFn>> 
-    where 
+    pub fn next<NextFn, Fut, Req, Res>(self, next_fn: NextFn) -> CorsBuilder<T, Next<NextFn>>
+    where
         NextFn: Fn(Request<Req>) -> Fut,
         Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
         Res: Body + Default + Sync + Send,
         Req: Body + Sync + Send,
     {
-        let Self { allow_origin, allow_methods, allow_credentials, allow_headers, next:_} = self;
-        
-        CorsBuilder { allow_origin, allow_methods, allow_credentials, allow_headers, next: Next(next_fn)}
+        let Self {
+            allow_origin,
+            allow_methods,
+            allow_credentials,
+            allow_headers,
+            next: _,
+        } = self;
+
+        CorsBuilder {
+            allow_origin,
+            allow_methods,
+            allow_credentials,
+            allow_headers,
+            next: Next(next_fn),
+        }
     }
 }
 
 impl<F> CorsBuilder<Any, F> {
     pub fn allow_origin<T: Into<String>>(self, origin: T) -> CorsBuilder<Origin, F> {
-        let Self { allow_origin: Any, allow_methods, allow_credentials, allow_headers, next } = self;
+        let Self {
+            allow_origin: Any,
+            allow_methods,
+            allow_credentials,
+            allow_headers,
+            next,
+        } = self;
         let mut allow_origin = Origin::new();
         allow_origin.push(origin.into()).unwrap();
-        CorsBuilder { allow_origin, allow_methods, allow_credentials, allow_headers, next }
+        CorsBuilder {
+            allow_origin,
+            allow_methods,
+            allow_credentials,
+            allow_headers,
+            next,
+        }
     }
 }
 
 impl<F> CorsBuilder<Origin, F> {
     pub fn allow_origin<T: Into<String>>(mut self, origin: T) -> CorsBuilder<Origin, F> {
         self.allow_origin.push(origin.into()).unwrap();
-        
+
         self
     }
 
@@ -81,18 +105,45 @@ impl<F> CorsBuilder<Origin, F> {
 }
 
 impl<F> CorsBuilder<Origin, Next<F>> {
-    pub fn build<Fut, Res, Req>(self) -> Cors<F, Res, Req> 
-    where 
+    pub fn build<Fut, Res, Req>(self) -> Cors<F, Res, Req>
+    where
         F: Fn(Request<Req>) -> Fut,
         Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
         Res: Body + Default + Send + Sync,
         Req: Body + Send + Sync,
     {
-        let CorsBuilder { allow_origin: Origin(origin), allow_methods, allow_credentials, allow_headers, next: Next(next)} = self;
-        let allow_methods = allow_methods.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(", ");
-        let allow_methods = allow_methods.is_empty().then_some("*".to_string()).unwrap_or(allow_methods);
-        let allow_headers = allow_headers.iter().map(|x| x.to_str().unwrap()).collect::<Vec<_>>().join(", ");
-        let allow_headers = allow_headers.is_empty().then_some("*".to_string()).unwrap_or(allow_headers);
-        Cors { origin, methods: allow_methods, headers: allow_headers, credential: allow_credentials, next, _ph: PhantomData }
+        let CorsBuilder {
+            allow_origin: Origin(origin),
+            allow_methods,
+            allow_credentials,
+            allow_headers,
+            next: Next(next),
+        } = self;
+        let allow_methods = allow_methods
+            .iter()
+            .map(|x| x.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let allow_methods = allow_methods
+            .is_empty()
+            .then_some("*".to_string())
+            .unwrap_or(allow_methods);
+        let allow_headers = allow_headers
+            .iter()
+            .map(|x| x.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let allow_headers = allow_headers
+            .is_empty()
+            .then_some("*".to_string())
+            .unwrap_or(allow_headers);
+        Cors {
+            origin,
+            methods: allow_methods,
+            headers: allow_headers,
+            credential: allow_credentials,
+            next,
+            _ph: PhantomData,
+        }
     }
 }

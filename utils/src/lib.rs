@@ -177,8 +177,13 @@ impl GetToken for JwtHeader {
 pub struct JwtBoth(String);
 
 impl GetToken for JwtBoth {
-    fn search(headers: &HeaderMap) -> Option<Self> where Self: Sized {
-        Token::<JwtCookie>::get_token(headers).or_else(|| Token::<JwtHeader>::get_token(headers)).map(Self)
+    fn search(headers: &HeaderMap) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        Token::<JwtCookie>::get_token(headers)
+            .or_else(|| Token::<JwtHeader>::get_token(headers))
+            .map(Self)
     }
 
     fn get(self) -> String {
