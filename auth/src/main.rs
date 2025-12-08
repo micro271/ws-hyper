@@ -8,7 +8,7 @@ use crate::{
 };
 use grpc_v1::user_control::InfoServer;
 use hyper::{Method, header, server::conn::http1};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
@@ -74,19 +74,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         LogLayerBuilder::default()
             .next(async move |x| cors.middleware(x).await)
             .on_request(async |x| {
+                let hd = [
+                        (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
+                        (header::COOKIE, x.headers().get(header::COOKIE)),
+                        (header::AUTHORIZATION, x.headers().get(header::AUTHORIZATION)),
+                        (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
+                        (header::ORIGIN, x.headers().get(header::ORIGIN)),
+                    ]
+                    .into_iter()
+                    .filter_map(|(name, value)| value.map(|v| (name, v)))
+                    .collect::<HashMap<_, _>>();
+
                 tracing::info!(
                     "{{ on_request }} path={} method={} peer={:?} headers {:?}",
                     x.uri().path(),
                     x.method(),
                     x.extensions().get::<Peer>(),
-                    x.headers().iter().filter(|(x, _)| [
-                        header::CONTENT_TYPE,
-                        header::COOKIE,
-                        header::AUTHORIZATION,
-                        header::USER_AGENT,
-                        header::ORIGIN
-                    ]
-                    .contains(x))
+                    hd,
                 )
             })
             .on_response(async |x, i| {

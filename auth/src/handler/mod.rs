@@ -11,8 +11,8 @@ use hyper::{
     http::Extensions,
 };
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa};
+use std::{convert::Infallible, sync::Arc};
+use utils::{JwtBoth, JwtHandle, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
 use crate::{
