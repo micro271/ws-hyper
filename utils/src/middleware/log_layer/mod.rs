@@ -42,7 +42,7 @@ where
         let span = span!(Level::INFO, "HTTP");
         
         (self.on_req)(&req).instrument(span.clone()).await;
-        let resp = (self.next)(req).await?;        
+        let resp = (self.next)(req).instrument(span.clone()).await?;        
         (self.on_res)(&resp, elapsed).instrument(span.clone()).await;
         
         Ok(resp)

@@ -3,11 +3,10 @@ pub mod error;
 use crate::{
     bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::State,
-    user::Claim,
+    state::State, user::Claim,
 };
 
-use http::{Method, StatusCode, header};
+use http::{StatusCode, header};
 use http_body_util::Full;
 use hyper::{
     Request, Response,
@@ -15,7 +14,7 @@ use hyper::{
 };
 use serde_json::json;
 use std::{convert::Infallible, sync::Arc};
-use utils::{JwtHandle, JwtHeader, Token, VerifyTokenEcdsa, cors::CorsBuilder};
+use utils::{JwtBoth, JwtHandle, Token, VerifyTokenEcdsa};
 
 type TypeState = Arc<State>;
 
@@ -81,26 +80,26 @@ async fn middleware_jwt<T>(mut req: Request<Incoming>, next: T) -> ResponseHttp
 where
     T: AsyncFnOnce(Request<Incoming>) -> ResponseHttp,
 {
-    /*
-        let Some(token) = Token::<JwtHeader>::get_token(req.headers()) else {
+    
+    let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
+        return Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(Full::default())
+            .unwrap_or_default());
+    };
+
+    let claims = match JwtHandle::verify_token::<Claim>(&token) {
+        Ok(claims) => claims,
+        Err(err) => {
+            tracing::error!("[Midleware jwt] {err}");
             return Ok(Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body(Full::default())
                 .unwrap_or_default());
-        };
+        }
+    };
+    req.extensions_mut().insert(claims);
 
-        let claims = match JwtHandle::verify_token::<Claim>(&token) {
-            Ok(claims) => claims,
-            Err(err) => {
-                tracing::error!("[Midleware jwt] {err}");
-                return Ok(Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body(Full::default())
-                    .unwrap_or_default());
-            }
-        };
-        req.extensions_mut().insert(claims);
-    */
     next(req).await
 }
 

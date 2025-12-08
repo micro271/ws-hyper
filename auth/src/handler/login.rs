@@ -41,7 +41,7 @@ pub async fn login(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Resp
                             .same_site(cookie::SameSite::Lax)
                             .secure(false)
                             .build();
-
+                        tracing::info!("Login successfull");
                         Ok(Response::builder()
                             .header(header::CONTENT_TYPE, "application/json")
                             .header(header::SET_COOKIE, cookie.to_string())

@@ -3,7 +3,7 @@ mod handler;
 mod models;
 mod state;
 use crate::{
-    grpc_v1::user_control::InfoUserProgram, handler::{entry}, models::user::default_account_admin,
+    grpc_v1::user_control::InfoUserProgram, handler::entry, models::user::default_account_admin,
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
@@ -11,7 +11,11 @@ use hyper::{Method, header, server::conn::http1};
 use std::sync::Arc;
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
-use utils::{GenEcdsa, Io, JwtHandle, Peer, middleware::cors::CorsBuilder, service_with_state};
+use utils::{
+    GenEcdsa, Io, JwtHandle, Peer,
+    middleware::{cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
+    service_with_state,
+};
 
 type Repository = Arc<PgRepository>;
 
@@ -51,33 +55,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
     });
 
-    let cors = Arc::new(CorsBuilder::default()
-        .allow_origin("http://localhost:5173")
-        .next(entry)
-        .allow_method(Method::PUT)
-        .allow_method(Method::GET)
-        .allow_method(Method::OPTIONS)
-        .allow_method(Method::PATCH)
-        .allow_header(header::CONTENT_TYPE)
-        .allow_header(header::COOKIE)
-        .allow_header(header::AUTHORIZATION)
-        .allow_credentials(true)
-        .build());
+    let cors = Arc::new(
+        CorsBuilder::default()
+            .allow_origin("http://localhost:5173")
+            .next(entry)
+            .allow_method(Method::PUT)
+            .allow_method(Method::GET)
+            .allow_method(Method::OPTIONS)
+            .allow_method(Method::PATCH)
+            .allow_header(header::CONTENT_TYPE)
+            .allow_header(header::COOKIE)
+            .allow_header(header::AUTHORIZATION)
+            .allow_credentials(true)
+            .build(),
+    );
+
+    let layer = Arc::new(
+        LogLayerBuilder::default()
+            .next(async move |x| cors.middleware(x).await)
+            .on_request(async |x| {
+                tracing::info!(
+                    "{{ on_request }} path={} method={} peer={:?} headers {:?}",
+                    x.uri().path(),
+                    x.method(),
+                    x.extensions().get::<Peer>(),
+                    x.headers().iter().filter(|(x, _)| [
+                        header::CONTENT_TYPE,
+                        header::COOKIE,
+                        header::AUTHORIZATION,
+                        header::USER_AGENT,
+                        header::ORIGIN
+                    ]
+                    .contains(x))
+                )
+            })
+            .on_response(async |x, i| {
+                tracing::info!(
+                    "{{ on_response }} status = {} duration = {}ms headers = {:?}",
+                    x.status(),
+                    i.elapsed().as_millis(),
+                    x.headers()
+                )
+            })
+            .build(),
+    );
 
     loop {
         let (stream, _) = listener.accept().await?;
-
         let peer = Peer::new(stream.peer_addr().ok());
-        let repo = Arc::clone(&repo);
+        let repo = repo.clone();
         let io = Io::new(stream);
-        let cors = cors.clone();
+        let layer_ = layer.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
                     service_with_state(repo, |mut req| {
                         req.extensions_mut().insert(peer);
-                        cors.middleware(req)
+                        layer_.middleware(req)
                     }),
                 )
                 .await

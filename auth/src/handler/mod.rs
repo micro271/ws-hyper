@@ -1,16 +1,18 @@
+mod bucket;
 mod entry;
 pub mod error;
 pub mod login;
-mod bucket;
 pub mod user;
 
 use http_body_util::Full;
 use hyper::{
-    Method, Request, Response, StatusCode, body::{Bytes, Incoming}, header, http::Extensions
+    Method, Request, Response, StatusCode,
+    body::{Bytes, Incoming},
+    http::Extensions,
 };
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Instant};
-use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa, middleware::cors::CorsBuilder};
+use utils::{JwtBoth, JwtHandle, Peer, Token, VerifyTokenEcdsa};
 use uuid::Uuid;
 
 use crate::{
@@ -32,18 +34,6 @@ const PREFIX_PATH: &str = "/api/v1";
 
 pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let url = req.uri().path();
-
-    let instant = Instant::now();
-
-    tracing::info!(
-        "{{ Request HTTP  }} [ version {:?}, method {}, path {}, peer {}, content-lenth: {:?} ]",
-        req.version(),
-        req.method(),
-        url,
-        req.extensions().get::<Peer>().unwrap().get_ip_or_unknown(),
-        req.headers().get(hyper::http::header::CONTENT_LENGTH),
-    );
-
     let resp = match (url, req.method()) {
         ("/login", &Method::POST) => login::login(req).await,
         (path, _) if path.starts_with(PREFIX_PATH) => {
@@ -62,29 +52,15 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
         _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST)),
     };
 
-    match resp {
-        Ok(e) => {
-            tracing::info!(
-                "{{ Response HTTP }} [ STATUS {}, latency {}]",
-                e.status(),
-                instant.elapsed().as_millis()
-            );
-            Ok(e)
-        }
-        Err(err) => {
-            tracing::error!(
-                "{{ Response HTTP }} [ {}, latency {} ms ]",
-                err,
-                instant.elapsed().as_millis()
-            );
-            Ok(err.into())
-        }
-    }
+    Ok(match resp {
+        Ok(e) => e,
+        Err(er) => er.into(),
+    })
 }
 
 pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
     let path = req.uri().path().strip_prefix(PREFIX_PATH).unwrap();
-    if path == "/user/self" {
+    if path == "/user" {
         let id = req.extensions().get::<Claim>().unwrap().sub;
 
         return match req.method().clone() {

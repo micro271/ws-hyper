@@ -15,7 +15,7 @@ use crate::models::user::User;
 pub const TABLA_BUCKET: &str = "buckets";
 pub const TABLA_USER: &str = "users";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PgRepository {
     inner: Pool<Postgres>,
 }

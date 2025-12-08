@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_pass,
         md_database,
         ignore_rename_suffix,
-        pki_dir,
+        pki_dir: _,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -108,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(State::new(state, msgs).await);
     task.run();
+
     let cors = Arc::new(
         CorsBuilder::default()
             .allow_origin("http://localhost:5173")
