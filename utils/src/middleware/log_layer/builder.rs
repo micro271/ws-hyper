@@ -1,7 +1,7 @@
 use crate::middleware::{Next, log_layer::LogLayer};
 use http::{Request, Response};
 use hyper::body::Body;
-use std::{convert::Infallible, marker::PhantomData};
+use std::{convert::Infallible, marker::PhantomData, time::Instant};
 
 pub struct NoReq;
 pub struct Req<R>(R);
@@ -40,7 +40,7 @@ where
         on: R,
     ) -> LogLayerBuilder<Req<R>, OnRes, N, ReqBody, ResBody>
     where
-        R: for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
+        R: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
     {
         LogLayerBuilder {
             on_req: Req(on),
@@ -62,7 +62,7 @@ where
         on: R,
     ) -> LogLayerBuilder<OnReq, Res<R>, N, ReqBody, ResBody>
     where
-        R:for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
+        R:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
     {
         LogLayerBuilder {
             on_req: self.on_req,
@@ -102,8 +102,8 @@ impl<OnReq, OnRes, N, ReqBody, ResBody>
 where
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
-    OnReq: for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
-    OnRes: for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
+    OnReq: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
+    OnRes: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
     N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
 {
     pub fn build(self) -> LogLayer<OnReq, OnRes, N, ReqBody, ResBody> {

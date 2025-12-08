@@ -1,7 +1,8 @@
-use std::{convert::Infallible, marker::PhantomData};
+use std::{convert::Infallible, marker::PhantomData, time::Instant};
 
 use http::{Request, Response};
 use hyper::body::Body;
+use tracing::{Instrument, Level, span};
 
 pub mod builder;
 
@@ -27,8 +28,8 @@ impl<OnReq: Clone, OnRes: Clone, N: Clone, ReqBody, ResBody> std::clone::Clone f
 impl<OnReq, OnRes, N, ReqBody, ResBody> 
     LogLayer<OnReq, OnRes, N, ReqBody, ResBody>
 where
-    OnReq:for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone + Sync,
-    OnRes:for<'a> AsyncFn(&'a Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone + Sync,
+    OnReq:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Sync,
+    OnRes:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Sync,
     N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone + Sync,
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
@@ -37,6 +38,13 @@ where
         &self,
         req: http::Request<ReqBody>,
     ) -> Result<Response<ResBody>, Infallible> {
-        todo!()
+        let elapsed = Instant::now();
+        let span = span!(Level::INFO, "HTTP");
+        
+        (self.on_req)(&req).instrument(span.clone()).await;
+        let resp = (self.next)(req).await?;        
+        (self.on_res)(&resp, elapsed).instrument(span.clone()).await;
+        
+        Ok(resp)
     }
 }
