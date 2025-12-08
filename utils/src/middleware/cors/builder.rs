@@ -1,13 +1,10 @@
+use crate::middleware::Next;
 use super::Cors;
-
 use std::{collections::HashSet, convert::Infallible, marker::PhantomData};
-
 use http::{HeaderValue, Method, Request, Response};
 use hyper::body::Body;
 
 use super::{Any, Origin};
-
-pub struct Next<F>(F);
 
 pub struct NoNext;
 
