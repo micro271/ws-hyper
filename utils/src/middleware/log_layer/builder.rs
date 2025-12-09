@@ -40,7 +40,7 @@ where
         on: R,
     ) -> LogLayerBuilder<Req<R>, OnRes, N, ReqBody, ResBody>
     where
-        R: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
+        R: for<'a> AsyncFn(&'a Request<ReqBody>) + Send,
     {
         LogLayerBuilder {
             on_req: Req(on),
@@ -62,7 +62,7 @@ where
         on: R,
     ) -> LogLayerBuilder<OnReq, Res<R>, N, ReqBody, ResBody>
     where
-        R:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
+        R:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send,
     {
         LogLayerBuilder {
             on_req: self.on_req,
@@ -84,7 +84,7 @@ where
         next: R,
     ) -> LogLayerBuilder<OnReq, OnRes, Next<R>, ReqBody, ResBody>
     where
-        R: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
+        R: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send,
         ReqBody: Body + Send,
         ResBody: Body + Send + Default,
     {
@@ -102,9 +102,9 @@ impl<OnReq, OnRes, N, ReqBody, ResBody>
 where
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
-    OnReq: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
-    OnRes: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
-    N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone,
+    OnReq: for<'a> AsyncFn(&'a Request<ReqBody>) + Send,
+    OnRes: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send,
+    N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send,
 {
     pub fn build(self) -> LogLayer<OnReq, OnRes, N, ReqBody, ResBody> {
         let LogLayerBuilder { on_req: Req(on_req), on_res: Res(on_res), next: Next(next), _ph } = self;

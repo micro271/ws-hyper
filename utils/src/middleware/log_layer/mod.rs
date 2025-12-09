@@ -25,12 +25,12 @@ impl<OnReq: Clone, OnRes: Clone, N: Clone, ReqBody, ResBody> std::clone::Clone f
     }
 }
 
-impl<OnReq, OnRes, N, ReqBody, ResBody> 
+impl<OnReq, OnRes, N, ReqBody, ResBody>
     LogLayer<OnReq, OnRes, N, ReqBody, ResBody>
 where
-    OnReq:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Sync,
-    OnRes:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Sync,
-    N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send + Clone + Sync,
+    OnReq:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Sync,
+    OnRes:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Sync,
+    N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send +  Sync,
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
 {
@@ -43,7 +43,7 @@ where
         
         (self.on_req)(&req).instrument(span.clone()).await;
         let resp = (self.next)(req).instrument(span.clone()).await?;        
-        (self.on_res)(&resp, elapsed).instrument(span.clone()).await;
+        (self.on_res)(&resp, elapsed).instrument(span).await;
         
         Ok(resp)
     }
