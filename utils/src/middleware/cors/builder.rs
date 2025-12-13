@@ -1,34 +1,30 @@
-use super::Cors;
-use crate::middleware::Next;
-use http::{HeaderValue, Method, Request, Response};
-use hyper::body::Body;
-use std::{collections::HashSet, convert::Infallible, marker::PhantomData};
+use crate::middleware::cors::layer::CorsLayer;
+use http::{HeaderValue, Method};
+use std::collections::HashSet;
 
 use super::{Any, Origin};
 
 pub struct NoNext;
 
-pub struct CorsBuilder<T, F> {
+pub struct CorsBuilder<T> {
     allow_origin: T,
     allow_methods: HashSet<Method>,
     allow_credentials: Option<bool>,
     allow_headers: HashSet<HeaderValue>,
-    next: F,
 }
 
-impl std::default::Default for CorsBuilder<Any, NoNext> {
+impl std::default::Default for CorsBuilder<Any> {
     fn default() -> Self {
         CorsBuilder {
             allow_origin: Any,
             allow_credentials: None,
             allow_headers: Default::default(),
             allow_methods: Default::default(),
-            next: NoNext,
         }
     }
 }
 
-impl<T, F> CorsBuilder<T, F> {
+impl<T> CorsBuilder<T> {
     pub fn allow_method(mut self, methods: Method) -> Self {
         self.allow_methods.insert(methods);
 
@@ -43,40 +39,15 @@ impl<T, F> CorsBuilder<T, F> {
 
         self
     }
-
-    pub fn next<NextFn, Fut, Req, Res>(self, next_fn: NextFn) -> CorsBuilder<T, Next<NextFn>>
-    where
-        NextFn: Fn(Request<Req>) -> Fut,
-        Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
-        Res: Body + Default + Sync + Send,
-        Req: Body + Sync + Send,
-    {
-        let Self {
-            allow_origin,
-            allow_methods,
-            allow_credentials,
-            allow_headers,
-            next: _,
-        } = self;
-
-        CorsBuilder {
-            allow_origin,
-            allow_methods,
-            allow_credentials,
-            allow_headers,
-            next: Next(next_fn),
-        }
-    }
 }
 
-impl<F> CorsBuilder<Any, F> {
-    pub fn allow_origin<T: Into<String>>(self, origin: T) -> CorsBuilder<Origin, F> {
+impl CorsBuilder<Any> {
+    pub fn allow_origin<T: Into<String>>(self, origin: T) -> CorsBuilder<Origin> {
         let Self {
             allow_origin: Any,
             allow_methods,
             allow_credentials,
             allow_headers,
-            next,
         } = self;
         let mut allow_origin = Origin::new();
         allow_origin.push(origin.into()).unwrap();
@@ -85,13 +56,12 @@ impl<F> CorsBuilder<Any, F> {
             allow_methods,
             allow_credentials,
             allow_headers,
-            next,
         }
     }
 }
 
-impl<F> CorsBuilder<Origin, F> {
-    pub fn allow_origin<T: Into<String>>(mut self, origin: T) -> CorsBuilder<Origin, F> {
+impl CorsBuilder<Origin> {
+    pub fn allow_origin<T: Into<String>>(mut self, origin: T) -> CorsBuilder<Origin> {
         self.allow_origin.push(origin.into()).unwrap();
 
         self
@@ -104,20 +74,13 @@ impl<F> CorsBuilder<Origin, F> {
     }
 }
 
-impl<F> CorsBuilder<Origin, Next<F>> {
-    pub fn build<Fut, Res, Req>(self) -> Cors<F, Res, Req>
-    where
-        F: Fn(Request<Req>) -> Fut,
-        Fut: Future<Output = Result<Response<Res>, Infallible>> + Send,
-        Res: Body + Default + Send + Sync,
-        Req: Body + Send + Sync,
-    {
+impl CorsBuilder<Origin> {
+    pub fn build(self) -> CorsLayer {
         let CorsBuilder {
             allow_origin: Origin(origin),
             allow_methods,
             allow_credentials,
             allow_headers,
-            next: Next(next),
         } = self;
         let allow_methods = allow_methods
             .iter()
@@ -137,13 +100,11 @@ impl<F> CorsBuilder<Origin, Next<F>> {
             .is_empty()
             .then_some("*".to_string())
             .unwrap_or(allow_headers);
-        Cors {
+        CorsLayer {
             origin,
             methods: allow_methods,
             headers: allow_headers,
             credential: allow_credentials,
-            next,
-            _ph: PhantomData,
         }
     }
 }

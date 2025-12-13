@@ -1,50 +1,49 @@
-use std::{convert::Infallible, marker::PhantomData, time::Instant};
-
+use std::time::Instant;
 use http::{Request, Response};
 use hyper::body::Body;
-use tracing::{Instrument, Level, span};
+
+use super::Layer;
 
 pub mod builder;
+pub mod layer;
 
-#[derive(Debug)]
-pub struct LogLayer<OnReq, OnRes, N, ReqBody, ResBody> {
-    pub on_req: OnReq,
-    pub on_res: OnRes,
-    pub next: N,
-    pub _ph: PhantomData<(ReqBody, ResBody)>
+pub struct Log<L, B, A> {
+    inner: L,
+    before: B,
+    after: A,
 }
 
-impl<OnReq: Clone, OnRes: Clone, N: Clone, ReqBody, ResBody> std::clone::Clone for LogLayer<OnReq, OnRes, N, ReqBody, ResBody> {
+impl<L: Clone, A: Clone, B: Clone> std::clone::Clone for Log<L, A, B>{
     fn clone(&self) -> Self {
-        Self {
-            on_req: self.on_req.clone(),
-            on_res: self.on_res.clone(),
-            next: self.next.clone(),
-            _ph: self._ph.clone()
-        }
+        Self { inner: self.inner.clone(), before: self.before.clone(), after: self.after.clone() }
     }
 }
 
-impl<OnReq, OnRes, N, ReqBody, ResBody>
-    LogLayer<OnReq, OnRes, N, ReqBody, ResBody>
+impl<L, ReqBody, ResBody, B, A> Layer<ReqBody, ResBody> for Log<L, B, A> 
 where
-    OnReq:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Sync,
-    OnRes:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Sync,
-    N: AsyncFn(Request<ReqBody>) -> Result<Response<ResBody>, Infallible> + Send +  Sync,
+    L: Layer<ReqBody, ResBody> + Clone,
+    B:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
+    A:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
+
 {
-    pub async fn middleware(
-        &self,
-        req: http::Request<ReqBody>,
-    ) -> Result<Response<ResBody>, Infallible> {
-        let elapsed = Instant::now();
-        let span = span!(Level::INFO, "HTTP");
-        
-        (self.on_req)(&req).instrument(span.clone()).await;
-        let resp = (self.next)(req).instrument(span.clone()).await?;        
-        (self.on_res)(&resp, elapsed).instrument(span).await;
-        
-        Ok(resp)
+    type Error = L::Error;
+
+    fn call(&self, req: http::Request<ReqBody>) -> impl Future<Output = Result<http::Response<ResBody>, Self::Error>> {
+        let before = self.before.clone();
+        let after = self.after.clone();
+        let caller = self.inner.clone();
+        async move {
+            let ins = Instant::now();
+            before(&req).await;
+            match caller.call(req).await {
+                Ok(e) => {
+                    after(&e, ins).await;
+                    Ok(e)
+                },
+                Err(er) => Err(er),
+            }
+        }
     }
 }

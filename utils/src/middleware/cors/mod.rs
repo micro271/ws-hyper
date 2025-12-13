@@ -1,27 +1,29 @@
 mod builder;
+pub mod layer;
 
 pub use builder::*;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use hyper::body::Body;
-use std::{convert::Infallible, marker::PhantomData};
+
+use crate::middleware::Layer;
 
 #[derive(Debug, Clone)]
-pub struct Cors<F, Res, Req> {
+pub struct Cors<L> {
     origin: Vec<String>,
     methods: String,
     headers: String,
     credential: Option<bool>,
-    next: F,
-    _ph: PhantomData<(Res, Req)>,
+    inner: L,
 }
 
-impl<F, Res, Req> Cors<F, Res, Req>
+impl<L, Res, Req> Layer<Req, Res> for Cors<L>
 where
-    F: AsyncFn(Request<Req>) -> Result<Response<Res>, Infallible> + Send + Clone,
+    L: Layer<Req, Res>,
     Res: Body + Default + Send,
     Req: Body + Send,
 {
-    pub async fn middleware(&self, req: Request<Req>) -> Result<Response<Res>, Infallible> {
+    type Error = L::Error;
+    async fn call(&self, req: Request<Req>) -> Result<Response<Res>, Self::Error> {
         let Some(origin) = req
             .headers()
             .get(header::ORIGIN)
@@ -64,7 +66,7 @@ where
             Ok(r)
         } else {
             let origin = origin.to_string();
-            (self.next)(req).await.map(|mut x| {
+            self.inner.call(req).await.map(|mut x| {
                 let header = x.headers_mut();
                 if let Some(cred) = self.credential {
                     header.insert(
