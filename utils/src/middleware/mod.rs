@@ -6,7 +6,7 @@ pub mod handler;
 use http::{Request, Response};
 use hyper::body::Body;
 
-use crate::middleware::entry::EntryFn;
+use crate::middleware::{entry::EntryFn, handler::HandlerFnMutLayer};
 
 #[derive(Debug, Clone)]
 pub struct MiddlwareStack<S> {
@@ -63,7 +63,15 @@ impl<L> MiddlwareStack<L> {
         MiddlwareStack { inner }
     }
 
-    
+    pub fn layer_mut_fn<H, ReqBody, ResBody>(self, layer: H) -> MiddlwareStack<<HandlerFnMutLayer<H, ReqBody> as IntoLayer<L, ReqBody, ResBody>>::Output> 
+    where
+        L: Layer<ReqBody, ResBody> + Clone,
+        H: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone + Into<HandlerFnMutLayer<H, ReqBody>>,
+        ResBody: Body + Send + Default,
+        ReqBody: Body + Send,
+    {
+        MiddlwareStack { inner: layer.into().into_layer(self.inner) }
+    }
 }
 
 pub trait Layer<ReqBody, ResBody>

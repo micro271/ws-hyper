@@ -1,16 +1,32 @@
+use std::marker::PhantomData;
+
 use http::{Request, Response};
 use hyper::body::Body;
 use crate::middleware::{IntoLayer, Layer};
 
-pub struct HandlerFnLayer<F>(F);
+pub struct HandlerFnMutLayer<F, ReqBody>{
+    r#fn: F,
+    _ph: PhantomData<ReqBody>,
+}
 
-impl<F> HandlerFnLayer<F> {
-    pub fn new<ReqBody>(r#fn: F) -> Self 
-    where 
-        F: for<'a> AsyncFn(&'a Request<ReqBody>) + Clone + Copy,
-        ReqBody: Body + Send,
+impl<F, ReqBody> HandlerFnMutLayer<F, ReqBody> 
+where 
+    F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
+    ReqBody: Body + Send,    
+{
+    pub fn new(r#fn: F) -> Self 
     {
-        Self(r#fn)
+        Self { r#fn, _ph: PhantomData }
+    }
+}
+
+impl<F, ReqBody> From<F> for HandlerFnMutLayer<F, ReqBody> 
+where 
+    F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
+    ReqBody: Body + Send,
+{
+    fn from(value: F) -> Self {
+        Self { r#fn: value, _ph: PhantomData }
     }
 }
 
@@ -25,31 +41,30 @@ where
     ResBody: Body + Send + Default,
     ReqBody: Body + Send,
     L: Layer<ReqBody, ResBody> + Clone,
-    F: for<'a> AsyncFn(&'a Request<ReqBody>) + Clone + Copy,
+    F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
 {
     type Error = L::Error;
-    fn call(&self, req: Request<ReqBody>) -> impl Future<Output = Result<Response<ResBody>, Self::Error>> {
+    fn call(&self, mut req: Request<ReqBody>) -> impl Future<Output = Result<Response<ResBody>, Self::Error>> {
         let tmp = self.fn_.clone();
-        let inner = self.inner.clone();
         async move {
-            tmp(&req).await;
-            inner.call(req).await
+            tmp(&mut req).await;
+            self.inner.call(req).await
         }
     }
 }
 
-impl<L, F, ReqBody, ResBody> IntoLayer<L, ReqBody, ResBody> for HandlerFnLayer<F> 
+impl<L, F, ReqBody, ResBody> IntoLayer<L, ReqBody, ResBody> for HandlerFnMutLayer<F, ReqBody> 
 where 
     ResBody: Body + Send + Default,
     ReqBody: Body + Send,
     L: Layer<ReqBody, ResBody> + Clone,
-    F: for<'a> AsyncFn(&'a Request<ReqBody>) + Clone + Copy,
+    F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
 {
     type Output = HandlerFn<L, F>;
     fn into_layer(self, inner: L) -> Self::Output where Self: Sized {
         HandlerFn {
             inner,
-            fn_: self.0,
+            fn_: self.r#fn,
         }
     }
 }
