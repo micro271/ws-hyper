@@ -7,14 +7,13 @@ use crate::{
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
-use hyper::{Method, header, server::conn::http1};
+use hyper::{Method, Request, body::Incoming, header, server::conn::http1, service::service_fn};
 use std::{collections::HashMap, sync::Arc};
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
     GenEcdsa, Io, JwtHandle, Peer,
-    middleware::{MiddlwareStack, Layer, cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
-    service_with_state,
+    middleware::{MiddlwareStack, Layer, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}
 };
 
 type Repository = Arc<PgRepository>;
@@ -100,23 +99,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })
             .build();
-    
-    let stack = MiddlwareStack::default().entry(EPoint).layer(cors).layer(log_layer);
+    let _repo = repo.clone();
+    let stack = MiddlwareStack::default().entry(EPoint).layer_mut_fn(async move |x: &mut Request<Incoming>| {
+        x.extensions_mut().insert(_repo.clone());
+    }).layer(cors).layer(log_layer);
     
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
-        let repo = repo.clone();
         let io = Io::new(stream);
         let _stack = stack.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_with_state(repo, |mut req| {
+                    service_fn(|mut req| {
                         req.extensions_mut().insert(peer);
                         _stack.call(req)
-                    }),
+                    })
                 )
                 .await
             {

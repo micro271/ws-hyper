@@ -21,12 +21,12 @@ use crate::{
 };
 use clap::Parser;
 use http::{Method, header};
-use hyper::server::conn::http1;
+use hyper::{body::Incoming, server::conn::http1, service::service_fn, Request};
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::Level;
 use tracing_subscriber::fmt;
-use utils::{Io, Peer, middleware::{cors::CorsBuilder, log_layer::builder::LogLayerBuilder}, service_with_state};
+use utils::{Io, Peer, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}, service_with_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -109,10 +109,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::new(state, msgs).await);
     task.run();
 
-    let cors = Arc::new(
+    let cors = 
         CorsBuilder::default()
             .allow_origin("http://localhost:5173")
-            .next(entry)
             .allow_method(Method::PUT)
             .allow_method(Method::GET)
             .allow_method(Method::OPTIONS)
@@ -121,11 +120,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .allow_header(header::COOKIE)
             .allow_header(header::AUTHORIZATION)
             .allow_credentials(true)
-            .build(),
-    );
-    let trace = Arc::new(
+            .build();
+    
+    let trace = 
         LogLayerBuilder::default()
-            .next(async move |x| cors.middleware(x).await)
             .on_request(async |x| {
                 let hd = [
                         (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
@@ -154,23 +152,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     x.headers()
                 )
             })
-            .build(),
-    );
+            .build();
+
+    let stack_layer = Arc::new(MiddlwareStack::default().entry_fn(entry).layer_mut_fn(async move |x| {
+        x.extensions_mut().insert(state.clone());
+    }).layer(cors).layer(trace));
+
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
-        let state = state.clone();
         let io = Io::new(stream);
-        let trace = trace.clone();
-
+        let stack_layer = stack_layer.clone();
         tokio::task::spawn(async move {
             if let Err(e) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_with_state(state, |mut req| {
+                    service_fn(|mut req| {
                         req.extensions_mut().insert(peer);
-                        trace.middleware(req)
-                    }),
+                        stack_layer.call(req)
+                    })
                 )
                 .with_upgrades()
                 .await
