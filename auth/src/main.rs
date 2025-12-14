@@ -3,7 +3,7 @@ mod handler;
 mod models;
 mod state;
 use crate::{
-    grpc_v1::user_control::InfoUserProgram, handler::entry::{self, EPoint}, models::user::default_account_admin,
+    grpc_v1::user_control::InfoUserProgram, handler::entry::EPoint, models::user::default_account_admin,
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
