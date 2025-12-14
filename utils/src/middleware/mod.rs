@@ -1,79 +1,69 @@
 pub mod cors;
 pub mod log_layer;
 pub mod entry;
+pub mod handler;
 
 use http::{Request, Response};
 use hyper::body::Body;
-use entry::Entry;
 
-pub struct Empty;
+use crate::middleware::entry::EntryFn;
 
 #[derive(Debug, Clone)]
 pub struct MiddlwareStack<S> {
-    stack: S,
+    inner: S,
 }
 
 impl std::default::Default for MiddlwareStack<Empty> {
     fn default() -> Self {
         Self {
-            stack: Empty,
+            inner: Empty::new(),
         }
     }
 }
 
+impl<S> std::ops::Deref for MiddlwareStack<S> {
+
+    type Target = S;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 impl MiddlwareStack<Empty> {
-    pub fn entry<E, Err, ReqBody, ResBody>(&self, entry: E) -> MiddlwareStack<Entry<E>> 
+    pub fn entry_fn<E, Err, ReqBody, ResBody>(&self, entry: E) -> MiddlwareStack<EntryFn<E>> 
     where
-        E: AsyncFnOnce(Request<ReqBody>) -> Result<Response<ResBody>, Err> + Clone + Copy,
-        Err: std::error::Error + Send + 'static,
+        E: AsyncFnOnce(Request<ReqBody>) -> Result<Response<ResBody>, Err> + Clone,
+        Err: std::error::Error + Send + Sync + 'static,
         ResBody: Body + Send + Default,
         ReqBody: Body + Send,
     {
-        MiddlwareStack { stack: Entry::new(entry) }
+        MiddlwareStack { inner: EntryFn::new(entry) }
+    }
+
+    pub fn entry<L, ReqBody, ResBody>(self, inner: L) -> MiddlwareStack<L> 
+    where
+        L: Layer<ReqBody, ResBody>,
+        ReqBody: Body + Send,
+        ResBody: Body + Send + Default,
+    {
+        MiddlwareStack { inner }
     }
 }
 
 impl<L> MiddlwareStack<L> {
     pub fn layer<I, ReqBody, ResBody>(self, layer: I) -> MiddlwareStack<I::Output> 
-    where 
+    where
         L: Layer<ReqBody, ResBody> + Clone,
         I: IntoLayer<L, ReqBody, ResBody>,
+        I::Output: Clone,
         ResBody: Body + Send + Default,
         ReqBody: Body + Send,
     {
-        let stack = layer.into_layer(self.stack);
-        MiddlwareStack { stack }
+        let inner = layer.into_layer(self.inner);
+        MiddlwareStack { inner }
     }
-}
 
-impl<S, ReqBody, ResBody> Layer<ReqBody, ResBody> for  MiddlwareStack<S> 
-where 
-    S: Layer<ReqBody, ResBody> + Clone,
-    S::Error: Send,
-    ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
-{
-    type Error = S::Error;
-
-    fn call(&self, req: Request<ReqBody>) -> impl Future<Output = Result<Response<ResBody>, Self::Error> > {
-        let tmp = self.stack.clone();
-        async move {
-            tmp.call(req).await
-        }
-    }
-}
-
-pub trait Middleware<ReqBody, ResBody> 
-where 
-    ReqBody: Send,
-    ResBody: Send + Default,
-{
-    type Error: std::error::Error;
-
-    fn call(
-        &self,
-        req: Request<ReqBody>,
-    ) -> impl Future<Output = Result<Response<ResBody>, Self::Error>>;
+    
 }
 
 pub trait Layer<ReqBody, ResBody>
@@ -93,4 +83,15 @@ where
 {
     type Output: Layer<ReqBody, ResBody> + Clone;
     fn into_layer(self, inner: S) -> Self::Output where Self: Sized;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Empty {
+    _p: (),
+}
+
+impl Empty {
+    pub(self) fn new() -> Self {
+        Self { _p: () }
+    }
 }
