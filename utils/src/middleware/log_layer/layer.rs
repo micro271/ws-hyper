@@ -26,8 +26,8 @@ impl<S, A, B, ReqBody, ResBody> IntoLayer<S, ReqBody, ResBody> for LogLayer<B, A
 where
     ResBody: Body + Default + Send,
     ReqBody: Body + Send,
-    B:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone,
-    A:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone,
+    B:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Copy,
+    A:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Copy,
     S: Layer<ReqBody, ResBody> + Clone,
 {
     type Output = Log<S, B, A>;
