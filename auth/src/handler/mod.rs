@@ -1,5 +1,5 @@
 mod bucket;
-mod entry;
+pub mod entry;
 pub mod error;
 pub mod login;
 pub mod user;
@@ -11,8 +11,7 @@ use hyper::{
     http::Extensions,
 };
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc};
-use utils::{JwtBoth, JwtHandle, Token, VerifyTokenEcdsa};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
@@ -31,32 +30,6 @@ type ResponseHandlers = Result<Response<Full<Bytes>>, ResponseErr>;
 type Repo = Arc<PgRepository>;
 
 const PREFIX_PATH: &str = "/api/v1";
-
-pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    let url = req.uri().path();
-    let resp = match (url, req.method()) {
-        ("/login", &Method::POST) => login::login(req).await,
-        (path, _) if path.starts_with(PREFIX_PATH) => {
-            let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
-                return Ok(ResponseErr::new("Token not found", StatusCode::UNAUTHORIZED).into());
-            };
-
-            let claim = match JwtHandle::verify_token::<Claim>(&token) {
-                Ok(claim) => claim,
-                Err(err) => return Ok(ResponseErr::new(err, StatusCode::UNAUTHORIZED).into()),
-            };
-
-            req.extensions_mut().insert(claim);
-            api(req).await
-        }
-        _ => Err(ResponseErr::new("Path not found", StatusCode::BAD_REQUEST)),
-    };
-
-    Ok(match resp {
-        Ok(e) => e,
-        Err(er) => er.into(),
-    })
-}
 
 pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
     let path = req.uri().path().strip_prefix(PREFIX_PATH).unwrap();

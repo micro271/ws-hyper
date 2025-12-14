@@ -3,7 +3,7 @@ mod handler;
 mod models;
 mod state;
 use crate::{
-    grpc_v1::user_control::InfoUserProgram, handler::entry, models::user::default_account_admin,
+    grpc_v1::user_control::InfoUserProgram, handler::entry::{self, EPoint}, models::user::default_account_admin,
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
@@ -13,7 +13,7 @@ use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
     GenEcdsa, Io, JwtHandle, Peer,
-    middleware::{cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
+    middleware::{MiddlwareStack, Layer, cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
     service_with_state,
 };
 
@@ -55,10 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
     });
 
-    let cors = Arc::new(
-        CorsBuilder::default()
+    let cors = CorsBuilder::default()
             .allow_origin("http://localhost:5173")
-            .next(entry)
             .allow_method(Method::PUT)
             .allow_method(Method::GET)
             .allow_method(Method::OPTIONS)
@@ -67,23 +65,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .allow_header(header::COOKIE)
             .allow_header(header::AUTHORIZATION)
             .allow_credentials(true)
-            .build(),
-    );
-
-    let layer = Arc::new(
-        LogLayerBuilder::default()
-            .next(async move |x| cors.middleware(x).await)
+            .build();
+    
+    let log_layer = LogLayerBuilder::default()
             .on_request(async |x| {
                 let hd = [
-                        (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
-                        (header::COOKIE, x.headers().get(header::COOKIE)),
-                        (header::AUTHORIZATION, x.headers().get(header::AUTHORIZATION)),
-                        (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
-                        (header::ORIGIN, x.headers().get(header::ORIGIN)),
-                    ]
-                    .into_iter()
-                    .filter_map(|(name, value)| value.map(|v| (name, v)))
-                    .collect::<HashMap<_, _>>();
+                    (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
+                    (header::COOKIE, x.headers().get(header::COOKIE)),
+                    (
+                        header::AUTHORIZATION,
+                        x.headers().get(header::AUTHORIZATION),
+                    ),
+                    (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
+                    (header::ORIGIN, x.headers().get(header::ORIGIN)),
+                ]
+                .into_iter()
+                .filter_map(|(name, value)| value.map(|v| (name, v)))
+                .collect::<HashMap<_, _>>();
 
                 tracing::info!(
                     "{{ on_request }} path={} method={} peer={:?} headers {:?}",
@@ -101,22 +99,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     x.headers()
                 )
             })
-            .build(),
-    );
-
+            .build();
+    
+    let stack = MiddlwareStack::default().entry(EPoint).layer(cors).layer(log_layer);
+    
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
         let repo = repo.clone();
         let io = Io::new(stream);
-        let layer_ = layer.clone();
+        let _stack = stack.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
                     service_with_state(repo, |mut req| {
                         req.extensions_mut().insert(peer);
-                        layer_.middleware(req)
+                        _stack.call(req)
                     }),
                 )
                 .await
