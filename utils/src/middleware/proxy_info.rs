@@ -8,12 +8,59 @@ use crate::{Peer, middleware::IntoLayer};
 pub struct ProxyInfoLayer;
 
 #[derive(Debug, Clone)]
+pub struct Forwarded {
+    pub r#for: Ip,
+    pub by: Ip,
+    pub proto: Proto,
+}
+
+#[derive(Default)]
+pub struct ForwardedBuilder {
+    r#for: Option<Ip>,
+    by: Option<Ip>,
+    proto: Option<Proto>,
+}
+
+impl ForwardedBuilder {
+    fn r#for(&mut self, r#for: Ip) -> &mut Self {
+        self.r#for = Some(r#for);
+        self
+    }
+    fn by(&mut self, by: Ip) -> &mut Self {
+        self.by = Some(by);
+        self
+    }
+    fn proto(&mut self, proto: Proto) -> &mut Self {
+        self.proto = Some(proto);
+        self
+    }
+
+    fn build(self) -> Forwarded {
+        Forwarded { r#for: self.r#for.unwrap_or_default(), by: self.by.unwrap_or_default(), proto: self.proto.unwrap_or_default() }
+    }
+}
+
+impl From<&str> for Forwarded {
+    fn from(value: &str) -> Self {
+        let split = value.split(";").map(str::trim).collect::<Vec<&str>>();
+        let mut builder = ForwardedBuilder::default();
+        for pair in split {
+            let (key, value) = pair.split_once("=").unwrap();
+            match key {
+                "for" => {builder.r#for(value.into());},
+                "by" => {builder.by(value.into());},
+                "proto" => {builder.proto(value.into());},
+                _ => continue,
+            }
+        }
+
+        builder.build()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ProxyInfoType {
-    Forwarded {
-        r#for: Ip,
-        by: Ip,
-        proto: Proto,
-    },
+    Forwarded { proxies: Vec<Forwarded> },
     XRealIp { ip: Ip },
     XForwardedFor {
         ip: Ip,
@@ -55,10 +102,11 @@ impl std::default::Default for Ip {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Proto {
     Http,
     Https,
+    #[default]
     Unknown,
     Ws,
     Wss
@@ -119,23 +167,7 @@ where
         let mut info= None;
         
         if let Some(fw) = req.headers().get("Forwarded").and_then(|x| x.to_str().ok()) {
-            let list = fw.split(";").nth(0).map(|x| x.split(",").map(str::trim_start).collect::<Vec<_>>()).unwrap();
-            let mut r#for = None;
-            let mut by = None;
-            let mut proto = None;
-            for i in list {
-                let (key, value) = i.split_once("=").unwrap();
-                if key == "for" {
-                    r#for = Some(value);
-                } else if key == "by" {
-                    by = Some(value);
-                } else if key == "proto" {
-                    proto = Some(value);
-                }
-            }
-
-            info = Some(ProxyInfoType::Forwarded { r#for: r#for.unwrap().into(), by: by.unwrap().into(), proto: proto.unwrap().into() });
-
+            info = Some(ProxyInfoType::Forwarded { proxies: fw.split(",").map(<&str as Into<Forwarded>>::into).collect::<Vec<_>>() });
         } else if let Some(fw) = req.headers().get("X-Forwarded-For").and_then(|x| x.to_str().ok()) {
             let mut list = fw.split(",").map(str::trim_start).map(|x| x.into()).collect::<Vec<_>>();
             info = Some(ProxyInfoType::XForwardedFor { ip: list.remove(0), proxys: list })
