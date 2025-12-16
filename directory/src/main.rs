@@ -21,12 +21,12 @@ use crate::{
 };
 use clap::Parser;
 use http::{Method, header};
-use hyper::{body::Incoming, server::conn::http1, service::service_fn, Request};
+use hyper::{server::conn::http1, service::service_fn};
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::Level;
 use tracing_subscriber::fmt;
-use utils::{Io, Peer, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}, service_with_state};
+use utils::{Io, Peer, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -154,9 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .build();
 
-    let stack_layer = Arc::new(MiddlwareStack::default().entry_fn(entry).layer_mut_fn(async move |x| {
-        x.extensions_mut().insert(state.clone());
-    }).layer(cors).layer(trace));
+    let stack_layer = Arc::new(MiddlwareStack::default().entry_fn(entry).state(state).layer(cors).layer(trace));
 
     loop {
         let (stream, _) = listener.accept().await?;
