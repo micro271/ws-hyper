@@ -7,7 +7,7 @@ use crate::{
     state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
-use hyper::{Method, Request, body::Incoming, header, server::conn::http1, service::service_fn};
+use hyper::{Method, header, server::conn::http1, service::service_fn};
 use std::{collections::HashMap, sync::Arc};
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -100,9 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .build();
     let _repo = repo.clone();
-    let stack = MiddlwareStack::default().entry(EPoint).layer_mut_fn(async move |x: &mut Request<Incoming>| {
-        x.extensions_mut().insert(_repo.clone());
-    }).layer(cors).layer(log_layer);
+    let stack = MiddlwareStack::default().entry(EPoint).state(_repo).layer(cors).layer(log_layer);
     
     loop {
         let (stream, _) = listener.accept().await?;
