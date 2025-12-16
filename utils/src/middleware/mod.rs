@@ -3,7 +3,7 @@ pub mod log_layer;
 pub mod entry;
 pub mod handler;
 pub mod state;
-
+pub mod proxy_info;
 
 use http::{Request, Response};
 use hyper::body::Body;
