@@ -2,11 +2,13 @@ pub mod cors;
 pub mod log_layer;
 pub mod entry;
 pub mod handler;
+pub mod state;
+
 
 use http::{Request, Response};
 use hyper::body::Body;
 
-use crate::middleware::{entry::EntryFn, handler::HandlerFnMutLayer};
+use crate::middleware::{entry::EntryFn, handler::HandlerFnMutLayer, state::State};
 
 #[derive(Debug, Clone)]
 pub struct MiddlwareStack<S> {
@@ -71,6 +73,16 @@ impl<L> MiddlwareStack<L> {
         ReqBody: Body + Send,
     {
         MiddlwareStack { inner: layer.into().into_layer(self.inner) }
+    }
+
+    pub fn state<K, ReqBody, ResBody>(self, state: K) -> MiddlwareStack<State<K, L>> 
+    where 
+        K: Send + Sync + Clone + 'static,
+        ResBody: Body + Send + Default,
+        ReqBody: Body + Send,
+        L: Layer<ReqBody, ResBody> + Clone,
+    {
+        MiddlwareStack { inner: State::new(state, self.inner) }
     }
 }
 

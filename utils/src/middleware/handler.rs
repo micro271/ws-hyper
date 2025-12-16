@@ -12,7 +12,7 @@ pub struct HandlerFnMutLayer<F, ReqBody>{
 impl<F, ReqBody> HandlerFnMutLayer<F, ReqBody> 
 where 
     F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
-    ReqBody: Body + Send,    
+    ReqBody: Body + Send,
 {
     pub fn new(r#fn: F) -> Self 
     {
@@ -32,8 +32,8 @@ where
 
 #[derive(Debug, Clone)]
 pub struct HandlerFn<L, F> {
-    inner: L,
-    fn_: F,
+    pub(super) inner: L,
+    pub(super) fn_: F,
 }
 
 impl<L, F, ReqBody, ResBody> Layer<ReqBody, ResBody> for HandlerFn<L, F> 
