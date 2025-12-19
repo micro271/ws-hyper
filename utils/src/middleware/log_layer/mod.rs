@@ -11,7 +11,7 @@ pub mod layer;
 pub struct Log<L, B, A> {
     inner: L,
     before: B,
-    after: A,
+    after: A
 }
 
 impl<L: Clone, A: Clone, B: Clone> std::clone::Clone for Log<L, A, B>{
@@ -32,7 +32,8 @@ where
     type Error = L::Error;
 
     async fn call(&self, req: http::Request<ReqBody>) -> Result<http::Response<ResBody>, Self::Error> {
-        let span = span!(Level::INFO, "HTTP");
+        
+        let span = span!(Level::INFO, "HTTP", path = %req.uri().path(), rid = nanoid::nanoid!());
         let instant = Instant::now();
         (self.before.clone())(&req).instrument(span.clone()).await;
         let resp = self.inner.call(req).instrument(span.clone()).await?;

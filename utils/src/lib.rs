@@ -1,5 +1,7 @@
 pub mod middleware;
+mod peer;
 
+pub use peer::*;
 use http::{HeaderMap, Request, Response, header};
 use http_body_util::BodyExt;
 use hyper::{
@@ -14,7 +16,7 @@ use p256::{
     pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, marker::PhantomData, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc};
+use std::{fs, marker::PhantomData,path::PathBuf, pin::Pin, sync::Arc};
 pub const JWT_IDENTIFIED: &str = "JWT";
 const ECDS_PRIV_FILE: &str = "ec_priv_key.pem";
 const ECDS_PUB_FILE: &str = "ec_pub_key.pem";
@@ -317,23 +319,6 @@ impl<F: Clone, R, Repo: Sync + Send + 'static> std::clone::Clone for ServiceWith
             state: self.state.clone(),
             _req: PhantomData,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Peer(Option<SocketAddr>);
-
-impl Peer {
-    pub fn new(socket: Option<SocketAddr>) -> Self {
-        Self(socket)
-    }
-
-    pub fn get_socket_or_unknown(&self) -> String {
-        self.0.map_or("Unknown".to_string(), |x| x.to_string())
-    }
-
-    pub fn get_ip_or_unknown(&self) -> String {
-        self.0.map_or("Unknown".to_string(), |x| x.ip().to_string())
     }
 }
 

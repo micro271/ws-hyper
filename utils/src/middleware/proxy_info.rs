@@ -5,7 +5,15 @@ use hyper::body::Body;
 
 use crate::{Peer, middleware::IntoLayer};
 
-pub struct ProxyInfoLayer;
+pub struct ProxyInfoLayer {
+    _priv: (),
+}
+
+impl ProxyInfoLayer {
+    pub fn new() -> Self {
+        Self { _priv: () }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Forwarded {
@@ -68,24 +76,39 @@ pub enum ProxyInfoType {
     }
 }
 
+impl ProxyInfoType {
+    pub fn peer(&self) -> Ip {
+        match self {
+            ProxyInfoType::Forwarded { proxies } => {
+                proxies.get(0).map(|x| x.r#for).unwrap_or_default()
+            },
+            ProxyInfoType::XRealIp { ip } => *ip,
+            ProxyInfoType::XForwardedFor { ip, proxys: _ } => *ip,
+        }
+    }
+}
+
 impl std::default::Default for ProxyInfoType {
     fn default() -> Self {
         Self::XRealIp { ip: Ip::default() }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Ip {
     Ip(IpAddr),
     Unknown,
+    NotDefined,
 }
 
 impl From<&str> for Ip {
     fn from(value: &str) -> Self {
         if let Ok(ip) = value.parse() {
             Self::Ip(ip)
-        } else {
+        } else if value == "unknown" {
             Self::Unknown
+        } else {
+            Self::NotDefined
         }
     }
 }
@@ -98,7 +121,7 @@ impl From<IpAddr> for Ip {
 
 impl std::default::Default for Ip {
     fn default() -> Self {
-        Self::Unknown
+        Self::NotDefined
     }
 }
 
@@ -118,8 +141,8 @@ impl std::fmt::Display for Proto {
             Proto::Http => write!(f, "http"),
             Proto::Https => write!(f, "https"),
             Proto::Unknown => write!(f, "unknown"),
-            Proto::Ws => write!(f, "Ws"),
-            Proto::Wss => write!(f, "Wss"),
+            Proto::Ws => write!(f, "ws"),
+            Proto::Wss => write!(f, "wss"),
         }
     }
 }
@@ -128,7 +151,7 @@ impl From<&str> for Proto {
     fn from(value: &str) -> Self {
         match value {
             "http" => Self::Http,
-            "https" => Self::Http,
+            "https" => Self::Https,
             "ws" => Self::Ws,
             "wss" => Self::Wss,
             _ => Self::Unknown
@@ -165,6 +188,8 @@ where
     fn call(&self, mut req: http::Request<ReqBody>) -> impl Future<Output = Result<http::Response<ResBody>, Self::Error> > {
 
         let mut info= None;
+
+        let stream_peer_info = req.extensions_mut().remove::<Peer>();
         
         if let Some(fw) = req.headers().get("Forwarded").and_then(|x| x.to_str().ok()) {
             info = Some(ProxyInfoType::Forwarded { proxies: fw.split(",").map(<&str as Into<Forwarded>>::into).collect::<Vec<_>>() });
@@ -173,11 +198,10 @@ where
             info = Some(ProxyInfoType::XForwardedFor { ip: list.remove(0), proxys: list })
         } else if let Some(ip) = req.headers().get("X-Real-Ip").and_then(|x| x.to_str().ok().map(|x| Ip::from(x))) {
             info = Some(ProxyInfoType::XRealIp { ip });
-        } else if let Some(Peer(ip)) = req.extensions_mut().remove::<Peer>() {
-            let ip = ip.map(|x| x.ip()).map(Ip::from).unwrap_or_default();
+        } else if let Some(ip) = stream_peer_info.and_then(|x| x.get_ip().map(|x| Ip::from(x))) {
             info = Some(ProxyInfoType::XRealIp { ip })
         }
-
+        
         req.extensions_mut().insert(info.unwrap_or_default());
 
         ResponseFutureProxyInfo{
