@@ -8,15 +8,13 @@ use crate::{
 };
 use grpc_v1::user_control::InfoServer;
 use hyper::{Method, header, server::conn::http1, service::service_fn};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
     GenEcdsa, Io, JwtHandle, Peer,
-    middleware::{MiddlwareStack, Layer, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}
+    middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder, proxy_info::{ProxyInfoLayer, ProxyInfoType}}
 };
-
-type Repository = Arc<PgRepository>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -80,13 +78,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ]
                 .into_iter()
                 .filter_map(|(name, value)| value.map(|v| (name, v)))
-                .collect::<HashMap<_, _>>();
+                .collect::<Vec<_>>();
 
                 tracing::info!(
-                    "{{ on_request }} path={} method={} peer={:?} headers {:?}",
-                    x.uri().path(),
+                    "{{ on_request }} method={} peer={:?} headers {:?}",
                     x.method(),
-                    x.extensions().get::<Peer>(),
+                    x.extensions().get::<ProxyInfoType>().map(|x|x.peer()).unwrap_or_default(),
                     hd,
                 )
             })
@@ -100,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .build();
     let _repo = repo.clone();
-    let stack = MiddlwareStack::default().entry(EPoint).state(_repo).layer(cors).layer(log_layer);
+    let stack = MiddlwareStack::default().entry(EPoint).state(_repo).layer(cors).layer(log_layer).layer(ProxyInfoLayer::new());
     
     loop {
         let (stream, _) = listener.accept().await?;

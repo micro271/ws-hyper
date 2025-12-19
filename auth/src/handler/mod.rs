@@ -1,7 +1,6 @@
 mod bucket;
 pub mod entry;
 pub mod error;
-pub mod login;
 pub mod user;
 
 use http_body_util::Full;
