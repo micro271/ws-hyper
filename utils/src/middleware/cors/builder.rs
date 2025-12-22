@@ -82,6 +82,7 @@ impl CorsBuilder<Origin> {
             allow_credentials,
             allow_headers,
         } = self;
+        
         let allow_methods = allow_methods
             .iter()
             .map(|x| x.as_str())

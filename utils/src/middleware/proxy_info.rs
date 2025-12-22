@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use http::Response;
 use hyper::body::Body;
 
-use crate::{Peer, middleware::IntoLayer};
+use crate::{Peer, app_info::Proto, middleware::IntoLayer};
 
 pub struct ProxyInfoLayer {
     _priv: (),
@@ -72,7 +72,13 @@ pub enum ProxyInfoType {
     XRealIp { ip: Ip },
     XForwardedFor {
         ip: Ip,
-        proxys: Vec<Ip>
+        proxies: Vec<Ip>
+    },
+    XForwardedProto {
+        proto: Proto,
+    },
+    XForwardedHost {
+        host: String,
     }
 }
 
@@ -83,7 +89,8 @@ impl ProxyInfoType {
                 proxies.get(0).map(|x| x.r#for).unwrap_or_default()
             },
             ProxyInfoType::XRealIp { ip } => *ip,
-            ProxyInfoType::XForwardedFor { ip, proxys: _ } => *ip,
+            ProxyInfoType::XForwardedFor { ip, proxies: _ } => *ip,
+            _ => Ip::default()
         }
     }
 }
@@ -125,39 +132,6 @@ impl std::default::Default for Ip {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub enum Proto {
-    Http,
-    Https,
-    #[default]
-    Unknown,
-    Ws,
-    Wss
-}
-
-impl std::fmt::Display for Proto {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Proto::Http => write!(f, "http"),
-            Proto::Https => write!(f, "https"),
-            Proto::Unknown => write!(f, "unknown"),
-            Proto::Ws => write!(f, "ws"),
-            Proto::Wss => write!(f, "wss"),
-        }
-    }
-}
-
-impl From<&str> for Proto {
-    fn from(value: &str) -> Self {
-        match value {
-            "http" => Self::Http,
-            "https" => Self::Https,
-            "ws" => Self::Ws,
-            "wss" => Self::Wss,
-            _ => Self::Unknown
-        }
-    }
-}
 
 impl<L, ReqBody, ResBody> IntoLayer<L, ReqBody, ResBody> for ProxyInfoLayer 
 where 
@@ -195,7 +169,7 @@ where
             info = Some(ProxyInfoType::Forwarded { proxies: fw.split(",").map(<&str as Into<Forwarded>>::into).collect::<Vec<_>>() });
         } else if let Some(fw) = req.headers().get("X-Forwarded-For").and_then(|x| x.to_str().ok()) {
             let mut list = fw.split(",").map(str::trim_start).map(|x| x.into()).collect::<Vec<_>>();
-            info = Some(ProxyInfoType::XForwardedFor { ip: list.remove(0), proxys: list })
+            info = Some(ProxyInfoType::XForwardedFor { ip: list.remove(0), proxies: list })
         } else if let Some(ip) = req.headers().get("X-Real-Ip").and_then(|x| x.to_str().ok().map(|x| Ip::from(x))) {
             info = Some(ProxyInfoType::XRealIp { ip });
         } else if let Some(ip) = stream_peer_info.and_then(|x| x.get_ip().map(|x| Ip::from(x))) {

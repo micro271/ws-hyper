@@ -1,18 +1,19 @@
 mod builder;
 pub mod layer;
+mod future;
 
 pub use builder::*;
-use http::{HeaderValue, Method, Request, Response, StatusCode, header};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, header};
 use hyper::body::Body;
 
-use crate::middleware::Layer;
+use crate::middleware::{Layer, cors::future::Kind};
 
 #[derive(Debug, Clone)]
 pub struct Cors<L> {
     origin: Vec<String>,
-    methods: String,
-    headers: String,
-    credential: Option<bool>,
+    methods: (HeaderName, HeaderValue),
+    headers: (HeaderName, HeaderValue),
+    credential: Option<(HeaderName, HeaderValue)>,
     inner: L,
 }
 
@@ -23,66 +24,36 @@ where
     Req: Body + Send,
 {
     type Error = L::Error;
-    async fn call(&self, req: Request<Req>) -> Result<Response<Res>, Self::Error> {
-        let Some(origin) = req
-            .headers()
-            .get(header::ORIGIN)
-            .and_then(|x| x.to_str().ok())
-        else {
-            return Ok(Response::builder()
-                .status(StatusCode::FORBIDDEN)
-                .body(<Res as Default>::default())
-                .unwrap_or_default());
-        };
 
-        if !self.origin.iter().any(|x| x.as_str() == origin) {
-            return Ok(Response::builder()
-                .status(StatusCode::OK)
-                .body(<Res as Default>::default())
-                .unwrap_or_default());
-        };
+    fn call(&self, req: Request<Req>) -> impl Future<Output = Result<Response<Res>, Self::Error>> {
 
-        let resp = if req.method() == Method::OPTIONS {
-            let mut r = Response::builder()
-                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin)
-                .header(
-                    header::ACCESS_CONTROL_ALLOW_HEADERS,
-                    HeaderValue::from_str(&self.headers).unwrap(),
-                )
-                .header(
-                    header::ACCESS_CONTROL_ALLOW_METHODS,
-                    HeaderValue::from_str(&self.methods).unwrap(),
-                )
-                .status(StatusCode::OK)
-                .body(<Res as Default>::default())
-                .unwrap_or_default();
-            if let Some(cred) = self.credential {
-                r.headers_mut().insert(
-                    header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
-                    HeaderValue::from_str(&cred.to_string()).unwrap(),
-                );
+        let mut header_map = HeaderMap::new();
+        
+        let Some(origin) = req.headers().get(header::ORIGIN).filter(|x| self.origin.iter().any(|y| y == *x)) else {
+            return future::CorsFuture {
+                kind: Kind::Inmediate { res: Some(Response::builder().status(StatusCode::OK).body(<Res as Default>::default()).unwrap_or_default()) }
             }
-
-            Ok(r)
-        } else {
-            let origin = origin.to_string();
-            self.inner.call(req).await.map(|mut x| {
-                let header = x.headers_mut();
-                if let Some(cred) = self.credential {
-                    header.insert(
-                        header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
-                        HeaderValue::from_str(&cred.to_string()).unwrap(),
-                    );
-                }
-                header.insert(
-                    header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                    HeaderValue::from_str(origin.as_str()).unwrap(),
-                );
-                x
-            })
         };
 
-        resp
+        header_map.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+
+        if let Some((k, v)) = self.credential.as_ref() {
+            header_map.insert(k, v.clone());
+        }
+
+        if req.method() == Method::OPTIONS {
+            
+            header_map.insert(self.headers.0.clone(), self.headers.1.clone());
+            header_map.insert(self.methods.0.clone(), self.methods.1.clone());
+
+            future::CorsFuture {
+                kind: Kind::Preflight { headers: header_map }
+            }
+        } else {
+            future::CorsFuture {
+                kind: Kind::Cors { header: header_map, fut: self.inner.call(req) }
+            }
+        }
     }
 }
 
@@ -118,3 +89,4 @@ impl std::fmt::Display for OriginError {
 }
 
 impl std::error::Error for OriginError {}
+

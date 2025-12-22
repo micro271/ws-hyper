@@ -1,5 +1,6 @@
 pub mod middleware;
 mod peer;
+pub mod app_info;
 
 pub use peer::*;
 use http::{HeaderMap, Request, Response, header};
