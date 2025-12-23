@@ -1,6 +1,7 @@
 pub mod middleware;
 mod peer;
 pub mod app_info;
+pub mod claim;
 
 pub use peer::*;
 use http::{HeaderMap, Request, Response, header};
@@ -37,10 +38,9 @@ pub trait VerifyTokenEcdsa {
 }
 
 pub trait GenTokenFromEcds {
-    fn gen_token<T, B>(claim: T) -> Result<String, JwtHandleError>
+    fn gen_token<T>(claim: claim::Claim<T>) -> Result<String, JwtHandleError>
     where
-        T: GetClaim<B>,
-        B: Serialize;
+        T: Serialize;
 }
 
 impl VerifyTokenEcdsa for JwtHandle {
@@ -87,24 +87,16 @@ impl GenEcdsa for JwtHandle {
 }
 
 impl GenTokenFromEcds for JwtHandle {
-    fn gen_token<T, B>(claim: T) -> Result<String, JwtHandleError>
-    where
-        T: GetClaim<B>,
-        B: Serialize,
-    {
+    fn gen_token<T: Serialize>(claim: claim::Claim<T>) -> Result<String, JwtHandleError> {
         let mut path_priv_key = PathBuf::from(PKI);
         path_priv_key.push(ECDS_PRIV_FILE);
 
         let priv_key = fs::read(path_priv_key).unwrap();
         let priv_key = EncodingKey::from_ec_pem(&priv_key).unwrap();
 
-        let token = encode(&Header::new(ALGORITHM_JWT), &claim.get_claim(), &priv_key).unwrap();
+        let token = encode(&Header::new(ALGORITHM_JWT), &claim, &priv_key).unwrap();
         Ok(token)
     }
-}
-
-pub trait GetClaim<T: Serialize> {
-    fn get_claim(self) -> T;
 }
 
 #[derive(Debug, Clone, Copy)]
