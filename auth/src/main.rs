@@ -8,13 +8,14 @@ use crate::{
 };
 use grpc_v1::user_control::InfoServer;
 use hyper::{Method, header, server::conn::http1, service::service_fn};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
-    GenEcdsa, Io, JwtHandle, Peer,
-    middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder, proxy_info::{ProxyInfoLayer, ProxyInfoType}}
+    GenEcdsa, Io, JwtHandle, Peer, app_info::host::Host, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder, proxy_info::{ProxyInfoLayer, ProxyInfoType}}
 };
+
+pub static HOST: LazyLock<Host> = LazyLock::new(|| std::env::var("APP_HOST").ok().and_then(|x| Host::from_url(&x).ok()).expect("Host not defined"));
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,15 +36,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo = Arc::new(PgRepository::with_default_user(uri, default_account_admin()?).await?);
 
     let app_port = std::env::var("PORT").unwrap_or("3000".to_string());
-    let app_host = std::env::var("APP_HOST").unwrap_or("0.0.0.0".to_string());
+    let app_listen = std::env::var("APP_LISTEN").unwrap_or("0.0.0.0".to_string());
 
-    let listener = tokio::net::TcpListener::bind(format!("{app_host}:{app_port}")).await?;
+    tracing::info!("{:?}", HOST.host());
+
+    let listener = tokio::net::TcpListener::bind(format!("{app_listen}:{app_port}")).await?;
 
     JwtHandle::gen_ecdsa(None)?;
     let gprc_ceck_user = "[::]:50051".parse()?;
     let user_check = InfoUserProgram::new(repo.clone());
 
-    tracing::info!("Listening {}:{}", app_host, app_port);
+    tracing::info!("Listening {}:{}", app_listen, app_port);
 
     tokio::spawn(async move {
         Server::builder()
@@ -51,9 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .serve(gprc_ceck_user)
             .await
     });
-
+    
     let cors = CorsBuilder::default()
             .allow_origin("http://localhost:5173")
+            .allow_origin(HOST.host())
             .allow_method(Method::PUT)
             .allow_method(Method::GET)
             .allow_method(Method::OPTIONS)
@@ -97,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .build();
     let _repo = repo.clone();
+    
     let stack = MiddlwareStack::default().entry(EPoint).state(_repo).layer(cors).layer(log_layer).layer(ProxyInfoLayer::new());
     
     loop {

@@ -7,10 +7,10 @@ use hyper::{
 use serde_json::json;
 use std::convert::Infallible;
 use time::Duration;
-use utils::{GenTokenFromEcds as _, JWT_IDENTIFIED, JwtBoth, JwtHandle, ParseBodyToStruct, Token, VerifyTokenEcdsa, middleware::Layer};
+use utils::{GenTokenFromEcds as _, JWT_IDENTIFIED, JwtBoth, JwtHandle, ParseBodyToStruct, Token, VerifyTokenEcdsa, claim::Claim, middleware::Layer};
 
 use crate::{
-    handler::{Login, PREFIX_PATH, Repo, api, error::ResponseErr}, models::user::{Claim, User}, state::QueryOwn
+    HOST, handler::{Login, PREFIX_PATH, Repo, api, error::ResponseErr}, models::user::User, state::QueryOwn
 };
 
 #[derive(Debug, Clone)]
@@ -26,8 +26,8 @@ impl Layer<Incoming, Full<Bytes>> for EPoint {
         let url = req.uri().path();
         let resp = match (url, req.method()) {
             ("/login", &Method::POST) => {
-                let (pats, body) = req.into_parts();
-                let Some(repo) = pats.extensions.get::<Repo>() else {
+                let (parts, body) = req.into_parts();
+                let Some(repo) = parts.extensions.get::<Repo>() else {
                     tracing::error!("Repository not found");
                     return Ok(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR).into())
                 };
@@ -42,26 +42,30 @@ impl Layer<Incoming, Full<Bytes>> for EPoint {
                         };
 
                         match verify(login.password, &user.passwd) {
-                            Ok(true) => match JwtHandle::gen_token(user) {
-                                Ok(e) => {
-                                    let cookie = CookieBuilder::new(JWT_IDENTIFIED, e.clone())
-                                        .path("/")
-                                        .max_age(Duration::hours(6))
-                                        .http_only(false)
-                                        .same_site(cookie::SameSite::Lax)
-                                        .secure(false)
-                                        .build();
-                                    tracing::info!("Login successfull");
-                                    Ok(Response::builder()
-                                        .header(header::CONTENT_TYPE, "application/json")
-                                        .header(header::SET_COOKIE, cookie.to_string())
-                                        .status(StatusCode::OK)
-                                        .body(Full::new(Bytes::from(json!({"token": e}).to_string())))
-                                        .unwrap_or_default())
-                                }
-                                Err(err) => {
-                                    tracing::error!("[ Entry ] JwtHandleError Parse error: {err}");
-                                    Err(ResponseErr::new(err, StatusCode::BAD_REQUEST))
+                            Ok(true) => {
+                                let mut claim: Claim<uuid::Uuid> = user.into();
+                                claim.set_iss(HOST.host());
+                                match JwtHandle::gen_token(claim) {
+                                    Ok(e) => {
+                                        let cookie = CookieBuilder::new(JWT_IDENTIFIED, e.clone())
+                                            .path("/")
+                                            .max_age(Duration::hours(6))
+                                            .http_only(true)
+                                            .same_site(cookie::SameSite::Lax)
+                                            .secure(true)
+                                            .build();
+                                        tracing::info!("Login successfull");
+                                        Ok(Response::builder()
+                                            .header(header::CONTENT_TYPE, "application/json")
+                                            .header(header::SET_COOKIE, cookie.to_string())
+                                            .status(StatusCode::OK)
+                                            .body(Full::new(Bytes::from(json!({"token": e}).to_string())))
+                                            .unwrap_or_default())
+                                    }
+                                    Err(err) => {
+                                        tracing::error!("[ Entry ] JwtHandleError Parse error: {err}");
+                                        Err(ResponseErr::new(err, StatusCode::BAD_REQUEST))
+                                    }
                                 }
                             },
                             _ => Err(ResponseErr::status(StatusCode::UNAUTHORIZED)),
@@ -80,7 +84,7 @@ impl Layer<Incoming, Full<Bytes>> for EPoint {
                     );
                 };
 
-                let claim = match JwtHandle::verify_token::<Claim>(&token) {
+                let claim = match JwtHandle::verify_token::<Claim<uuid::Uuid>>(&token) {
                     Ok(claim) => claim,
                     Err(err) => return Ok(ResponseErr::new(err, StatusCode::UNAUTHORIZED).into()),
                 };

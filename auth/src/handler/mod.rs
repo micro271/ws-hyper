@@ -10,6 +10,7 @@ use hyper::{
     http::Extensions,
 };
 use serde::{Deserialize, Serialize};
+use utils::claim::Claim;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -18,10 +19,7 @@ use crate::{
         error::ResponseErr,
         user::{delete, get, get_user_info, update},
     },
-    models::user::{
-        Claim, User,
-        update::{UpdateSelf, UpdateUser},
-    },
+    models::user::{User, update::{UpdateSelf, UpdateUser}},
     state::{PgRepository, QueryOwn},
 };
 
@@ -33,7 +31,7 @@ const PREFIX_PATH: &str = "/api/v1";
 pub async fn api(req: Request<Incoming>) -> ResponseHandlers {
     let path = req.uri().path().strip_prefix(PREFIX_PATH).unwrap();
     if path == "/user" {
-        let id = req.extensions().get::<Claim>().unwrap().sub;
+        let id = *req.extensions().get::<Claim<Uuid>>().unwrap().sub();
 
         return match req.method().clone() {
             Method::PATCH => user::update::<UpdateSelf>(req, id).await,
@@ -104,7 +102,7 @@ pub async fn middleware_user_admin<F>(req: Request<Incoming>, next: F) -> Respon
 where
     F: AsyncFnOnce(Request<Incoming>) -> ResponseHandlers,
 {
-    let id = req.extensions().get::<Claim>().unwrap().sub;
+    let id = *req.extensions().get::<Claim<Uuid>>().unwrap().sub();
     let repo = GetRepo::get(req.extensions())?;
 
     if !repo

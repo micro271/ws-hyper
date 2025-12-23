@@ -121,7 +121,7 @@ impl From<PgRow> for UserReply {
                             .get("permissions")
                             .and_then(|x| x.as_array())
                             .map(|x| {
-                                x.into_iter()
+                                x.iter()
                                     .filter_map(|x| x.as_i64().map(|x| x as i32))
                                     .collect::<Vec<i32>>()
                             })
@@ -133,7 +133,7 @@ impl From<PgRow> for UserReply {
 
         Self {
             role: value.get("role"),
-            buckets: buckets,
+            buckets,
         }
     }
 }

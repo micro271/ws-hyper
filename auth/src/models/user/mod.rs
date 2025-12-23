@@ -1,12 +1,20 @@
 pub mod update;
 
+use std::time::Duration;
+
 use bcrypt::{DEFAULT_COST, hash};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, postgres::PgRow, prelude::FromRow};
-use utils::GetClaim;
+use utils::claim::{Claim, builder::ClaimBuilder};
 use uuid::Uuid;
 
 use crate::state::{TABLA_USER, Table, Types};
+
+impl From<User> for Claim<Uuid> {
+    fn from(value: User) -> Self {
+        ClaimBuilder::default().sub(value.id.unwrap()).exp(Duration::from_hours(6)).iat(true).build()
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct User {
@@ -92,20 +100,6 @@ impl From<PgRow> for User {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Claim {
-    pub sub: Uuid,
-    pub exp: i64,
-}
-
-impl GetClaim<Claim> for User {
-    fn get_claim(self) -> Claim {
-        Claim {
-            sub: self.id.unwrap(),
-            exp: (time::OffsetDateTime::now_utc() + time::Duration::hours(5)).unix_timestamp(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct EncryptErr;
