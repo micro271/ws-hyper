@@ -14,9 +14,7 @@ pub struct LogLayerBuilder<OnReq, OnRes, ReqBody, ResBody> {
     _ph: PhantomData<(ReqBody, ResBody)>,
 }
 
-impl<ReqBody, ResBody> std::default::Default
-    for LogLayerBuilder<NoReq, NoRes, ReqBody, ResBody>
-{
+impl<ReqBody, ResBody> std::default::Default for LogLayerBuilder<NoReq, NoRes, ReqBody, ResBody> {
     fn default() -> Self {
         Self {
             on_req: NoReq,
@@ -26,16 +24,12 @@ impl<ReqBody, ResBody> std::default::Default
     }
 }
 
-impl<OnRes, ReqBody, ResBody>
-    LogLayerBuilder<NoReq, OnRes, ReqBody, ResBody>
+impl<OnRes, ReqBody, ResBody> LogLayerBuilder<NoReq, OnRes, ReqBody, ResBody>
 where
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
 {
-    pub fn on_request<R>(
-        self,
-        on: R,
-    ) -> LogLayerBuilder<Req<R>, OnRes, ReqBody, ResBody>
+    pub fn on_request<R>(self, on: R) -> LogLayerBuilder<Req<R>, OnRes, ReqBody, ResBody>
     where
         R: for<'a> AsyncFn(&'a Request<ReqBody>) + Send,
     {
@@ -47,18 +41,14 @@ where
     }
 }
 
-impl<OnReq, ReqBody, ResBody>
-    LogLayerBuilder<OnReq, NoRes, ReqBody, ResBody>
+impl<OnReq, ReqBody, ResBody> LogLayerBuilder<OnReq, NoRes, ReqBody, ResBody>
 where
     ReqBody: Body + Send + Sync,
     ResBody: Body + Send + Sync + Default,
 {
-    pub fn on_response<R>(
-        self,
-        on: R,
-    ) -> LogLayerBuilder<OnReq, Res<R>, ReqBody, ResBody>
+    pub fn on_response<R>(self, on: R) -> LogLayerBuilder<OnReq, Res<R>, ReqBody, ResBody>
     where
-        R:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send,
+        R: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send,
     {
         LogLayerBuilder {
             on_req: self.on_req,
@@ -68,8 +58,7 @@ where
     }
 }
 
-impl<OnReq, OnRes, ReqBody, ResBody>
-    LogLayerBuilder<Req<OnReq>, Res<OnRes>, ReqBody, ResBody>
+impl<OnReq, OnRes, ReqBody, ResBody> LogLayerBuilder<Req<OnReq>, Res<OnRes>, ReqBody, ResBody>
 where
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
@@ -77,10 +66,11 @@ where
     OnRes: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Sync,
 {
     pub fn build(self) -> LogLayer<OnReq, OnRes> {
-        let LogLayerBuilder { on_req: Req(on_req), on_res: Res(on_res), _ph } = self;
-        LogLayer {
-            on_req,
-            on_res,
-        }
+        let LogLayerBuilder {
+            on_req: Req(on_req),
+            on_res: Res(on_res),
+            _ph,
+        } = self;
+        LogLayer { on_req, on_res }
     }
 }

@@ -1,6 +1,6 @@
-use std::time::Instant;
 use http::{Request, Response};
 use hyper::body::Body;
+use std::time::Instant;
 use tracing::{Instrument, Level, span};
 
 use super::Layer;
@@ -11,28 +11,33 @@ pub mod layer;
 pub struct Log<L, B, A> {
     inner: L,
     before: B,
-    after: A
+    after: A,
 }
 
-impl<L: Clone, A: Clone, B: Clone> std::clone::Clone for Log<L, A, B>{
+impl<L: Clone, A: Clone, B: Clone> std::clone::Clone for Log<L, A, B> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone(), before: self.before.clone(), after: self.after.clone() }
+        Self {
+            inner: self.inner.clone(),
+            before: self.before.clone(),
+            after: self.after.clone(),
+        }
     }
 }
 
-impl<L, ReqBody, ResBody, B, A> Layer<ReqBody, ResBody> for Log<L, B, A> 
+impl<L, ReqBody, ResBody, B, A> Layer<ReqBody, ResBody> for Log<L, B, A>
 where
     L: Layer<ReqBody, ResBody> + Clone,
-    B:for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Copy,
-    A:for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Copy,
+    B: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Copy,
+    A: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Copy,
     ReqBody: Body + Send,
     ResBody: Body + Send + Default,
-
 {
     type Error = L::Error;
 
-    async fn call(&self, req: http::Request<ReqBody>) -> Result<http::Response<ResBody>, Self::Error> {
-        
+    async fn call(
+        &self,
+        req: http::Request<ReqBody>,
+    ) -> Result<http::Response<ResBody>, Self::Error> {
         let span = span!(Level::INFO, "HTTP", path = %req.uri().path(), rid = nanoid::nanoid!());
         let instant = Instant::now();
         (self.before.clone())(&req).instrument(span.clone()).await;

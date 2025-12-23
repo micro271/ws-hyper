@@ -2,11 +2,10 @@ use std::time::Duration;
 
 use serde::{Serialize, de::DeserializeOwned};
 use time::OffsetDateTime;
-
 use super::Claim;
 
-
-
+const DEFAULT_EXP_MINS: u64 = 15;
+const DEFAULT_EXP: Duration = Duration::from_mins(DEFAULT_EXP_MINS);
 
 pub struct Id<T>(T);
 
@@ -44,43 +43,116 @@ impl std::default::Default for ClaimBuilder<NoId, NoMetadata> {
 
 impl<T> ClaimBuilder<Id<T>, NoMetadata> {
     pub fn build(self) -> Claim<T> {
-        let Self { iat ,jti, nbf, sub: Id(sub), exp, iss , aud, ..} = self;
+        let Self {
+            iat,
+            jti,
+            nbf,
+            sub: Id(sub),
+            exp,
+            iss,
+            aud,
+            ..
+        } = self;
 
-        Claim { iss, sub, exp: exp.unwrap_or((OffsetDateTime::now_utc() + Duration::from_mins(15)).unix_timestamp()), nbf, iat: iat.then_some(OffsetDateTime::now_utc().unix_timestamp()), jti: jti.then_some(uuid::Uuid::new_v4()), aud }
+        Claim {
+            iss,
+            sub,
+            exp: exp
+                .unwrap_or((OffsetDateTime::now_utc() + DEFAULT_EXP).unix_timestamp()),
+            nbf,
+            iat: iat.then_some(OffsetDateTime::now_utc().unix_timestamp()),
+            jti: jti.then_some(uuid::Uuid::new_v4()),
+            aud,
+        }
     }
 }
 
-impl<T, M> ClaimBuilder<Id<T>, Metadata<M>> 
-where 
+impl<T, M> ClaimBuilder<Id<T>, Metadata<M>>
+where
     T: Serialize + DeserializeOwned,
     M: Serialize + DeserializeOwned,
 {
     pub fn build(self) -> super::with_metadata::ClaimWithMetadata<T, M> {
-        let Self { iat ,jti, nbf, sub: Id(sub), exp, iss , aud, metadata: Metadata(metadata)} = self;
+        let Self {
+            iat,
+            jti,
+            nbf,
+            sub: Id(sub),
+            exp,
+            iss,
+            aud,
+            metadata: Metadata(metadata),
+        } = self;
 
-        super::with_metadata::ClaimWithMetadata { iss, sub, exp: exp.unwrap_or((OffsetDateTime::now_utc() + Duration::from_mins(15)).unix_timestamp()), nbf, iat: iat.then_some(OffsetDateTime::now_utc().unix_timestamp()), jti: jti.then_some(uuid::Uuid::new_v4()), aud, metadata }
+        super::with_metadata::ClaimWithMetadata {
+            iss,
+            sub,
+            exp: exp
+                .unwrap_or((OffsetDateTime::now_utc() + Duration::from_mins(15)).unix_timestamp()),
+            nbf,
+            iat: iat.then_some(OffsetDateTime::now_utc().unix_timestamp()),
+            jti: jti.then_some(uuid::Uuid::new_v4()),
+            aud,
+            metadata,
+        }
     }
 }
 
 impl<M> ClaimBuilder<NoId, M> {
-    pub fn sub<S>(self, sub: S) -> ClaimBuilder<Id<S>, M> 
-    where 
+    pub fn sub<S>(self, sub: S) -> ClaimBuilder<Id<S>, M>
+    where
         S: Serialize + DeserializeOwned,
     {
-        let Self { jti, nbf, exp, iss, iat, metadata, aud, .. } = self;
+        let Self {
+            jti,
+            nbf,
+            exp,
+            iss,
+            iat,
+            metadata,
+            aud,
+            ..
+        } = self;
 
-        ClaimBuilder { jti, nbf, sub: Id(sub), exp, iss, iat, metadata, aud }
+        ClaimBuilder {
+            jti,
+            nbf,
+            sub: Id(sub),
+            exp,
+            iss,
+            iat,
+            metadata,
+            aud,
+        }
     }
 }
 
 impl<I> ClaimBuilder<I, NoMetadata> {
-    pub fn metadata<M>(self, meta: M) -> ClaimBuilder<I, Metadata<M>> 
-    where 
+    pub fn metadata<M>(self, meta: M) -> ClaimBuilder<I, Metadata<M>>
+    where
         M: Serialize + DeserializeOwned,
     {
-        let Self { jti, nbf, exp, iss, iat, sub, aud, .. } = self;
+        let Self {
+            jti,
+            nbf,
+            exp,
+            iss,
+            iat,
+            sub,
+            aud,
+            ..
+        } = self;
 
-        ClaimBuilder { jti, nbf, sub, exp, iss, iat, metadata: Metadata(meta), aud }
+        ClaimBuilder {
+            jti,
+            nbf,
+            sub,
+            exp,
+            iss,
+            iat,
+            metadata: Metadata(meta),
+            aud,
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ClaimWithMetadata<T, M> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,7 +24,7 @@ pub struct ClaimWithMetadata<T, M> {
 }
 
 impl<T, M> ClaimWithMetadata<T, M> {
-    pub fn set_iss(&mut self, iss: String)  {
+    pub fn set_iss(&mut self, iss: String) {
         self.iss = Some(iss);
     }
     pub fn iss(&self) -> Option<&String> {

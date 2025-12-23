@@ -1,9 +1,8 @@
-pub mod middleware;
-mod peer;
 pub mod app_info;
 pub mod claim;
+pub mod middleware;
+mod peer;
 
-pub use peer::*;
 use http::{HeaderMap, Request, Response, header};
 use http_body_util::BodyExt;
 use hyper::{
@@ -11,6 +10,7 @@ use hyper::{
     service::Service,
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+pub use peer::*;
 
 use p256::{
     ecdsa::{SigningKey, VerifyingKey},
@@ -18,7 +18,7 @@ use p256::{
     pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, marker::PhantomData,path::PathBuf, pin::Pin, sync::Arc};
+use std::{fs, marker::PhantomData, path::PathBuf, pin::Pin, sync::Arc};
 
 pub const JWT_IDENTIFIED: &str = "JWT";
 const ECDS_PRIV_FILE: &str = "ec_priv_key.pem";

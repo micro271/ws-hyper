@@ -32,7 +32,7 @@ impl From<&str> for Proto {
             "ws" => Self::Ws,
             "wss" => Self::Wss,
             "ftp" => Self::Ftp,
-            _ => Self::Unknown
+            _ => Self::Unknown,
         }
     }
 }

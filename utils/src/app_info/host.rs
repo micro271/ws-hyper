@@ -1,4 +1,7 @@
-use std::{net::{IpAddr, Ipv4Addr, Ipv6Addr}, ops::Not};
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    ops::Not,
+};
 
 use regex::Regex;
 
@@ -6,18 +9,9 @@ use crate::app_info::Proto;
 
 #[derive(Debug, Clone)]
 pub enum HostType {
-    Domain {
-        proto: Proto,
-        domain: String,
-    },
-    Ipv4 {
-        proto: Proto,
-        ip: Ipv4Addr,
-    },
-    Ipv6 {
-        proto: Proto,
-        ip: Ipv6Addr,
-    }
+    Domain { proto: Proto, domain: String },
+    Ipv4 { proto: Proto, ip: Ipv4Addr },
+    Ipv6 { proto: Proto, ip: Ipv6Addr },
 }
 
 impl HostType {
@@ -37,7 +31,6 @@ impl HostType {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Host {
@@ -62,23 +55,27 @@ impl Host {
         Self {
             host: {
                 match ip {
-                    IpAddr::V4(ip) => {
-                        HostType::Ipv4 { proto: proto.into(), ip  }
+                    IpAddr::V4(ip) => HostType::Ipv4 {
+                        proto: proto.into(),
+                        ip,
                     },
-                    IpAddr::V6(ip) => {
-                        HostType::Ipv6 { proto: proto.into(), ip  }
+                    IpAddr::V6(ip) => HostType::Ipv6 {
+                        proto: proto.into(),
+                        ip,
                     },
                 }
-            }
+            },
         }
     }
 
     pub fn new_domain<T: Into<Proto>, K: Into<String>>(proto: T, domain: K) -> Self {
-        
         Self {
             host: {
-                HostType::Domain { proto: proto.into(), domain: domain.into() }
-            }
+                HostType::Domain {
+                    proto: proto.into(),
+                    domain: domain.into(),
+                }
+            },
         }
     }
 
@@ -87,9 +84,16 @@ impl Host {
         if let Some(cap) = reg.captures(url) {
             let proto = &cap["proto"];
             tracing::info!("{proto}");
-            let resp = if let Some(ip) = cap.name("ip").and_then(|x| x.as_str().parse::<IpAddr>().ok()) {
+            let resp = if let Some(ip) = cap
+                .name("ip")
+                .and_then(|x| x.as_str().parse::<IpAddr>().ok())
+            {
                 tracing::info!("{ip}");
-                if cap.name("port").and_then(|x| x.as_str().parse::<usize>().ok()).is_some_and(|x| (1..65535).contains(&x).not())  {
+                if cap
+                    .name("port")
+                    .and_then(|x| x.as_str().parse::<usize>().ok())
+                    .is_some_and(|x| (1..65535).contains(&x).not())
+                {
                     tracing::error!("Host invalid port");
                     return Err(());
                 }
@@ -105,7 +109,5 @@ impl Host {
         } else {
             Err(())
         }
-
     }
 }
-

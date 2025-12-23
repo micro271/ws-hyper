@@ -3,7 +3,6 @@ pub mod with_metadata;
 
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Claim<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,7 +25,7 @@ pub struct Claim<T> {
 }
 
 impl<T> Claim<T> {
-    pub fn set_iss(&mut self, iss: String)  {
+    pub fn set_iss(&mut self, iss: String) {
         self.iss = Some(iss);
     }
     pub fn iss(&self) -> Option<&String> {
