@@ -1,11 +1,11 @@
 pub mod error;
 pub mod utils;
-use crate::bucket::utils::Changed;
+use crate::bucket::{Bucket, key::Key, utils::Changed};
 use mongodb::{
     Client, Database, IndexModel,
     bson::{self, doc},
     options::{ClientOptions, Credential, IndexOptions, ServerAddress},
-    results::{InsertOneResult, UpdateResult},
+    results::{DeleteResult, InsertOneResult, UpdateResult},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -69,11 +69,11 @@ impl LocalStorage {
         self.pool.default_database().unwrap()
     }
 
-    pub async fn sync_object(&self, bucket: &str, key: &str, obj: &Object) {
+    pub async fn sync_object(&self, bucket: Bucket<'_>, key: Key<'_>, obj: &Object) {
         let db = self.pool.default_database().unwrap();
         let tmp = db
             .collection::<AsObjectDeserialize>(COLLECTION)
-            .find_one(doc! {"bucket": bucket, "key": key, "object.file_name": &obj.file_name})
+            .find_one(doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name})
             .await
             .unwrap()
             .unwrap()
@@ -87,7 +87,7 @@ impl LocalStorage {
         _ = db
             .collection::<AsObjectSerialize>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket, "key": key, "object.file_name": &obj.file_name },
+                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name },
                 doc! {"$set": to_update},
             )
             .await
@@ -96,12 +96,13 @@ impl LocalStorage {
 
     pub async fn get_object_filename(
         &self,
-        bucket: &str,
-        key: &str,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
         filename: &str,
     ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
+        let filter =
+            doc! { "bucket": bucket.name(), "key": key.name(), "object.file_name": filename };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
@@ -112,12 +113,12 @@ impl LocalStorage {
 
     pub async fn get_object_name(
         &self,
-        bucket: &str,
-        key: &str,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
         name: &str,
     ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let filter = doc! { "bucket": bucket, "key": key, "object.name": name };
+        let filter = doc! { "bucket": bucket.name(), "key": key.name(), "object.name": name };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
@@ -128,12 +129,12 @@ impl LocalStorage {
 
     pub async fn new_object(
         &self,
-        bucket: &str,
-        key: &str,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
         object: &Object,
     ) -> Result<InsertOneResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let new = AsObjectSerialize::new(bucket, key, object);
+        let new = AsObjectSerialize::new(bucket.name(), key.name(), object);
 
         Ok(tmp
             .collection::<AsObjectSerialize>(COLLECTION)
@@ -141,20 +142,22 @@ impl LocalStorage {
             .await?)
     }
 
-    pub async fn delete_object(&self, bucket: &str, key: &str, filename: &str) {
+    pub async fn delete_object(&self, bucket: Bucket<'_>, key: Key<'_>, filename: &str) {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp
             .collection::<&Object>(COLLECTION)
-            .delete_one(doc! {"bucket": bucket, "key": key, "object.file_name": filename })
+            .delete_one(
+                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": filename },
+            )
             .await;
     }
 
-    pub async fn seen_by(&self, bucket: &str, key: &str, obj: &Object, id: Uuid) {
+    pub async fn seen_by(&self, bucket: Bucket<'_>, key: Key<'_>, obj: &Object, id: Uuid) {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp
             .collection::<AsObjectSerialize>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket, "key": key, "object.file_name": &obj.file_name },
+                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name },
                 doc! { "$addToSet": {"object.seen_by": id.to_string()} },
             )
             .await;
@@ -162,8 +165,8 @@ impl LocalStorage {
 
     pub async fn set_name(
         &self,
-        bucket: &str,
-        key: &str,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
         file_name: &str,
         new_name: &str,
     ) -> Result<UpdateResult, LsError> {
@@ -171,9 +174,60 @@ impl LocalStorage {
         Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket, "key": key, "object.file_name": file_name },
+                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": file_name },
                 doc! { "$set": { "object.name": new_name } },
             )
+            .await?)
+    }
+
+    pub async fn set_name_bucket(
+        &self,
+        bucket: Bucket<'_>,
+        new_name: Bucket<'_>,
+    ) -> Result<UpdateResult, LsError> {
+        let tmp = self.pool.default_database().unwrap();
+        Ok(tmp
+            .collection::<Object>(COLLECTION)
+            .update_many(
+                doc! {"bucket": bucket.name() },
+                doc! { "$set": { "bucket": new_name.name() } },
+            )
+            .await?)
+    }
+
+    pub async fn set_name_key(
+        &self,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
+        new_name: Key<'_>,
+    ) -> Result<UpdateResult, LsError> {
+        let tmp = self.pool.default_database().unwrap();
+        Ok(tmp
+            .collection::<Object>(COLLECTION)
+            .update_many(
+                doc! {"bucket": bucket.name(), "key": key.name() },
+                doc! { "$set": { "key": new_name.name() } },
+            )
+            .await?)
+    }
+
+    pub async fn delete_bucket(&self, bucket: Bucket<'_>) -> Result<DeleteResult, LsError> {
+        let tmp = self.pool.default_database().unwrap();
+        Ok(tmp
+            .collection::<Object>(COLLECTION)
+            .delete_many(doc! {"bucket": bucket.name() })
+            .await?)
+    }
+
+    pub async fn delete_key(
+        &self,
+        bucket: Bucket<'_>,
+        key: Key<'_>,
+    ) -> Result<DeleteResult, LsError> {
+        let tmp = self.pool.default_database().unwrap();
+        Ok(tmp
+            .collection::<Object>(COLLECTION)
+            .delete_many(doc! {"bucket": bucket, "key": key })
             .await?)
     }
 }

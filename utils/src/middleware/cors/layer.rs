@@ -11,11 +11,10 @@ pub struct CorsLayer {
     pub(super) credential: Option<bool>,
 }
 
-impl<S, ReqBody, ResBody> IntoLayer<S, ReqBody, ResBody> for CorsLayer
+impl<S, ReqBody> IntoLayer<S, ReqBody> for CorsLayer
 where
     ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
-    S: Layer<ReqBody, ResBody> + Clone,
+    S: Layer<ReqBody> + Clone,
 {
     type Output = Cors<S>;
 

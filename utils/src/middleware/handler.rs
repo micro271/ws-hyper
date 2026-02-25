@@ -41,18 +41,18 @@ pub struct HandlerFn<L, F> {
     pub(super) fn_: F,
 }
 
-impl<L, F, ReqBody, ResBody> Layer<ReqBody, ResBody> for HandlerFn<L, F>
+impl<L, F, ReqBody> Layer<ReqBody> for HandlerFn<L, F>
 where
-    ResBody: Body + Send + Default,
     ReqBody: Body + Send,
-    L: Layer<ReqBody, ResBody> + Clone,
+    L: Layer<ReqBody> + Clone,
     F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
 {
     type Error = L::Error;
+    type Response = L::Response;
     fn call(
         &self,
         mut req: Request<ReqBody>,
-    ) -> impl Future<Output = Result<Response<ResBody>, Self::Error>> {
+    ) -> impl Future<Output = Result<Response<Self::Response>, Self::Error>> {
         let tmp = self.fn_.clone();
         async move {
             tmp(&mut req).await;
@@ -61,11 +61,10 @@ where
     }
 }
 
-impl<L, F, ReqBody, ResBody> IntoLayer<L, ReqBody, ResBody> for HandlerFnMutLayer<F, ReqBody>
+impl<L, F, ReqBody> IntoLayer<L, ReqBody> for HandlerFnMutLayer<F, ReqBody>
 where
-    ResBody: Body + Send + Default,
     ReqBody: Body + Send,
-    L: Layer<ReqBody, ResBody> + Clone,
+    L: Layer<ReqBody> + Clone,
     F: for<'a> AsyncFnOnce(&'a mut Request<ReqBody>) + Clone,
 {
     type Output = HandlerFn<L, F>;

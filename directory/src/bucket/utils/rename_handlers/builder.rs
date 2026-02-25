@@ -69,10 +69,7 @@ impl<'a, K, B> NewObjNameHandlerBuilder<'a, ObjNameHandlerNoObject<'_>, K, B> {
     }
 }
 impl<'a, O, B> NewObjNameHandlerBuilder<'a, O, ObjNameHandlerNoKey<'_>, B> {
-    pub fn key(
-        self,
-        key: &'a mut Key,
-    ) -> NewObjNameHandlerBuilder<'a, O, ObjNameHandlerKey<'a>, B> {
+    pub fn key(self, key: Key<'a>) -> NewObjNameHandlerBuilder<'a, O, ObjNameHandlerKey<'a>, B> {
         NewObjNameHandlerBuilder {
             object: self.object,
             key: ObjNameHandlerKey(key),
@@ -85,7 +82,7 @@ impl<'a, O, B> NewObjNameHandlerBuilder<'a, O, ObjNameHandlerNoKey<'_>, B> {
 impl<'a, O, K> NewObjNameHandlerBuilder<'a, O, K, ObjNameHandlerNoBucket<'a>> {
     pub fn bucket(
         self,
-        bucket: &'a mut Bucket,
+        bucket: Bucket<'a>,
     ) -> NewObjNameHandlerBuilder<'a, O, K, ObjNameHandlerBucket<'a>> {
         NewObjNameHandlerBuilder {
             object: self.object,
@@ -111,7 +108,7 @@ impl<'a>
 
         NewObjNameHandler {
             object,
-            key,
+            key: key.cloned(),
             bucket,
         }
     }
@@ -120,7 +117,7 @@ impl<'a>
 impl<'a, K, F, T> RenameObjHandlerBuilder<'a, ObjNameHandlerNoBucket<'a>, K, F, T> {
     pub fn bucket(
         self,
-        bucket: &'a mut Bucket,
+        bucket: Bucket<'a>,
     ) -> RenameObjHandlerBuilder<'a, ObjNameHandlerBucket<'a>, K, F, T> {
         RenameObjHandlerBuilder {
             bucket: ObjNameHandlerBucket(bucket),
@@ -133,10 +130,7 @@ impl<'a, K, F, T> RenameObjHandlerBuilder<'a, ObjNameHandlerNoBucket<'a>, K, F, 
 }
 
 impl<'a, B, F, T> RenameObjHandlerBuilder<'a, B, ObjNameHandlerNoKey<'a>, F, T> {
-    pub fn key(
-        self,
-        key: &'a mut Key,
-    ) -> RenameObjHandlerBuilder<'a, B, ObjNameHandlerKey<'a>, F, T> {
+    pub fn key(self, key: Key<'a>) -> RenameObjHandlerBuilder<'a, B, ObjNameHandlerKey<'a>, F, T> {
         RenameObjHandlerBuilder {
             bucket: self.bucket,
             key: ObjNameHandlerKey(key),
@@ -194,7 +188,7 @@ impl<'a>
 
         RenameObjHandler {
             bucket,
-            key,
+            key: key.cloned(),
             from,
             to,
         }

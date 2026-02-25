@@ -135,11 +135,10 @@ impl std::default::Default for Ip {
     }
 }
 
-impl<L, ReqBody, ResBody> IntoLayer<L, ReqBody, ResBody> for ProxyInfoLayer
+impl<L, ReqBody> IntoLayer<L, ReqBody> for ProxyInfoLayer
 where
-    L: super::Layer<ReqBody, ResBody> + Clone,
+    L: super::Layer<ReqBody> + Clone,
     ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
 {
     fn into_layer(self, inner: L) -> Self::Output
     where
@@ -156,18 +155,17 @@ pub struct ProxyInfo<L> {
     inner: L,
 }
 
-impl<L, ReqBody, ResBody> super::Layer<ReqBody, ResBody> for ProxyInfo<L>
+impl<L, ReqBody> super::Layer<ReqBody> for ProxyInfo<L>
 where
-    L: super::Layer<ReqBody, ResBody> + Clone,
+    L: super::Layer<ReqBody> + Clone,
     ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
 {
     type Error = L::Error;
-
+    type Response = L::Response;
     fn call(
         &self,
         mut req: http::Request<ReqBody>,
-    ) -> impl Future<Output = Result<http::Response<ResBody>, Self::Error>> {
+    ) -> impl Future<Output = Result<http::Response<Self::Response>, Self::Error>> {
         let mut info = None;
 
         let stream_peer_info = req.extensions_mut().remove::<Peer>();

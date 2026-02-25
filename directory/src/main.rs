@@ -17,16 +17,20 @@ use crate::{
         Manager, WatcherParams,
         utils::{Run, SplitTask},
     },
-    state::{State, local_storage::LocalStorageBuild, pg_listen::builder::ListenBucketBuilder},
+    state::{State, local_storage::LocalStorageBuild},
 };
 use clap::Parser;
 use http::{Method, header};
 use hyper::{server::conn::http1, service::service_fn};
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
+use tonic::transport::Server;
 use tracing::Level;
 use tracing_subscriber::fmt;
-use utils::{Io, Peer, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder}};
+use utils::{
+    Io, Peer,
+    middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,12 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port,
         log_level,
         grpc_auth_server,
-        database_name,
-        username,
-        password,
-        channel,
-        database_host,
-        database_port,
         md_host,
         md_port,
         md_username,
@@ -53,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_database,
         ignore_rename_suffix,
         pki_dir: _,
+        grpc_endpoint,
     } = Args::parse();
 
     let tr = fmt().with_max_level(Level::from(log_level)).finish();
@@ -64,16 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     http.keep_alive(true);
 
     let state = Arc::new(RwLock::new(BucketMap::new(watcher_path)?));
-    let listen_b = ListenBucketBuilder::default()
-        .username(username)
-        .database(database_name)
-        .password(password)
-        .channel(channel)
-        .host(database_host)
-        .port(database_port)
-        .workdir(state.read().await.path().to_string_lossy().into_owned())
-        .build()
-        .await;
 
     let ls = LocalStorageBuild::default()
         .host(md_host)
@@ -86,6 +75,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ls = Arc::new(ls);
     state.write().await.build(ls.as_ref()).await.unwrap();
+
+    let grpc_dir_manager =
+        grpc_v1_server::BucketGrpcSrv::new(state.clone(), state.read().await.path());
+
+    Server::builder()
+        .add_service(grpc_v1_server::DirectoryServer::new(grpc_dir_manager))
+        .serve(grpc_endpoint)
+        .await?;
+
+    tracing::info!(
+        "[GRPC SERVER DIRECTORY MANAGER IS ALREADY RUNNING]: Endpoint {}",
+        grpc_endpoint
+    );
 
     let (msgs, task) = Manager::new(
         state.clone(),
@@ -100,7 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         grpc_auth_server,
-        listen_b,
         ls,
     )
     .await
@@ -109,58 +110,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::new(state, msgs).await);
     task.run();
 
-    let cors = 
-        CorsBuilder::default()
-            .allow_origin("http://localhost:5173")
-            .allow_method(Method::PUT)
-            .allow_method(Method::GET)
-            .allow_method(Method::OPTIONS)
-            .allow_method(Method::PATCH)
-            .allow_header(header::CONTENT_TYPE)
-            .allow_header(header::COOKIE)
-            .allow_header(header::AUTHORIZATION)
-            .allow_credentials(true)
-            .build();
-    
-    let trace = 
-        LogLayerBuilder::default()
-            .on_request(async |x| {
-                let hd = [
-                        (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
-                        (header::COOKIE, x.headers().get(header::COOKIE)),
-                        (header::AUTHORIZATION, x.headers().get(header::AUTHORIZATION)),
-                        (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
-                        (header::ORIGIN, x.headers().get(header::ORIGIN)),
-                    ]
-                    .into_iter()
-                    .filter_map(|(name, value)| value.map(|v| (name, v)))
-                    .collect::<HashMap<_, _>>();
+    let cors = CorsBuilder::default()
+        .allow_origin("http://localhost:5173")
+        .allow_method(Method::PUT)
+        .allow_method(Method::GET)
+        .allow_method(Method::OPTIONS)
+        .allow_method(Method::PATCH)
+        .allow_header(header::CONTENT_TYPE)
+        .allow_header(header::COOKIE)
+        .allow_header(header::AUTHORIZATION)
+        .allow_credentials(true)
+        .build();
 
-                tracing::info!(
-                    "{{ on_request }} path={} method={} peer={:?} headers {:?}",
-                    x.uri().path(),
-                    x.method(),
-                    x.extensions().get::<Peer>(),
-                    hd,
-                )
-            })
-            .on_response(async |x, i| {
-                tracing::info!(
-                    "{{ on_response }} status = {} duration = {}ms headers = {:?}",
-                    x.status(),
-                    i.elapsed().as_millis(),
-                    x.headers()
-                )
-            })
-            .build();
+    let trace = LogLayerBuilder::default()
+        .on_request(async |x| {
+            let hd = [
+                (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
+                (header::COOKIE, x.headers().get(header::COOKIE)),
+                (
+                    header::AUTHORIZATION,
+                    x.headers().get(header::AUTHORIZATION),
+                ),
+                (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
+                (header::ORIGIN, x.headers().get(header::ORIGIN)),
+            ]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|v| (name, v)))
+            .collect::<HashMap<_, _>>();
 
-    let stack_layer = Arc::new(MiddlwareStack::default().entry_fn(entry).state(state).layer(cors).layer(trace));
+            tracing::info!(
+                "{{ on_request }} path={} method={} peer={:?} headers {:?}",
+                x.uri().path(),
+                x.method(),
+                x.extensions().get::<Peer>(),
+                hd,
+            )
+        })
+        .on_response(async |x, i| {
+            tracing::info!(
+                "{{ on_response }} status = {} duration = {}ms headers = {:?}",
+                x.status(),
+                i.elapsed().as_millis(),
+                x.headers()
+            )
+        })
+        .build();
+
+    let stack_layer = Arc::new(
+        MiddlwareStack::default()
+            .entry_fn(entry)
+            .state(state)
+            .layer(cors)
+            .layer(trace),
+    );
+
+    tracing::info!("Listen: {listen}:{port}");
 
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
         let io = Io::new(stream);
         let stack_layer = stack_layer.clone();
+
         tokio::task::spawn(async move {
             if let Err(e) = http1::Builder::new()
                 .serve_connection(
@@ -168,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     service_fn(|mut req| {
                         req.extensions_mut().insert(peer);
                         stack_layer.call(req)
-                    })
+                    }),
                 )
                 .with_upgrades()
                 .await

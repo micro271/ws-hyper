@@ -1,5 +1,8 @@
-use clap::{Parser, ValueEnum, command};
-use std::{net::Ipv4Addr, path::PathBuf};
+use clap::{Parser, ValueEnum};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 use tonic::transport::Endpoint;
 use tracing::Level;
 
@@ -29,24 +32,6 @@ pub struct Args {
     )]
     pub grpc_auth_server: Endpoint,
 
-    #[arg(long = "database-name", env = "DATABASE_NAME")]
-    pub database_name: String,
-
-    #[arg(long = "database-user", env = "DATABASE_USER")]
-    pub username: String,
-
-    #[arg(long = "database-pass", env = "DATABASE_PASSWD")]
-    pub password: String,
-
-    #[arg(long = "database-listen-channel", env = "DATABASE_LISTEN_CHANNEL")]
-    pub channel: String,
-
-    #[arg(long = "database-host", env = "DATABASE_HOST")]
-    pub database_host: String,
-
-    #[arg(long = "database-port", env = "DATABASE_PORT")]
-    pub database_port: u16,
-
     #[arg(long = "md-host", env = "MD_DATABASE_HOST")]
     pub md_host: String,
 
@@ -71,6 +56,13 @@ pub struct Args {
 
     #[arg(long = "pki-dir", env = "PKI_DIR")]
     pub pki_dir: String,
+
+    #[arg(
+        long = "grpc-fhs-manager-endpoint",
+        env = "GRPC_FHS_MANAGER_ENDPOINT",
+        default_value = "[::1]:50052"
+    )]
+    pub grpc_endpoint: SocketAddr,
 }
 
 #[derive(Clone, ValueEnum)]

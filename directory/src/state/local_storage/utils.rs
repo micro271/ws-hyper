@@ -33,7 +33,11 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &BucketM
             None => break,
         }
     }
-    let bucket_map = map.keys().cloned().collect::<HashSet<_>>();
+    let bucket_map = map
+        .get_buckets()
+        .into_iter()
+        .cloned()
+        .collect::<HashSet<Bucket>>();
     let bucket_db = tree_aux.keys().cloned().collect::<HashSet<_>>();
     let dif = bucket_db.difference(&bucket_map).collect::<HashSet<_>>();
 
@@ -55,11 +59,12 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &BucketM
 
     for i in bucket_db.intersection(&bucket_map).collect::<HashSet<_>>() {
         let key_map = map
-            .get(i)
+            .get_keys(i)
             .unwrap()
-            .keys()
-            .cloned()
-            .collect::<HashSet<Key>>();
+            .iter()
+            .map(|x| x.cloned())
+            .collect::<HashSet<_>>();
+
         let key_db = tree_aux
             .get(i)
             .unwrap()
@@ -81,7 +86,7 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &BucketM
         }
 
         for m in key_db.intersection(&key_map).collect::<HashSet<_>>() {
-            let vec_map = map.get(i).and_then(|x| x.get(m)).unwrap();
+            let vec_map = map.get_bucket(i.borrow()).and_then(|x| x.get(m)).unwrap();
             let vec_db = tree_aux.get(i).and_then(|x| x.get(m)).unwrap();
             let to_delete = vec_db
                 .iter()

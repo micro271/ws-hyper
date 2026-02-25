@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use utils::GetClaim;
+use utils::claim::;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -178,14 +178,14 @@ impl std::default::Default for WebSocket {
 #[derive(Debug)]
 pub enum MsgWs {
     NewUser {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
         sender: HyperWebsocket,
     },
     Change(Change),
 }
 
-struct ListToNotification<T>(HashMap<Bucket, HashMap<Key, SenderBr<T>>>);
+struct ListToNotification<T>(HashMap<Bucket<'static>, HashMap<Key<'static>, SenderBr<T>>>);
 
 impl<T: Clone + Send + 'static> ListToNotification<T> {
     fn new() -> Self {
@@ -218,9 +218,9 @@ impl<T: Clone + Send + 'static> ListToNotification<T> {
         )?))
     }
 
-    fn rcv_or_create(&mut self, bucket: Bucket, key: Key) -> ReceivedBr<T> {
-        let bucket = self.0.entry(bucket).or_default();
-        let key = bucket.entry(key).or_insert_with(|| {
+    fn rcv_or_create(&mut self, bucket: Bucket<'_>, key: Key<'_>) -> ReceivedBr<T> {
+        let bucket = self.0.entry(bucket.owned()).or_default();
+        let key = bucket.entry(key.owned()).or_insert_with(|| {
             let (tx, _) = broadcast::channel::<T>(128);
             tx
         });
@@ -236,10 +236,10 @@ impl<'a, T: Clone> SendMessage<'a, T> {
     }
 }
 
-struct SendAllBucket<'a, T>(&'a HashMap<Key, SenderBr<T>>);
+struct SendAllBucket<'a, T>(&'a HashMap<Key<'a>, SenderBr<T>>);
 
 impl<'a, T: Clone> SendAllBucket<'a, T> {
-    pub fn send(self, msj: T) -> Result<(), Vec<(Key, broadcast::error::SendError<T>)>> {
+    pub fn send(self, msj: T) -> Result<(), Vec<(Key<'a>, broadcast::error::SendError<T>)>> {
         let mut err = Vec::new();
         for (key, snd) in self.0 {
             if let Err(er) = snd.send(msj.clone()) {

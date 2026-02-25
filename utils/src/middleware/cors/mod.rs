@@ -17,15 +17,17 @@ pub struct Cors<L> {
     inner: L,
 }
 
-impl<L, Res, Req> Layer<Req, Res> for Cors<L>
+impl<L, Req> Layer<Req> for Cors<L>
 where
-    L: Layer<Req, Res>,
-    Res: Body + Default + Send,
+    L: Layer<Req>,
     Req: Body + Send,
 {
     type Error = L::Error;
-
-    fn call(&self, req: Request<Req>) -> impl Future<Output = Result<Response<Res>, Self::Error>> {
+    type Response = L::Response;
+    fn call(
+        &self,
+        req: Request<Req>,
+    ) -> impl Future<Output = Result<Response<Self::Response>, Self::Error>> {
         let mut header_map = HeaderMap::new();
 
         let Some(origin) = req
@@ -38,7 +40,7 @@ where
                     res: Some(
                         Response::builder()
                             .status(StatusCode::OK)
-                            .body(<Res as Default>::default())
+                            .body(<Self::Response as Default>::default())
                             .unwrap_or_default(),
                     ),
                 },

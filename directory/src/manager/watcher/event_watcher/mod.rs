@@ -139,11 +139,14 @@ where
                         continue;
                     };
 
-                    let Some(name) = path.file_name().and_then(|x| x.to_str()) else {
+                    let Some(name) = path
+                        .file_name()
+                        .and_then(|x| x.to_str().map(ToString::to_string))
+                    else {
                         continue;
                     };
 
-                    let change = if REGEX_OBJECT_NAME.is_match(name)
+                    let change = if REGEX_OBJECT_NAME.is_match(&name)
                         && let Some(bucket) = Bucket::find_bucket(root, &path)
                         && let Some(key) = Key::from_bucket(&bucket, &path)
                     {
@@ -155,7 +158,7 @@ where
                     } else if let Some(path) = path.parent()
                         && path == root
                     {
-                        let bucket = Bucket::from(name);
+                        let bucket = Bucket::new_unchecked(name);
                         Change::DeleteBucket { bucket }
                     } else if let Some(bucket) = Bucket::find_bucket(root, &path)
                         && let Some(key) = Key::from_bucket(&bucket, &path)

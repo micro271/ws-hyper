@@ -3,7 +3,8 @@ pub mod error;
 use crate::{
     bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::State, user::Claim,
+    state::State,
+    user::Claim,
 };
 
 use http::{StatusCode, header};
@@ -36,11 +37,14 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             ))));
             //return Ok(not_found(req).await.into());
         } else if path.len() == 1 {
-            (Some(Bucket::from(path.pop().unwrap())), None)
+            (
+                Some(Bucket::new_unchecked(path.pop().unwrap()).owned()),
+                None,
+            )
         } else {
             (
-                Bucket::from(path.pop().unwrap()).into(),
-                Key::from(path.drain(1..).collect::<Vec<_>>().join("/")).into(),
+                Some(Bucket::new_unchecked(path.pop().unwrap()).owned()),
+                Some(Key::from(path.drain(1..).collect::<Vec<_>>().join("/"))),
             )
         };
 
@@ -60,12 +64,13 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
 
 async fn get_path(
     req: Request<Incoming>,
-    bucket: Option<Bucket>,
-    key: Option<Key>,
+    bucket: Option<Bucket<'_>>,
+    key: Option<Key<'_>>,
 ) -> ResponseHttp {
     let state = req.extensions().get::<TypeState>().unwrap();
     let reader = state.read().await;
-    let body = reader.get(bucket.as_ref().unwrap()).unwrap();
+    let body = bucket.unwrap();
+    let body = reader.get_bucket(body.borrow()).unwrap();
 
     // TODO: we need to obtain all keys contained whithin a single key
 
@@ -80,7 +85,6 @@ async fn middleware_jwt<T>(mut req: Request<Incoming>, next: T) -> ResponseHttp
 where
     T: AsyncFnOnce(Request<Incoming>) -> ResponseHttp,
 {
-    
     let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
         return Ok(Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -117,11 +121,12 @@ pub async fn server_upgrade(
         ))?;
 
     let mut path = path.split("/");
-    let bucket = Bucket::from(
+    let bucket = Bucket::new_unchecked(
         path.next()
             .ok_or(ResponseError::status(StatusCode::BAD_REQUEST))?,
-    );
-    let key = Key::new(path.next().unwrap_or_default());
+    )
+    .owned();
+    let key = Key::new(path.next().unwrap_or_default().to_string());
     if hyper_tungstenite::is_upgrade_request(&req) {
         let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
         state.add_client(bucket, key, ws).await;

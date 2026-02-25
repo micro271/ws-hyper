@@ -3,8 +3,8 @@ mod handler;
 mod models;
 mod state;
 use crate::{
-    grpc_v1::user_control::InfoUserProgram, handler::entry::EPoint, models::user::default_account_admin,
-    state::PgRepository,
+    grpc_v1::user_control::InfoUserProgram, handler::entry::EPoint,
+    models::user::default_account_admin, state::PgRepository,
 };
 use grpc_v1::user_control::InfoServer;
 use hyper::{Method, header, server::conn::http1, service::service_fn};
@@ -12,10 +12,22 @@ use std::sync::{Arc, LazyLock};
 use tonic::transport::Server;
 use tracing_subscriber::{EnvFilter, fmt};
 use utils::{
-    GenEcdsa, Io, JwtHandle, Peer, app_info::host::Host, middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder, proxy_info::{ProxyInfoLayer, ProxyInfoType}}
+    GenEcdsa, Io, JwtHandle, Peer,
+    app_info::host::Host,
+    middleware::{
+        Layer, MiddlwareStack,
+        cors::CorsBuilder,
+        log_layer::builder::LogLayerBuilder,
+        proxy_info::{ProxyInfoLayer, ProxyInfoType},
+    },
 };
 
-pub static HOST: LazyLock<Host> = LazyLock::new(|| std::env::var("APP_HOST").ok().and_then(|x| Host::from_url(&x).ok()).expect("Host not defined"));
+pub static HOST: LazyLock<Host> = LazyLock::new(|| {
+    std::env::var("APP_HOST")
+        .ok()
+        .and_then(|x| Host::from_url(&x).ok())
+        .expect("Host not defined")
+});
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,56 +66,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .serve(gprc_ceck_user)
             .await
     });
-    
-    let cors = CorsBuilder::default()
-            .allow_origin("http://localhost:5173")
-            .allow_origin(HOST.host())
-            .allow_method(Method::PUT)
-            .allow_method(Method::GET)
-            .allow_method(Method::OPTIONS)
-            .allow_method(Method::PATCH)
-            .allow_header(header::CONTENT_TYPE)
-            .allow_header(header::COOKIE)
-            .allow_header(header::AUTHORIZATION)
-            .allow_credentials(true)
-            .build();
-    
-    let log_layer = LogLayerBuilder::default()
-            .on_request(async |x| {
-                let hd = [
-                    (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
-                    (header::COOKIE, x.headers().get(header::COOKIE)),
-                    (
-                        header::AUTHORIZATION,
-                        x.headers().get(header::AUTHORIZATION),
-                    ),
-                    (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
-                    (header::ORIGIN, x.headers().get(header::ORIGIN)),
-                ]
-                .into_iter()
-                .filter_map(|(name, value)| value.map(|v| (name, v)))
-                .collect::<Vec<_>>();
 
-                tracing::info!(
-                    "{{ on_request }} method={} peer={:?} headers {:?}",
-                    x.method(),
-                    x.extensions().get::<ProxyInfoType>().map(|x|x.peer()).unwrap_or_default(),
-                    hd,
-                )
-            })
-            .on_response(async |x, i| {
-                tracing::info!(
-                    "{{ on_response }} status = {} duration = {}ms headers = {:?}",
-                    x.status(),
-                    i.elapsed().as_millis(),
-                    x.headers()
-                )
-            })
-            .build();
+    let cors = CorsBuilder::default()
+        .allow_origin("http://localhost:5173")
+        .allow_origin(HOST.host())
+        .allow_method(Method::PUT)
+        .allow_method(Method::GET)
+        .allow_method(Method::OPTIONS)
+        .allow_method(Method::PATCH)
+        .allow_header(header::CONTENT_TYPE)
+        .allow_header(header::COOKIE)
+        .allow_header(header::AUTHORIZATION)
+        .allow_credentials(true)
+        .build();
+
+    let log_layer = LogLayerBuilder::default()
+        .on_request(async |x| {
+            let hd = [
+                (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
+                (header::COOKIE, x.headers().get(header::COOKIE)),
+                (
+                    header::AUTHORIZATION,
+                    x.headers().get(header::AUTHORIZATION),
+                ),
+                (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
+                (header::ORIGIN, x.headers().get(header::ORIGIN)),
+            ]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|v| (name, v)))
+            .collect::<Vec<_>>();
+
+            tracing::info!(
+                "{{ on_request }} method={} peer={:?} headers {:?}",
+                x.method(),
+                x.extensions()
+                    .get::<ProxyInfoType>()
+                    .map(|x| x.peer())
+                    .unwrap_or_default(),
+                hd,
+            )
+        })
+        .on_response(async |x, i| {
+            tracing::info!(
+                "{{ on_response }} status = {} duration = {}ms headers = {:?}",
+                x.status(),
+                i.elapsed().as_millis(),
+                x.headers()
+            )
+        })
+        .build();
     let _repo = repo.clone();
-    
-    let stack = MiddlwareStack::default().entry(EPoint).state(_repo).layer(cors).layer(log_layer).layer(ProxyInfoLayer::new());
-    
+
+    let stack = MiddlwareStack::default()
+        .entry(EPoint)
+        .state(_repo)
+        .layer(cors)
+        .layer(log_layer)
+        .layer(ProxyInfoLayer::new());
+
     loop {
         let (stream, _) = listener.accept().await?;
         let peer = Peer::new(stream.peer_addr().ok());
@@ -116,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     service_fn(|mut req| {
                         req.extensions_mut().insert(peer);
                         _stack.call(req)
-                    })
+                    }),
                 )
                 .await
             {

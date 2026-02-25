@@ -15,13 +15,13 @@ const MAX_RENAME_ATTEMPTS: usize = 5;
 
 pub struct NewObjNameHandler<'a> {
     object: &'a mut Object,
-    key: &'a mut Key,
-    bucket: &'a mut Bucket,
+    key: Key<'a>,
+    bucket: Bucket<'a>,
 }
 
 pub struct RenameObjHandler<'a> {
-    bucket: &'a mut Bucket,
-    key: &'a mut Key,
+    bucket: Bucket<'a>,
+    key: Key<'a>,
     from: &'a mut String,
     to: &'a mut String,
 }
@@ -38,7 +38,10 @@ impl<'a> NewObjNameHandler<'a> {
                 );
                 break;
             }
-            match ls.new_object(self.bucket, self.key, self.object).await {
+            match ls
+                .new_object(self.bucket.borrow(), self.key.borrow(), self.object)
+                .await
+            {
                 Ok(e) => {
                     tracing::trace!("[ NewObjNameHandler ] {{ Object Inserted }} result: {e:?}");
                     break;
@@ -80,7 +83,10 @@ impl<'a> RenameObjHandler<'a> {
                 break;
             }
 
-            match ls.set_name(self.bucket, self.key, self.from, self.to).await {
+            match ls
+                .set_name(self.bucket.borrow(), self.key.borrow(), self.from, self.to)
+                .await
+            {
                 Err(LsError::DuplicateKey) => {
                     tracing::warn!(
                         "[ RenameObjectHandler ] {{ Duplicate key }} bucket: {}, key: {}, object.name: {} ",

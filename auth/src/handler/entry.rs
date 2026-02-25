@@ -2,34 +2,42 @@ use bcrypt::verify;
 use cookie::CookieBuilder;
 use http_body_util::Full;
 use hyper::{
-    Method, Response, StatusCode, body::{Bytes, Incoming}, header
+    Method, Response, StatusCode,
+    body::{Bytes, Incoming},
+    header,
 };
 use serde_json::json;
 use std::convert::Infallible;
 use time::Duration;
-use utils::{GenTokenFromEcds as _, JWT_IDENTIFIED, JwtBoth, JwtHandle, ParseBodyToStruct, Token, VerifyTokenEcdsa, claim::Claim, middleware::Layer};
+use utils::{
+    GenTokenFromEcds as _, JWT_IDENTIFIED, JwtBoth, JwtHandle, ParseBodyToStruct, Token,
+    VerifyTokenEcdsa, claim::Claim, middleware::Layer,
+};
 
 use crate::{
-    HOST, handler::{Login, PREFIX_PATH, Repo, api, error::ResponseErr}, models::user::User, state::QueryOwn
+    HOST,
+    handler::{Login, PREFIX_PATH, Repo, api, error::ResponseErr},
+    models::user::User,
+    state::QueryOwn,
 };
 
 #[derive(Debug, Clone)]
 pub struct EPoint;
 
-impl Layer<Incoming, Full<Bytes>> for EPoint {
+impl Layer<Incoming> for EPoint {
     type Error = Infallible;
-
+    type Response = Full<Bytes>;
     async fn call(
         &self,
         mut req: hyper::Request<Incoming>,
-    ) -> Result<hyper::Response<Full<Bytes>>, Self::Error> {
+    ) -> Result<hyper::Response<Self::Response>, Self::Error> {
         let url = req.uri().path();
         let resp = match (url, req.method()) {
             ("/login", &Method::POST) => {
                 let (parts, body) = req.into_parts();
                 let Some(repo) = parts.extensions.get::<Repo>() else {
                     tracing::error!("Repository not found");
-                    return Ok(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR).into())
+                    return Ok(ResponseErr::status(StatusCode::INTERNAL_SERVER_ERROR).into());
                 };
                 match ParseBodyToStruct::<Login>::get(body).await {
                     Ok(login) => {
@@ -38,7 +46,9 @@ impl Layer<Incoming, Full<Bytes>> for EPoint {
                             .await
                         else {
                             tracing::warn!("Username Not found - Data: {:?}", login);
-                            return Ok(ResponseErr::new("User not found", StatusCode::NOT_FOUND).into());
+                            return Ok(
+                                ResponseErr::new("User not found", StatusCode::NOT_FOUND).into()
+                            );
                         };
 
                         match verify(login.password, &user.passwd) {
@@ -59,24 +69,28 @@ impl Layer<Incoming, Full<Bytes>> for EPoint {
                                             .header(header::CONTENT_TYPE, "application/json")
                                             .header(header::SET_COOKIE, cookie.to_string())
                                             .status(StatusCode::OK)
-                                            .body(Full::new(Bytes::from(json!({"token": e}).to_string())))
+                                            .body(Full::new(Bytes::from(
+                                                json!({"token": e}).to_string(),
+                                            )))
                                             .unwrap_or_default())
                                     }
                                     Err(err) => {
-                                        tracing::error!("[ Entry ] JwtHandleError Parse error: {err}");
+                                        tracing::error!(
+                                            "[ Entry ] JwtHandleError Parse error: {err}"
+                                        );
                                         Err(ResponseErr::new(err, StatusCode::BAD_REQUEST))
                                     }
                                 }
-                            },
+                            }
                             _ => Err(ResponseErr::status(StatusCode::UNAUTHORIZED)),
                         }
                     }
                     Err(e) => {
                         tracing::error!("Parse error {e}");
                         Err(ResponseErr::new(e, StatusCode::UNAUTHORIZED))
-                    },
+                    }
                 }
-            },
+            }
             (path, _) if path.starts_with(PREFIX_PATH) => {
                 let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
                     return Ok(

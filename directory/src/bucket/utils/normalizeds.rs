@@ -33,7 +33,7 @@ impl<'a> RenamedTo<'a, RenamedToWithTo> {
 
 impl<'a> RenamedTo<'a, RenamedToNoTo> {
     pub fn get_from(&self) -> &Path {
-        &self.from
+        self.from
     }
 
     pub fn new(from: &'a Path) -> Self {
@@ -41,7 +41,7 @@ impl<'a> RenamedTo<'a, RenamedToNoTo> {
         Self {
             from,
             to: RenamedToNoTo,
-            tx: tx,
+            tx,
             rx: Some(rx),
         }
     }

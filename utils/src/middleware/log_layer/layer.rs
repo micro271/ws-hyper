@@ -21,13 +21,12 @@ impl<OnReq: Clone, OnRes: Clone> std::clone::Clone for LogLayer<OnReq, OnRes> {
     }
 }
 
-impl<S, A, B, ReqBody, ResBody> IntoLayer<S, ReqBody, ResBody> for LogLayer<B, A>
+impl<S, A, B, ReqBody> IntoLayer<S, ReqBody> for LogLayer<B, A>
 where
-    ResBody: Body + Default + Send,
     ReqBody: Body + Send,
     B: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Copy,
-    A: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Copy,
-    S: Layer<ReqBody, ResBody> + Clone,
+    A: for<'a> AsyncFn(&'a Response<S::Response>, Instant) + Send + Clone + Copy,
+    S: Layer<ReqBody> + Clone,
 {
     type Output = Log<S, B, A>;
 

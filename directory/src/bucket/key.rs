@@ -1,63 +1,79 @@
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 
 use serde::{Deserialize, Serialize};
 
 use crate::bucket::Bucket;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub struct Key(String);
+pub struct Key<'a>(Cow<'a, str>);
 
-impl Key {
+impl<'a> Key<'a> {
     pub fn is_parent(&self, child: &Key) -> bool {
-        let self_name = self.name();
-        let child_name = child.name();
-
-        child_name.strip_prefix(self_name).is_some()
+        child.name().strip_prefix(self.name()).is_some()
     }
 
-    pub fn new<K: Into<String>>(inner: K) -> Self {
+    pub fn borrow(&self) -> Key<'_> {
+        Key(Cow::Borrowed(&self.0))
+    }
+
+    pub fn owned(self) -> Key<'static> {
+        Key(Cow::Owned(self.0.into_owned()))
+    }
+
+    pub fn cloned(&self) -> Key<'static> {
+        Key(Cow::Owned(self.0.to_string()))
+    }
+
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+
+    pub fn name_mut(&mut self) -> &mut String {
+        self.0.to_mut()
+    }
+
+    pub fn set_name(&mut self, name: &str) {
+        *self.name_mut() = name.to_string();
+    }
+
+    pub fn new<K: Into<Cow<'a, str>>>(inner: K) -> Self {
         Self(inner.into())
     }
 
     pub fn inner(self) -> String {
-        self.0
+        self.0.into_owned()
     }
 
-    pub fn name(&self) -> &str {
-        self.as_ref()
-    }
-
-    pub fn from_bucket<T: AsRef<Path>>(bucket: &Bucket, path: T) -> Option<Self> {
-        let path = path.as_ref().to_str()?;
+    pub fn from_bucket(bucket: &Bucket, path: &Path) -> Option<Self> {
+        let path = path.to_str()?;
         let name = bucket.name();
         tracing::trace!("[ Key::fn_from_bucket ] path: {path} - name: {name}");
         path.split_once(name)
-            .map(|(_, x)| x.strip_prefix("/").unwrap_or(x))
-            .map(|x| Self::new(if x.is_empty() { "." } else { x }))
+            .map(|(_, x)| x.strip_prefix("/").unwrap_or(x).to_string())
+            .map(|x| Self::new(if x.is_empty() { ".".to_string() } else { x }))
     }
 }
 
-impl AsRef<str> for Key {
+impl<'a> AsRef<str> for Key<'a> {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
 }
 
-impl std::ops::Deref for Key {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-impl std::fmt::Display for Key {
+impl<'a> std::fmt::Display for Key<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<T: Into<String>> From<T> for Key {
+impl<'a, T: Into<Cow<'a, str>>> From<T> for Key<'a> {
     fn from(value: T) -> Self {
         Self(value.into())
+    }
+}
+
+impl<'a> From<Key<'a>> for mongodb::bson::Bson {
+    fn from(value: Key<'a>) -> Self {
+        mongodb::bson::to_bson(value.name()).unwrap()
     }
 }

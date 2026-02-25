@@ -2,21 +2,22 @@ use regex::Regex;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     bucket::{
         Bucket, DEFAULT_LENGTH_NANOID,
-        key::Key,
+        key::{self, Key},
         utils::{
             Renamed,
             normalizeds::{NormalizePathUtf8, RenamedTo},
-            rename_handlers::PathObject,
+            rename_handlers::{NewObjNameHandlerBuilder, PathObject, RenameObjHandlerBuilder},
         },
     },
     manager::Change,
+    state::local_storage::LocalStorage,
 };
 
 pub static REGEX_OBJECT_NAME: LazyLock<Regex> = LazyLock::new(|| {
@@ -145,7 +146,7 @@ pub async fn hd_new_bucket_or_key_watcher(
     };
 
     if path.parent().is_some_and(|x| x == root) {
-        let bucket = Bucket::from(file_name);
+        let bucket = Bucket::new_unchecked(file_name);
         if to_skip {
             skip.push_bucket(bucket.clone());
         }
@@ -215,7 +216,7 @@ pub async fn hd_rename_path(
                     if let Some(parent) = to.parent()
                         && parent == root
                     {
-                        let bucket = Bucket::from(from_name);
+                        let bucket = Bucket::new_unchecked(from_name);
                         skipped.push_bucket(bucket);
                     } else {
                         let bucket = Bucket::find_bucket(root, &to).ok_or(())?;
@@ -235,13 +236,16 @@ pub async fn hd_rename_path(
             if let Some(parent) = from.parent()
                 && parent == root
             {
-                let bucket = Bucket::from(name);
+                let bucket = Bucket::new_unchecked(name);
 
                 if skipped.pop_bucket(&bucket) {
                     Err(())
                 } else {
                     Ok(Change::NameBucket {
-                        from: Bucket::from(from.file_name().and_then(|x| x.to_str()).ok_or(())?),
+                        from: Bucket::new_unchecked(
+                            from.file_name().and_then(|x| x.to_str()).ok_or(())?,
+                        )
+                        .owned(),
                         to: bucket,
                     })
                 }
@@ -249,14 +253,14 @@ pub async fn hd_rename_path(
                 let bucket = Bucket::find_bucket(root, &to).ok_or(())?;
                 let key = Key::from_bucket(&bucket, &to).ok_or(())?;
 
-                if skipped.pop_key(&bucket, &key) {
+                if skipped.pop_key(bucket.borrow(), key.borrow()) {
                     Err(())
                 } else {
                     let from = Key::from_bucket(&bucket, &from).ok_or(())?;
                     Ok(Change::NameKey {
                         bucket,
                         from,
-                        to: key,
+                        to: key.owned(),
                     })
                 }
             }
@@ -312,26 +316,30 @@ pub async fn hd_rename_object(root: &Path, from: PathBuf, to: PathBuf) -> Result
 
 #[derive(Debug, Default)]
 pub struct ToSkip {
-    pub buckets: Vec<Bucket>,
-    pub keys: HashMap<Bucket, Vec<Key>>,
+    pub buckets: Vec<Bucket<'static>>,
+    pub keys: HashMap<Bucket<'static>, Vec<Key<'static>>>,
 }
 
 impl ToSkip {
-    pub fn push_key(&mut self, bucket: Bucket, key: Key) {
-        self.keys.entry(bucket).or_default().push(key);
-    }
-    pub fn push_bucket(&mut self, bucket: Bucket) {
-        self.buckets.push(bucket);
+    pub fn push_key(&mut self, bucket: Bucket<'_>, key: Key<'_>) {
+        self.keys
+            .entry(bucket.owned())
+            .or_default()
+            .push(key.owned());
     }
 
-    pub fn pop_key(&mut self, bucket: &Bucket, key: &Key) -> bool {
+    pub fn push_bucket(&mut self, bucket: Bucket<'_>) {
+        self.buckets.push(bucket.owned());
+    }
+
+    pub fn pop_key(&mut self, bucket: Bucket<'_>, key: Key<'_>) -> bool {
         let mut resp = false;
-        if let Some(keys) = self.keys.get_mut(bucket) {
-            if let Some(key) = keys.pop_if(|x| x == key) {
+        if let Some(keys) = self.keys.get_mut(&bucket.cloned()) {
+            if let Some(key) = keys.pop_if(|x| key.eq(x)) {
                 tracing::info!("[ ToSkip ] {{ Delete Key }} {key:?} ");
                 resp = true;
             }
-            if keys.is_empty() && self.keys.remove(bucket).is_some() {
+            if keys.is_empty() && self.keys.remove(&bucket.cloned()).is_some() {
                 tracing::error!("[ ToSKip ] {{ Delete Bucket in Key }} {bucket:?}");
             }
         }
@@ -343,6 +351,73 @@ impl ToSkip {
             true
         } else {
             false
+        }
+    }
+}
+
+pub async fn change_local_storage(ch: &mut Change, ls: Arc<LocalStorage>) {
+    match ch {
+        Change::NewObject {
+            object,
+            key,
+            bucket,
+        } => {
+            NewObjNameHandlerBuilder::default()
+                .bucket(bucket.borrow())
+                .key(key.borrow())
+                .object(object)
+                .build()
+                .run(ls)
+                .await;
+        }
+        Change::DeleteObject {
+            file_name,
+            bucket,
+            key,
+        } => {
+            ls.delete_object(bucket.borrow(), key.borrow(), file_name)
+                .await;
+        }
+        Change::NameObject {
+            key,
+            to,
+            bucket,
+            file_name,
+        } => {
+            RenameObjHandlerBuilder::default()
+                .bucket(bucket.borrow())
+                .key(key.borrow())
+                .to(to)
+                .from(file_name)
+                .build()
+                .run(ls)
+                .await;
+        }
+        Change::DeleteBucket { bucket } => {
+            if let Err(er) = ls.delete_bucket(bucket.borrow()).await {
+                tracing::debug!("{er}")
+            }
+        }
+        Change::NameBucket { from, to } => {
+            if let Err(er) = ls.set_name_bucket(from.borrow(), to.borrow()).await {
+                tracing::debug!("{er}")
+            }
+        }
+        Change::NameKey { bucket, from, to } => {
+            if let Err(er) = ls
+                .set_name_key(bucket.borrow(), from.borrow(), to.borrow())
+                .await
+            {
+                tracing::debug!("{er}")
+            }
+        }
+        Change::DeleteKey { bucket, key } => {
+            if let Err(er) = ls.delete_key(bucket.borrow(), key.borrow()).await {
+                tracing::debug!("{er}")
+            }
+        }
+        _ => {
+            unimplemented!()
         }
     }
 }

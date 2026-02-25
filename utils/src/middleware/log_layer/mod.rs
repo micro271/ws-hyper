@@ -24,20 +24,19 @@ impl<L: Clone, A: Clone, B: Clone> std::clone::Clone for Log<L, A, B> {
     }
 }
 
-impl<L, ReqBody, ResBody, B, A> Layer<ReqBody, ResBody> for Log<L, B, A>
+impl<L, ReqBody, B, A> Layer<ReqBody> for Log<L, B, A>
 where
-    L: Layer<ReqBody, ResBody> + Clone,
+    L: Layer<ReqBody> + Clone,
     B: for<'a> AsyncFn(&'a Request<ReqBody>) + Send + Clone + Copy,
-    A: for<'a> AsyncFn(&'a Response<ResBody>, Instant) + Send + Clone + Copy,
+    A: for<'a> AsyncFn(&'a Response<L::Response>, Instant) + Send + Clone + Copy,
     ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
 {
     type Error = L::Error;
-
+    type Response = L::Response;
     async fn call(
         &self,
         req: http::Request<ReqBody>,
-    ) -> Result<http::Response<ResBody>, Self::Error> {
+    ) -> Result<http::Response<Self::Response>, Self::Error> {
         let span = span!(Level::INFO, "HTTP", path = %req.uri().path(), rid = nanoid::nanoid!());
         let instant = Instant::now();
         (self.before.clone())(&req).instrument(span.clone()).await;

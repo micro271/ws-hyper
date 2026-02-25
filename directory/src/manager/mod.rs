@@ -29,14 +29,11 @@ use crate::{
     },
     grpc_v1::ConnectionAuthMS,
     manager::{
-        utils::{Run, SplitTask, Task},
+        utils::{Run, SplitTask, Task, change_local_storage},
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
         websocker::{MsgWs, WebSocket, WebSocketChSender},
     },
-    state::{
-        local_storage::LocalStorage,
-        pg_listen::{ListenBucket, ListenBucketChSender},
-    },
+    state::local_storage::LocalStorage,
 };
 
 type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
@@ -51,7 +48,6 @@ pub struct Manager {
     state: Arc<RwLock<BucketMap>>,
     tx: UnboundedSender<Change>,
     rx: UnboundedReceiver<Change>,
-    listen_bk: ListenBucket,
     grpc: ConnectionAuthMS,
     ws: WebSocket,
     watcher_params: WatcherParams,
@@ -63,7 +59,6 @@ pub struct ManagerRunning {
     rx: UnboundedReceiver<Change>,
     state: Arc<RwLock<BucketMap>>,
     grpc: ConnectionAuthMS,
-    lst_sender: ListenBucketChSender,
     local_storage: Arc<LocalStorage>,
 }
 
@@ -72,7 +67,6 @@ impl Manager {
         state: Arc<RwLock<BucketMap>>,
         watcher_params: WatcherParams,
         endpoint: Endpoint,
-        listen_bk: ListenBucket,
         local_storage: Arc<LocalStorage>,
     ) -> Self {
         let (tx_sch, rx_sch) = unbounded_channel();
@@ -81,7 +75,6 @@ impl Manager {
             state,
             tx: tx_sch.clone(),
             rx: rx_sch,
-            listen_bk,
             grpc: ConnectionAuthMS::new(endpoint, tx_sch).await,
             watcher_params,
             ws: WebSocket::new(),
@@ -116,17 +109,15 @@ impl Run for Manager {
                 task.run();
             }
         }
-        let (lst_ch, lst_task) = self.listen_bk.split();
+
         let (ws_sender, ws_task) = self.ws.split();
 
-        lst_task.run();
         ws_task.run();
 
         let task = ManagerRunning {
             ws_sender,
             rx: self.rx,
             state: self.state,
-            lst_sender: lst_ch,
             grpc: self.grpc,
             local_storage: self.local_storage,
         };
@@ -165,53 +156,7 @@ impl Task for ManagerRunning {
         loop {
             match self.rx.recv().await {
                 Some(mut change) => {
-                    match &mut change {
-                        Change::NewObject {
-                            object,
-                            key,
-                            bucket,
-                        } => {
-                            NewObjNameHandlerBuilder::default()
-                                .bucket(bucket)
-                                .key(key)
-                                .object(object)
-                                .build()
-                                .run(self.local_storage.clone())
-                                .await;
-                        }
-                        Change::DeleteObject {
-                            file_name,
-                            bucket,
-                            key,
-                        } => {
-                            self.local_storage
-                                .delete_object(bucket, key, file_name)
-                                .await;
-                        }
-                        Change::NameObject {
-                            key,
-                            to,
-                            bucket,
-                            file_name,
-                        } => {
-                            RenameObjHandlerBuilder::default()
-                                .bucket(bucket)
-                                .key(key)
-                                .to(to)
-                                .from(file_name)
-                                .build()
-                                .run(self.local_storage.clone())
-                                .await;
-                        }
-                        Change::NewBucket { .. }
-                        | Change::DeleteBucket { .. }
-                        | Change::NameBucket { .. } => {
-                            if let Err(er) = self.lst_sender.send(change.clone()).await {
-                                tracing::error!("Send to ListenBucket Error: {er}")
-                            }
-                        }
-                        _ => {}
-                    }
+                    change_local_storage(&mut change, self.local_storage.clone()).await;
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
                 }
@@ -237,50 +182,50 @@ impl ManagerChSenders {
 #[derive(Debug, Clone, Serialize)]
 pub enum Change {
     NewObject {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
         object: Object,
     },
     NewKey {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
     },
     NewBucket {
-        bucket: Bucket,
+        bucket: Bucket<'static>,
     },
     NameObject {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
         file_name: String,
         to: String,
     },
     NameBucket {
-        from: Bucket,
-        to: Bucket,
+        from: Bucket<'static>,
+        to: Bucket<'static>,
     },
     NameKey {
-        bucket: Bucket,
-        from: Key,
-        to: Key,
+        bucket: Bucket<'static>,
+        from: Key<'static>,
+        to: Key<'static>,
     },
     DeleteObject {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
         file_name: String,
     },
     DeleteKey {
-        bucket: Bucket,
-        key: Key,
+        bucket: Bucket<'static>,
+        key: Key<'static>,
     },
     DeleteBucket {
-        bucket: Bucket,
+        bucket: Bucket<'static>,
     },
 }
 
 #[derive(Debug)]
 enum Scope {
-    Bucket(Bucket),
-    Key(Bucket, Key),
+    Bucket(Bucket<'static>),
+    Key(Bucket<'static>, Key<'static>),
 }
 
 impl Change {
@@ -290,11 +235,11 @@ impl Change {
             | Change::NewKey { bucket, key }
             | Change::NameObject { bucket, key, .. }
             | Change::DeleteObject { bucket, key, .. }
-            | Change::DeleteKey { bucket, key } => Scope::Key(bucket.clone(), key.clone()),
-            Change::NameBucket { from, .. } => Scope::Bucket(from.clone()),
-            Change::NameKey { bucket, from, .. } => Scope::Key(bucket.clone(), from.clone()),
+            | Change::DeleteKey { bucket, key } => Scope::Key(bucket.cloned(), key.cloned()),
+            Change::NameBucket { from, .. } => Scope::Bucket(from.cloned()),
+            Change::NameKey { bucket, from, .. } => Scope::Key(bucket.cloned(), from.cloned()),
             Change::NewBucket { bucket } | Change::DeleteBucket { bucket } => {
-                Scope::Bucket(bucket.clone())
+                Scope::Bucket(bucket.cloned())
             }
         }
     }

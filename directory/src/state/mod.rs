@@ -1,6 +1,5 @@
 pub mod cache;
 pub mod local_storage;
-pub mod pg_listen;
 
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
@@ -8,7 +7,7 @@ use crate::{
     manager::{ManagerChSenders, new_file_tba::CreateRateLimit},
 };
 use hyper_tungstenite::HyperWebsocket;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard};
 use uuid::Uuid;
@@ -42,7 +41,7 @@ impl State {
         todo!()
     }
 
-    pub async fn add_client(&self, bucket: Bucket, key: Key, sender: HyperWebsocket) {
+    pub async fn add_client<'a>(&self, bucket: Bucket<'a>, key: Key<'a>, sender: HyperWebsocket) {
         /*
         if let Err(er) = self
             .tx_subs

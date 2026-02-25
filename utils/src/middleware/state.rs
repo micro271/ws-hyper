@@ -18,12 +18,11 @@ impl<K: Clone, L: Clone> std::clone::Clone for State<K, L> {
 }
 
 impl<K, L> State<K, L> {
-    pub(super) fn new<ReqBody, ResBody>(state: K, layer: L) -> State<K, L>
+    pub(super) fn new<ReqBody>(state: K, layer: L) -> State<K, L>
     where
         K: Clone + Send + Sync + 'static,
-        L: Layer<ReqBody, ResBody>,
+        L: Layer<ReqBody>,
         ReqBody: Body + Send,
-        ResBody: Body + Send + Default,
     {
         State {
             state,
@@ -32,19 +31,18 @@ impl<K, L> State<K, L> {
     }
 }
 
-impl<L, K, ReqBody, ResBody> Layer<ReqBody, ResBody> for State<K, L>
+impl<L, K, ReqBody> Layer<ReqBody> for State<K, L>
 where
     ReqBody: Body + Send,
-    ResBody: Body + Send + Default,
-    L: Layer<ReqBody, ResBody>,
+    L: Layer<ReqBody>,
     K: Clone + Send + Sync + 'static,
 {
     type Error = L::Error;
-
+    type Response = L::Response;
     fn call(
         &self,
         mut req: http::Request<ReqBody>,
-    ) -> impl Future<Output = Result<http::Response<ResBody>, Self::Error>> {
+    ) -> impl Future<Output = Result<Response<Self::Response>, Self::Error>> {
         req.extensions_mut().insert(self.state.clone());
 
         ResponseFutureState {
@@ -60,7 +58,7 @@ pub struct ResponseFutureState<K> {
 impl<K, ResBody, E> Future for ResponseFutureState<K>
 where
     K: Future<Output = Result<Response<ResBody>, E>>,
-    ResBody: Body + Send,
+    ResBody: Body + Send + Default,
 {
     type Output = Result<Response<ResBody>, E>;
 
