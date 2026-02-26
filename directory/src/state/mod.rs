@@ -14,13 +14,13 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct State {
-    tree: Arc<RwLock<BucketMap>>,
+    tree: Arc<RwLock<BucketMap<'static>>>,
     create_limit: CreateRateLimit,
     mgr: ManagerChSenders,
 }
 
 impl State {
-    pub async fn new(tree: Arc<RwLock<BucketMap>>, mgr: ManagerChSenders) -> Self {
+    pub async fn new(tree: Arc<RwLock<BucketMap<'static>>>, mgr: ManagerChSenders) -> Self {
         Self {
             tree,
             create_limit: CreateRateLimit::new(),
@@ -28,7 +28,7 @@ impl State {
         }
     }
 
-    pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap> {
+    pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap<'_>> {
         self.tree.read().await
     }
 
@@ -41,7 +41,7 @@ impl State {
         todo!()
     }
 
-    pub async fn add_client<'a>(&self, bucket: Bucket<'a>, key: Key<'a>, sender: HyperWebsocket) {
+    pub async fn add_client(&self, bucket: Bucket<'_>, key: Key<'_>, sender: HyperWebsocket) {
         /*
         if let Err(er) = self
             .tx_subs

@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, str::FromStr};
 
 use redis::{AsyncCommands, Client, aio::MultiplexedConnection};
 use serde_json::json;
@@ -60,19 +60,18 @@ impl Cache {
             .await
             .unwrap();
         resp.into_iter()
-            .map(|x| Permissions::try_from(x.as_ref()).unwrap())
+            .map(|x| Permissions::from(x.as_ref()))
             .collect::<Vec<Permissions>>()
     }
 }
 
-impl TryFrom<&str> for Permissions {
-    type Error = Infallible;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value {
+impl From<&str> for Permissions {
+    fn from(value: &str) -> Self {
+        match value {
             "Put" => Self::Put,
             "Get" => Self::Get,
             "Delete" => Self::Delete,
             _ => Self::Read,
-        })
+        }
     }
 }

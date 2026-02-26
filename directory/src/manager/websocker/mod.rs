@@ -15,7 +15,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    bucket::{Bucket, key::Key},
+    bucket::{Bucket, Cowed, key::Key},
     manager::{
         Change, Scope,
         utils::{SplitTask, Task},

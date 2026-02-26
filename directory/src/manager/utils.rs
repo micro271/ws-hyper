@@ -8,7 +8,7 @@ use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     bucket::{
-        Bucket, DEFAULT_LENGTH_NANOID,
+        Bucket, Cowed, DEFAULT_LENGTH_NANOID,
         key::{self, Key},
         utils::{
             Renamed,

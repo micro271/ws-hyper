@@ -21,7 +21,7 @@ use tokio::sync::{
 
 use crate::{
     bucket::{
-        Bucket,
+        Bucket, Cowed,
         bucket_map::BucketMap,
         key::Key,
         object::Object,
@@ -45,7 +45,7 @@ pub struct ManagerChSenders {
 }
 
 pub struct Manager {
-    state: Arc<RwLock<BucketMap>>,
+    state: Arc<RwLock<BucketMap<'static>>>,
     tx: UnboundedSender<Change>,
     rx: UnboundedReceiver<Change>,
     grpc: ConnectionAuthMS,
@@ -57,14 +57,14 @@ pub struct Manager {
 pub struct ManagerRunning {
     ws_sender: WebSocketChSender,
     rx: UnboundedReceiver<Change>,
-    state: Arc<RwLock<BucketMap>>,
+    state: Arc<RwLock<BucketMap<'static>>>,
     grpc: ConnectionAuthMS,
     local_storage: Arc<LocalStorage>,
 }
 
 impl Manager {
     pub async fn new(
-        state: Arc<RwLock<BucketMap>>,
+        state: Arc<RwLock<BucketMap<'static>>>,
         watcher_params: WatcherParams,
         endpoint: Endpoint,
         local_storage: Arc<LocalStorage>,

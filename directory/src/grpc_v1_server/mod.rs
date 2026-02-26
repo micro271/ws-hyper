@@ -10,7 +10,7 @@ use tonic::async_trait;
 
 use crate::{
     bucket::{
-        Bucket,
+        Bucket, Cowed,
         bucket_map::BucketMap,
         key::Key,
         utils::rename_handlers::{
@@ -20,13 +20,13 @@ use crate::{
     state::local_storage::LocalStorage,
 };
 
-pub struct BucketGrpcSrv {
-    map: Arc<RwLock<BucketMap>>,
+pub struct BucketGrpcSrv<'a> {
+    map: Arc<RwLock<BucketMap<'a>>>,
     path: PathBuf,
 }
 
-impl BucketGrpcSrv {
-    pub fn new(map: Arc<RwLock<BucketMap>>, root_path: impl Into<PathBuf>) -> Self {
+impl<'a> BucketGrpcSrv<'a> {
+    pub fn new(map: Arc<RwLock<BucketMap<'a>>>, root_path: impl Into<PathBuf>) -> Self {
         Self {
             map,
             path: root_path.into(),
@@ -35,7 +35,7 @@ impl BucketGrpcSrv {
 }
 
 #[async_trait]
-impl Directory for BucketGrpcSrv {
+impl Directory for BucketGrpcSrv<'static> {
     async fn file_name(
         &self,
         request: tonic::Request<FileNameReq>,

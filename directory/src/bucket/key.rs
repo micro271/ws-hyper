@@ -2,7 +2,7 @@ use std::{borrow::Cow, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::bucket::Bucket;
+use crate::bucket::{Bucket, Cowed};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub struct Key<'a>(Cow<'a, str>);
@@ -10,18 +10,6 @@ pub struct Key<'a>(Cow<'a, str>);
 impl<'a> Key<'a> {
     pub fn is_parent(&self, child: &Key) -> bool {
         child.name().strip_prefix(self.name()).is_some()
-    }
-
-    pub fn borrow(&self) -> Key<'_> {
-        Key(Cow::Borrowed(&self.0))
-    }
-
-    pub fn owned(self) -> Key<'static> {
-        Key(Cow::Owned(self.0.into_owned()))
-    }
-
-    pub fn cloned(&self) -> Key<'static> {
-        Key(Cow::Owned(self.0.to_string()))
     }
 
     pub fn name(&self) -> &str {
@@ -75,5 +63,26 @@ impl<'a, T: Into<Cow<'a, str>>> From<T> for Key<'a> {
 impl<'a> From<Key<'a>> for mongodb::bson::Bson {
     fn from(value: Key<'a>) -> Self {
         mongodb::bson::to_bson(value.name()).unwrap()
+    }
+}
+
+impl<'a> Cowed<'a> for Key<'a> {
+    type Borrow = Key<'a>;
+
+    type Owned = Key<'static>;
+
+    fn borrow(&'a self) -> Self::Borrow {
+        Self(Cow::Borrowed(&self.0))
+    }
+
+    fn owned(self) -> Self::Owned
+    where
+        Self: Sized,
+    {
+        Key(Cow::Owned(self.0.into_owned()))
+    }
+
+    fn cloned(&self) -> Self::Owned {
+        Key(Cow::Owned(self.0.to_string()))
     }
 }

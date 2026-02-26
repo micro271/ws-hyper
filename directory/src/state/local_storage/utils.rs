@@ -4,14 +4,14 @@ use std::collections::HashSet;
 
 use crate::{
     bucket::{
-        Bucket,
+        Bucket, Cowed,
         bucket_map::{BucketMap, BucketMapType},
         key::Key,
     },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
-pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &BucketMap) {
+pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &mut BucketMap<'_>) {
     let db = local_storage.raw();
     let mut cursor = db
         .collection::<AsObjectDeserialize>(COLLECTION)

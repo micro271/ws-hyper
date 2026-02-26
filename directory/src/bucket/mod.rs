@@ -20,18 +20,6 @@ impl<'a> Bucket<'a> {
             .map(|x| Bucket(Cow::Owned(x)))
     }
 
-    pub fn borrow(&self) -> Bucket<'_> {
-        Bucket(Cow::Borrowed(&self.0))
-    }
-
-    pub fn owned(self) -> Bucket<'static> {
-        Bucket(Cow::Owned(self.0.into_owned()))
-    }
-
-    pub fn cloned(&self) -> Bucket<'static> {
-        Bucket(Cow::Owned(self.0.to_string()))
-    }
-
     pub fn new_random(ext: Option<&OsStr>) -> Self {
         let ext = ext.and_then(|x| x.to_str()).unwrap_or("__unknown");
         Self::new_unchecked(format!("{}.{ext}", nanoid!(DEFAULT_LENGTH_NANOID)))
@@ -110,4 +98,38 @@ impl<'a> From<Bucket<'a>> for mongodb::bson::Bson {
     fn from(value: Bucket<'a>) -> Self {
         mongodb::bson::to_bson(value.name()).unwrap()
     }
+}
+
+impl<'a> Cowed<'a> for Bucket<'a> {
+    type Borrow = Bucket<'a>;
+
+    type Owned = Bucket<'static>;
+
+    fn borrow(&'a self) -> Self::Borrow {
+        Bucket(Cow::Borrowed(&self.0))
+    }
+
+    fn owned(self) -> Self::Owned
+    where
+        Self: Sized,
+    {
+        Bucket(Cow::Owned(self.0.into_owned()))
+    }
+
+    fn cloned(&self) -> Self::Owned {
+        Bucket(Cow::Owned(self.0.to_string()))
+    }
+}
+
+pub trait Cowed<'a> {
+    type Borrow: 'a;
+    type Owned: 'static;
+
+    fn borrow(&'a self) -> Self::Borrow;
+
+    fn owned(self) -> Self::Owned
+    where
+        Self: Sized;
+
+    fn cloned(&self) -> Self::Owned;
 }

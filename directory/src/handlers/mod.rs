@@ -1,7 +1,7 @@
 pub mod error;
 
 use crate::{
-    bucket::{Bucket, key::Key},
+    bucket::{Bucket, Cowed, key::Key},
     handlers::error::ResponseError,
     state::State,
     user::Claim,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 pub use self::builder::*;
 pub use self::types::*;
-use super::{Bucket, Key, LocalStorage, LsError, Object};
+use super::{super::Cowed, Bucket, Key, LocalStorage, LsError, Object};
 use nanoid::nanoid;
 use regex::Regex;
 

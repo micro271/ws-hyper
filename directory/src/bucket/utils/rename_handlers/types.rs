@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::{Bucket, Key, Object, PhantomData};
+use super::{super::super::Cowed, Bucket, Key, Object, PhantomData};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PathObject {

@@ -1,6 +1,6 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
-    bucket::key::Key,
+    bucket::{Cowed, key::Key},
     manager::Change,
     state::local_storage::{LocalStorage, utils::sync_object_to_database},
 };
@@ -9,36 +9,36 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
 };
-pub type ObjectTree = BTreeMap<Key<'static>, Vec<Object>>;
-pub type BucketMapType = HashMap<Bucket<'static>, ObjectTree>;
+pub type ObjectTree<'a> = BTreeMap<Key<'a>, Vec<Object>>;
+pub type BucketMapType<'a> = HashMap<Bucket<'a>, ObjectTree<'a>>;
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct BucketMap {
+pub struct BucketMap<'a> {
     #[serde(flatten)]
-    inner: BucketMapType,
+    inner: BucketMapType<'a>,
 
     #[serde(skip_serializing)]
     path: PathBuf,
 }
 
-impl BucketMap {
-    pub fn get_bucket<'a>(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree> {
+impl<'a> BucketMap<'a> {
+    pub fn get_bucket(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree<'a>> {
         self.inner.get(&bucket)
     }
 
-    pub fn get_buckets(&self) -> Vec<&Bucket> {
+    pub fn get_buckets(&self) -> Vec<&Bucket<'_>> {
         self.inner.keys().collect::<Vec<_>>()
     }
 
-    pub fn get_key<'a>(&'a self, bucket: &'a Bucket, key: Key<'a>) -> Option<&'a Vec<Object>> {
+    pub fn get_key(&'a self, bucket: &'a Bucket, key: Key<'a>) -> Option<&'a Vec<Object>> {
         self.inner.get(bucket).and_then(|x| x.get(&key))
     }
 
-    pub fn get_keys<'a>(&'a self, bucket: &'a Bucket) -> Option<Vec<&'a Key<'a>>> {
+    pub fn get_keys(&'a self, bucket: &'a Bucket) -> Option<Vec<&'a Key<'a>>> {
         self.inner.get(bucket).map(|x| x.keys().collect::<Vec<_>>())
     }
 
-    pub fn get_object_name<'a>(
+    pub fn get_object_name(
         &'a self,
         bucket: Bucket<'a>,
         key: Key<'a>,
@@ -50,26 +50,26 @@ impl BucketMap {
             .and_then(|x| x.iter().find(|x| x.name == name))
     }
 
-    pub fn new_bucket(&mut self, bucket: Bucket<'static>) {
+    pub fn new_bucket(&mut self, bucket: Bucket<'_>) {
         self.inner
-            .entry(bucket)
+            .entry(bucket.owned())
             .or_default()
             .entry(Key::from("."))
             .or_default();
     }
 
-    pub fn new_key(&mut self, bucket: Bucket<'static>, key: Key<'static>) {
+    pub fn new_key(&mut self, bucket: Bucket<'_>, key: Key<'_>) {
         self.inner
-            .entry(bucket)
+            .entry(bucket.owned())
             .or_default()
-            .entry(key)
+            .entry(key.owned())
             .or_default();
     }
 
     pub fn get_objs_or_insert_default(
         &mut self,
-        bucket: Bucket<'static>,
-        key: Key<'static>,
+        bucket: Bucket<'a>,
+        key: Key<'a>,
     ) -> &mut Vec<Object> {
         self.inner
             .entry(bucket)
@@ -78,7 +78,7 @@ impl BucketMap {
             .or_default()
     }
 
-    pub fn new_object(&mut self, bucket: Bucket<'static>, key: Key<'static>, object: Object) {
+    pub fn new_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, object: Object) {
         self.inner
             .entry(bucket)
             .or_default()
@@ -89,8 +89,8 @@ impl BucketMap {
 
     pub fn set_name_object(
         &mut self,
-        bucket: Bucket<'static>,
-        key: Key<'static>,
+        bucket: Bucket<'a>,
+        key: Key<'a>,
         file_name: String,
         to: String,
     ) {
