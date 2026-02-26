@@ -1,4 +1,4 @@
-use super::{Bucket, Key, NewObjNameHandler, Object, RenameObjHandler, types::*};
+use super::{Bucket, Cowed, Key, NewObjNameHandler, Object, RenameObjHandler, types::*};
 use std::marker::PhantomData;
 
 #[derive(Debug)]

@@ -1,5 +1,3 @@
-use std::{convert::Infallible, str::FromStr};
-
 use redis::{AsyncCommands, Client, aio::MultiplexedConnection};
 use serde_json::json;
 use uuid::Uuid;

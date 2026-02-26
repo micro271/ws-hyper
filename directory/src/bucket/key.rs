@@ -66,13 +66,16 @@ impl<'a> From<Key<'a>> for mongodb::bson::Bson {
     }
 }
 
-impl<'a> Cowed<'a> for Key<'a> {
-    type Borrow = Key<'a>;
+impl<'a> Cowed for Key<'a> {
+    type Borrow<'b>
+        = Key<'b>
+    where
+        Self: 'b;
 
     type Owned = Key<'static>;
 
-    fn borrow(&'a self) -> Self::Borrow {
-        Self(Cow::Borrowed(&self.0))
+    fn borrow(&self) -> Self::Borrow<'_> {
+        Key(Cow::Borrowed(&self.0))
     }
 
     fn owned(self) -> Self::Owned

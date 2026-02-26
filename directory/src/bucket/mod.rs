@@ -100,12 +100,15 @@ impl<'a> From<Bucket<'a>> for mongodb::bson::Bson {
     }
 }
 
-impl<'a> Cowed<'a> for Bucket<'a> {
-    type Borrow = Bucket<'a>;
+impl<'a> Cowed for Bucket<'a> {
+    type Borrow<'b>
+        = Bucket<'b>
+    where
+        Self: 'b;
 
     type Owned = Bucket<'static>;
 
-    fn borrow(&'a self) -> Self::Borrow {
+    fn borrow(&self) -> Self::Borrow<'_> {
         Bucket(Cow::Borrowed(&self.0))
     }
 
@@ -121,11 +124,13 @@ impl<'a> Cowed<'a> for Bucket<'a> {
     }
 }
 
-pub trait Cowed<'a> {
-    type Borrow: 'a;
+pub trait Cowed {
+    type Borrow<'a>
+    where
+        Self: 'a;
     type Owned: 'static;
 
-    fn borrow(&'a self) -> Self::Borrow;
+    fn borrow(&self) -> Self::Borrow<'_>;
 
     fn owned(self) -> Self::Owned
     where
