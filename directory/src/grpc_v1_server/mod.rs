@@ -4,9 +4,9 @@ mod proto {
 
 pub use proto::directory_server::DirectoryServer;
 use proto::{FileNameReply, FileNameReq, directory_server::Directory};
-use std::{path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
-use tonic::async_trait;
+use tonic::{async_trait, transport::Server};
 
 use crate::{
     bucket::{
@@ -17,6 +17,7 @@ use crate::{
             NewObjNameHandlerBuilder, RenameObjHandler, RenameObjHandlerBuilder,
         },
     },
+    grpc_v1_server,
     state::local_storage::LocalStorage,
 };
 
@@ -31,6 +32,22 @@ impl<'a> BucketGrpcSrv<'a> {
             map,
             path: root_path.into(),
         }
+    }
+}
+
+impl BucketGrpcSrv<'static> {
+    pub fn run(self, grpc_endpoint: SocketAddr) {
+        tokio::spawn(async move {
+            tracing::info!(
+                "[GRPC SERVER DIRECTORY MANAGER IS ALREADY RUNNING]: Endpoint {}",
+                grpc_endpoint
+            );
+            Server::builder()
+                .add_service(grpc_v1_server::DirectoryServer::new(self))
+                .serve(grpc_endpoint)
+                .await
+                .unwrap();
+        });
     }
 }
 

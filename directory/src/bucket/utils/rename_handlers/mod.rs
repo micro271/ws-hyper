@@ -29,7 +29,7 @@ pub struct RenameObjHandler<'a> {
 impl<'a> NewObjNameHandler<'a> {
     pub async fn run(&mut self, ls: Arc<LocalStorage>) {
         let mut count = 0;
-
+        tracing::debug!("[NewObjNameHandler]");
         loop {
             if count == MAX_RENAME_ATTEMPTS {
                 tracing::error!(

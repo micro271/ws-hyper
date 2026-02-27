@@ -11,7 +11,7 @@ use crate::{
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
-pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &mut BucketMap<'_>) {
+pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut BucketMap<'_>) {
     let db = local_storage.raw();
     let mut cursor = db
         .collection::<AsObjectDeserialize>(COLLECTION)
@@ -33,11 +33,7 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &mut Buc
             None => break,
         }
     }
-    let bucket_map = map
-        .get_buckets()
-        .into_iter()
-        .cloned()
-        .collect::<HashSet<Bucket>>();
+    let bucket_map = map.get_buckets().into_iter().collect::<HashSet<_>>();
     let bucket_db = tree_aux.keys().cloned().collect::<HashSet<_>>();
     let dif = bucket_db.difference(&bucket_map).collect::<HashSet<_>>();
 
@@ -53,8 +49,11 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &mut Buc
         {
             tracing::error!("[LocalStorage] {{ Delete Bucket in Db }} Error: {er}");
         }
-        let branch = tree_aux.remove(i);
-        tracing::warn!("[LocalStorage] {{ Delete Branch }} bucket: {branch:#?}");
+        if let Some(e) = tree_aux.remove(i) {
+            tracing::warn!("[LocalStorage] {{ Delete Branch }} bucket: {e:#?}");
+        } else {
+            tracing::warn!("[LocalStorage] {{ Delete Branch }} not found branch: {i:#?}");
+        }
     }
 
     for i in bucket_db.intersection(&bucket_map).collect::<HashSet<_>>() {
@@ -62,16 +61,18 @@ pub async fn sync_object_to_database(local_storage: &LocalStorage, map: &mut Buc
             .get_keys(i)
             .unwrap()
             .iter()
-            .map(|x| x.cloned())
+            .map(|x| x.borrow())
             .collect::<HashSet<_>>();
 
         let key_db = tree_aux
             .get(i)
             .unwrap()
             .keys()
-            .cloned()
-            .collect::<HashSet<Key>>();
+            .into_iter()
+            .map(|x| x.cloned())
+            .collect::<HashSet<_>>();
         let dif = key_db.difference(&key_map).collect::<HashSet<_>>();
+
         for j in dif {
             if let Err(er) = db
                 .collection::<Document>(COLLECTION)

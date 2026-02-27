@@ -8,11 +8,11 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
-    bucket::{Bucket, key::Key},
+    bucket::{Bucket, Cowed, key::Key},
     manager::{
         utils::{
             AsyncRecv, OneshotSender, REGEX_OBJECT_NAME, SplitTask, Task, ToSkip,
@@ -48,9 +48,11 @@ where
         let tx_rename = self.rename_control_sender.inner();
         let mut rename_skip = ToSkip::default();
         while let Some(Ok(event)) = self.rx.recv().await {
+            tracing::trace!("[Scheduler] new event: {event:?}");
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
                     let mut paths = event.paths;
+                    tracing::debug!("[Create key]: {paths:?}");
 
                     let Some(path) = paths.pop() else {
                         continue;
@@ -148,7 +150,7 @@ where
 
                     let change = if REGEX_OBJECT_NAME.is_match(&name)
                         && let Some(bucket) = Bucket::find_bucket(root, &path)
-                        && let Some(key) = Key::from_bucket(&bucket, &path)
+                        && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
                     {
                         Change::DeleteObject {
                             bucket,
@@ -161,7 +163,7 @@ where
                         let bucket = Bucket::new_unchecked(name);
                         Change::DeleteBucket { bucket }
                     } else if let Some(bucket) = Bucket::find_bucket(root, &path)
-                        && let Some(key) = Key::from_bucket(&bucket, &path)
+                        && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
                     {
                         Change::DeleteKey { bucket, key }
                     } else {

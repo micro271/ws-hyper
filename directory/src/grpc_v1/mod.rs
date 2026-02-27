@@ -18,7 +18,7 @@ pub struct ConnectionAuthMS {
 impl ConnectionAuthMS {
     pub async fn new(endpoint: Endpoint, tx_shc: UnboundedSender<Change>) -> Self {
         Self {
-            inner: InfoClient::connect(endpoint).await.unwrap(),
+            inner: InfoClient::new(endpoint.connect_lazy()),
             notify_changes: tx_shc,
         }
     }

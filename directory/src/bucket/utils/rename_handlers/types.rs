@@ -15,7 +15,7 @@ impl PathObject {
     }
     pub async fn new(root: &Path, path: &Path) -> Option<Self> {
         let bucket = Bucket::find_bucket(root, path)?;
-        let key = Key::from_bucket(&bucket, path.parent()?)?;
+        let key = Key::from_bucket(bucket.borrow(), path.parent()?)?;
         Some(Self {
             bucket,
             key: key.owned(),

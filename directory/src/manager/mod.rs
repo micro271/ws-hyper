@@ -156,6 +156,8 @@ impl Task for ManagerRunning {
         loop {
             match self.rx.recv().await {
                 Some(mut change) => {
+                    tracing::info!("[Scheduler]: New change: {change:?}");
+
                     change_local_storage(&mut change, self.local_storage.clone()).await;
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();

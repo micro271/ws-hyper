@@ -32,7 +32,7 @@ impl<'a> Key<'a> {
         self.0.into_owned()
     }
 
-    pub fn from_bucket(bucket: &Bucket, path: &Path) -> Option<Self> {
+    pub fn from_bucket(bucket: Bucket<'_>, path: &Path) -> Option<Self> {
         let path = path.to_str()?;
         let name = bucket.name();
         tracing::trace!("[ Key::fn_from_bucket ] path: {path} - name: {name}");

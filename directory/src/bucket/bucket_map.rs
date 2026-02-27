@@ -2,7 +2,7 @@ use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
     bucket::{Cowed, key::Key},
     manager::Change,
-    state::local_storage::{LocalStorage, utils::sync_object_to_database},
+    state::local_storage::{LocalStorage, utils::sync_object_with_database},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -26,8 +26,8 @@ impl<'a> BucketMap<'a> {
         self.inner.get(&bucket)
     }
 
-    pub fn get_buckets(&self) -> Vec<&Bucket<'_>> {
-        self.inner.keys().collect::<Vec<_>>()
+    pub fn get_buckets(&self) -> Vec<Bucket<'_>> {
+        self.inner.keys().map(|x| x.borrow()).collect::<Vec<_>>()
     }
 
     pub fn get_key(&'a self, bucket: &'a Bucket, key: Key<'a>) -> Option<&'a Vec<Object>> {
@@ -189,25 +189,22 @@ impl<'a> BucketMap<'a> {
     pub async fn build(&mut self, local_storage: &LocalStorage) -> Result<(), BucketMapErr> {
         let mut buckets = std::fs::read_dir(&self.path)?
             .filter_map(|x| {
-                x.ok()
-                    .filter(|x| x.file_type().map(|x| x.is_dir()).unwrap_or_default())
-                    .map(|entry| {
-                        (
-                            entry
-                                .path()
-                                .file_name()
-                                .map(|x| Bucket::new_unchecked(x.to_str().unwrap()).owned())
-                                .unwrap(),
-                            BTreeMap::<Key, Vec<Object>>::new(),
-                        )
-                    })
+                x.ok().filter(|x| x.path().is_dir()).map(|e| {
+                    (
+                        e.path()
+                            .file_name()
+                            .map(|x| Bucket::new_unchecked(x.to_str().unwrap()).owned())
+                            .unwrap(),
+                        BTreeMap::<Key, Vec<Object>>::new(),
+                    )
+                })
             })
             .collect::<HashMap<_, _>>();
 
         let mut path = self.path.clone();
         for (bks, map) in &mut buckets {
-            path.push(bks.as_ref());
-            tracing::trace!("[BucketMap] {{ build }} bucket found: {bks}");
+            path.push(bks.name());
+            tracing::trace!("[ BucketMap ] {{ build }} bucket found: {bks}");
 
             let mut list_dirs = VecDeque::new();
             list_dirs.push_back(path.clone());
@@ -222,7 +219,7 @@ impl<'a> BucketMap<'a> {
             while let Some(dir) = list_dirs.pop_front() {
                 let (dirs, objs) = dir_objects(&dir);
                 list_dirs.extend(dirs);
-                let key = Key::from_bucket(bks, &dir).unwrap();
+                let key = Key::from_bucket(bks.borrow(), &dir).unwrap();
                 let objects = sync_objects(objs, bks.borrow(), key.borrow(), local_storage).await;
                 tracing::trace!("bucket {bks} - key {key:?} - {objects:?} - path: {path:?}");
                 map.insert(key, objects);
@@ -231,7 +228,7 @@ impl<'a> BucketMap<'a> {
             path.pop();
         }
         self.inner = buckets;
-        sync_object_to_database(local_storage, self).await;
+        sync_object_with_database(local_storage, self).await;
         Ok(())
     }
 

@@ -24,7 +24,6 @@ use http::{Method, header};
 use hyper::{server::conn::http1, service::service_fn};
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
-use tonic::transport::Server;
 use tracing::Level;
 use tracing_subscriber::fmt;
 use utils::{
@@ -76,18 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ls = Arc::new(ls);
     state.write().await.build(ls.as_ref()).await.unwrap();
 
-    let grpc_dir_manager =
-        grpc_v1_server::BucketGrpcSrv::new(state.clone(), state.read().await.path());
-
-    Server::builder()
-        .add_service(grpc_v1_server::DirectoryServer::new(grpc_dir_manager))
-        .serve(grpc_endpoint)
-        .await?;
-
-    tracing::info!(
-        "[GRPC SERVER DIRECTORY MANAGER IS ALREADY RUNNING]: Endpoint {}",
-        grpc_endpoint
-    );
+    grpc_v1_server::BucketGrpcSrv::new(state.clone(), state.read().await.path()).run(grpc_endpoint);
 
     let (msgs, task) = Manager::new(
         state.clone(),

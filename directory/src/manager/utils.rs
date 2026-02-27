@@ -9,7 +9,7 @@ use tokio::sync::mpsc::error::SendError;
 use crate::{
     bucket::{
         Bucket, Cowed, DEFAULT_LENGTH_NANOID,
-        key::{self, Key},
+        key::Key,
         utils::{
             Renamed,
             normalizeds::{NormalizePathUtf8, RenamedTo},
@@ -152,7 +152,7 @@ pub async fn hd_new_bucket_or_key_watcher(
         }
         Ok(Change::NewBucket { bucket })
     } else if let Some(bucket) = Bucket::find_bucket(root, &path)
-        && let Some(key) = Key::from_bucket(&bucket, &path)
+        && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
     {
         tracing::info!("[Event Watcher] Get key in the bucket {bucket} - key: {key:?}");
         if to_skip {
@@ -220,7 +220,7 @@ pub async fn hd_rename_path(
                         skipped.push_bucket(bucket);
                     } else {
                         let bucket = Bucket::find_bucket(root, &to).ok_or(())?;
-                        let key = Key::from_bucket(&bucket, &to).ok_or(())?;
+                        let key = Key::from_bucket(bucket.borrow(), &to).ok_or(())?;
 
                         skipped.push_key(bucket, key);
                     }
@@ -251,12 +251,12 @@ pub async fn hd_rename_path(
                 }
             } else {
                 let bucket = Bucket::find_bucket(root, &to).ok_or(())?;
-                let key = Key::from_bucket(&bucket, &to).ok_or(())?;
+                let key = Key::from_bucket(bucket.borrow(), &to).ok_or(())?;
 
                 if skipped.pop_key(bucket.borrow(), key.borrow()) {
                     Err(())
                 } else {
-                    let from = Key::from_bucket(&bucket, &from).ok_or(())?;
+                    let from = Key::from_bucket(bucket.borrow(), &from).ok_or(())?;
                     Ok(Change::NameKey {
                         bucket,
                         from,
@@ -281,7 +281,7 @@ pub async fn hd_rename_object(root: &Path, from: PathBuf, to: PathBuf) -> Result
         let (Some(key), Some(bucket)) = (
             bucket
                 .as_ref()
-                .and_then(|bucket| Key::from_bucket(bucket, to.parent().unwrap())),
+                .and_then(|bucket| Key::from_bucket(bucket.borrow(), to.parent().unwrap())),
             bucket,
         ) else {
             return Err(());
@@ -416,8 +416,6 @@ pub async fn change_local_storage(ch: &mut Change, ls: Arc<LocalStorage>) {
                 tracing::debug!("{er}")
             }
         }
-        _ => {
-            unimplemented!()
-        }
+        e => tracing::warn!("[fn change_local_storage] Unimplemented arm; change: {e:?}"),
     }
 }
