@@ -87,22 +87,13 @@ impl Directory for BucketGrpcSrv<'static> {
         path.push(&key);
         path.push(&name);
 
-        if path.exists() {
-            Err(tonic::Status::already_exists(format!(
-                "{} already exists",
-                name
-            )))
+        if let Err(er) = tokio::fs::File::create_new(&path).await {
+            tracing::error!("[ GrpcServer create_object ] error: {er}");
+            Err(tonic::Status::cancelled(format!("{er}")))
         } else {
-            let file_name = loop {
-                match self.map.read().await.get_object_name(
-                    Bucket::new_unchecked(&bucket),
-                    Key::new(&key),
-                    &name,
-                ) {
-                    Some(_) => {}
-                    None => {}
-                }
-            };
+            Ok(tonic::Response::new(FileNameReply {
+                file_name: path.to_str().unwrap().to_string(),
+            }))
         }
     }
 }

@@ -34,7 +34,7 @@ impl<'a> NewObjNameHandler<'a> {
             if count == MAX_RENAME_ATTEMPTS {
                 tracing::error!(
                     "[ RenameObjHandler] Mas attempts reached - object.name: {}",
-                    self.object.name
+                    self.object.file_name
                 );
                 break;
             }
@@ -51,13 +51,13 @@ impl<'a> NewObjNameHandler<'a> {
                         "[ NewObjectHandler ] {{ Duplicate key }} bucket: {}, key: {}, object.name: {} ",
                         self.bucket,
                         self.key,
-                        self.object.name
+                        self.object.file_name
                     );
 
-                    name_generator(&mut self.object.name);
+                    name_generator(&mut self.object.file_name);
                     tracing::info!(
                         "[ ManagerRunning ] {{ Duplicate key }} object new name {}",
-                        self.object.name
+                        self.object.file_name
                     );
                 }
                 Err(e) => {

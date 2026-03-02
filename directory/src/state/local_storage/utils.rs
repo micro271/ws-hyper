@@ -7,6 +7,7 @@ use crate::{
         Bucket, Cowed,
         bucket_map::{BucketMap, BucketMapType},
         key::Key,
+        object::Object,
     },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
@@ -18,7 +19,7 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
         .find(doc! {})
         .await
         .unwrap();
-    let mut tree_aux: BucketMapType = Default::default();
+    let mut tree_aux: BucketMapType<'_, Object> = Default::default();
 
     loop {
         match cursor.next().await {
@@ -96,14 +97,16 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
             for n in to_delete {
                 if let Err(er) = db
                     .collection::<Document>(COLLECTION)
-                    .delete_one(doc! {"bucket": i.name(), "key": m.name(), "object.name": &n.name})
+                    .delete_one(
+                        doc! {"bucket": i.name(), "key": m.name(), "object.name": &n.file_name},
+                    )
                     .await
                 {
                     tracing::error!("[LocalStorage] {{ Delete Object in Db }} Error: {er}");
                 } else {
                     tracing::warn!(
                         "[LocalStorage] {{ Delete Object in Db }} bucket: {i}, key: {m:?}, object.name: {:?}",
-                        n.name
+                        n.file_name
                     );
                 }
             }

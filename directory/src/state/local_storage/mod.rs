@@ -80,7 +80,7 @@ impl LocalStorage {
             .object;
 
         let to_update = diff!(
-            tmp, obj, name, seen_by, taken_by, modified, accessed, created
+            tmp, obj, file_name, seen_by, taken_by, modified, accessed, created
         );
 
         tracing::warn!("{:?}", to_update);

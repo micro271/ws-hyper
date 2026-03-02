@@ -99,7 +99,6 @@ impl Run for Manager {
                     .unwrap()
                     .change_notify(self.tx.clone())
                     .rename_control_await(r#await.unwrap_or(3000))
-                    .ignore_rename_prefix(ignore_rename_suffix)
                     .build()
                     .unwrap();
                 task.run();
@@ -157,7 +156,6 @@ impl Task for ManagerRunning {
             match self.rx.recv().await {
                 Some(mut change) => {
                     tracing::info!("[Scheduler]: New change: {change:?}");
-
                     change_local_storage(&mut change, self.local_storage.clone()).await;
                     self.state.write().await.change(change.clone()).await;
                     tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();

@@ -41,7 +41,7 @@ impl<'a> Bucket<'a> {
         self.0.to_mut()
     }
 
-    pub fn find_bucket(root: &Path, path: &Path) -> Option<Bucket<'static>> {
+    pub fn find_bucket(root: &Path, path: &Path) -> Option<Bucket<'a>> {
         let mut child = path;
         while let Some(parent) = child.parent() {
             if parent == root {

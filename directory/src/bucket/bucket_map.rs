@@ -6,23 +6,23 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
 };
-pub type ObjectTree<'a> = BTreeMap<Key<'a>, Vec<Object>>;
-pub type BucketMapType<'a> = HashMap<Bucket<'a>, ObjectTree<'a>>;
+pub type ObjectTree<'a, T> = BTreeMap<Key<'a>, Vec<T>>;
+pub type BucketMapType<'a, T> = HashMap<Bucket<'a>, ObjectTree<'a, T>>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BucketMap<'a> {
     #[serde(flatten)]
-    inner: BucketMapType<'a>,
+    inner: BucketMapType<'a, Object>,
 
     #[serde(skip_serializing)]
     path: PathBuf,
 }
 
 impl<'a> BucketMap<'a> {
-    pub fn get_bucket(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree<'a>> {
+    pub fn get_bucket(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree<'a, Object>> {
         self.inner.get(&bucket)
     }
 
@@ -47,7 +47,7 @@ impl<'a> BucketMap<'a> {
         self.inner
             .get(&bucket)
             .and_then(|x| x.get(&key))
-            .and_then(|x| x.iter().find(|x| x.name == name))
+            .and_then(|x| x.iter().find(|x| x.file_name == name))
     }
 
     pub fn new_bucket(&mut self, bucket: Bucket<'_>) {
@@ -99,7 +99,7 @@ impl<'a> BucketMap<'a> {
             .iter_mut()
             .find(|x| x.file_name == file_name)
         {
-            val.name = to;
+            val.file_name = to;
         }
     }
 

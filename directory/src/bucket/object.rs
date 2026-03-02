@@ -1,3 +1,4 @@
+use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -90,7 +91,7 @@ pub struct ObjectBuilder<T> {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
-    pub name: String,
+    pub id: Option<ObjectId>,
     pub size: i64,
     pub file_name: String,
     pub chechsum: String,
@@ -120,15 +121,13 @@ impl Object {
             }
         };
 
-        let file_name = NormalizeForObjectName::run(path).await;
-        let name = path
+        let file_name = path
             .file_name()
             .and_then(|x| x.to_str())
             .map(ToString::to_string)
-            .unwrap_or(file_name.clone().replace(EXTENSION_OBJECT, "__unknown"));
+            .unwrap();
 
         Self {
-            name,
             file_name,
             chechsum,
             size,
@@ -142,9 +141,8 @@ impl Object {
 
 impl std::cmp::PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.file_name == other.file_name
-            && self.chechsum == other.chechsum
+        self.id.is_some_and(|x| other.id.is_some_and(|y| x == y))
+            || (self.file_name == other.file_name && self.chechsum == other.chechsum)
     }
 }
 
@@ -270,14 +268,7 @@ impl ObjectBuilder<BuilderObjPath> {
 
         let file_name = NormalizeForObjectName::run(&path).await;
 
-        let name = self.name.unwrap_or(
-            path.file_name()
-                .and_then(|x| x.to_str())
-                .map_or(file_name.clone(), |x| x.to_string()),
-        );
-
         Object {
-            name,
             file_name,
             chechsum,
             size,

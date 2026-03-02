@@ -8,15 +8,16 @@ use notify::{
     event::{CreateKind, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
     bucket::{Bucket, Cowed, key::Key},
     manager::{
         utils::{
-            AsyncRecv, OneshotSender, REGEX_OBJECT_NAME, SplitTask, Task, ToSkip,
+            AsyncRecv, OBJECT_NAME_REPEATED, OneshotSender, SplitTask, Task,
             hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_object, hd_rename_path,
+            skipper::Skipper,
         },
         watcher::{NotifyChType, error::WatcherErr},
     },
@@ -32,7 +33,6 @@ pub struct EventWatcher<Tx, Rx, TxChange> {
     change_notify: TxChange,
     path: PathBuf,
     rename_control_sender: RenameControlCh,
-    ignore_rename_prefix: String,
 }
 
 impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
@@ -46,7 +46,7 @@ where
 
         let root = self.path.as_path();
         let tx_rename = self.rename_control_sender.inner();
-        let mut rename_skip = ToSkip::default();
+        let mut skipper = Skipper::default();
         while let Some(Ok(event)) = self.rx.recv().await {
             tracing::trace!("[Scheduler] new event: {event:?}");
             match event.kind {
@@ -58,7 +58,7 @@ where
                         continue;
                     };
 
-                    match hd_new_bucket_or_key_watcher(path, root, &mut rename_skip).await {
+                    match hd_new_bucket_or_key_watcher(path, root, &mut skipper).await {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Wtcher] Sender error: {err}");
@@ -81,7 +81,7 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(path, root, &self.ignore_rename_prefix).await {
+                    match hd_new_object_watcher(path, root).await {
                         Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
@@ -118,9 +118,9 @@ where
                     }
 
                     let ch = if to.is_dir() {
-                        hd_rename_path(root, from, to, &mut rename_skip).await
+                        hd_rename_path(root, from, to, &mut skipper).await
                     } else {
-                        hd_rename_object(root, from, to).await
+                        hd_rename_object(root, from, to, &mut skipper).await
                     };
 
                     match ch {
@@ -148,7 +148,7 @@ where
                         continue;
                     };
 
-                    let change = if REGEX_OBJECT_NAME.is_match(&name)
+                    let change = if OBJECT_NAME_REPEATED.is_match(&name)
                         && let Some(bucket) = Bucket::find_bucket(root, &path)
                         && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
                     {

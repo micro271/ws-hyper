@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::bucket::utils::rename_handlers::{RenamedToNoTo, RenamedToWithTo};
 use crate::bucket::{DEFAULT_LENGTH_NANOID, utils::Renamed};
-use crate::manager::utils::SplitTask;
 use crate::manager::utils::Task;
+use crate::manager::utils::{OBJECT_NAME_REPEATED, SplitTask};
 use tokio::sync::oneshot::{Receiver, Sender, channel};
 
 #[derive(Debug)]
@@ -154,20 +154,24 @@ impl NormalizeFileUtf8 {
             Renamed::Not(str.to_string())
         } else {
             let mut to = PathBuf::from(path);
-            to.pop();
+            let file_name = to
+                .file_name()
+                .map(|x| x.to_string_lossy().replace("\u{FFFD}", ""))
+                .filter(|x| !x.is_empty())
+                .unwrap_or(nanoid!(24).to_string());
 
             let ext = path
                 .extension()
                 .and_then(|x| x.to_str())
                 .unwrap_or("__unknown");
-            let new_name = format!("{}.{ext}", nanoid!(24));
+
+            let new_name = format!("{file_name}.{ext}",);
             to.push(&new_name);
-            if let Err(er) = tokio::fs::rename(path, &to).await {
-                tracing::error!(
-                    "From NormalizeFileUtf - Error to rename file from: {path:?} - to: {to:?}"
-                );
-                tracing::error!("IoError: {er}");
-                return Renamed::Fail(Box::new(er));
+
+            if to.exists() {
+                if OBJECT_NAME_REPEATED.is_match(&new_name) {
+                    todo!()
+                }
             }
 
             tracing::warn!("[NormalizeFileUtf] {{ Rename file }} from: {path:?} to: {to:?}");
