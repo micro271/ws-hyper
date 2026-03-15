@@ -110,6 +110,9 @@ where
                     let mut paths = event.paths;
 
                     let (Some(to), Some(from)) = (paths.pop(), paths.pop()) else {
+                        tracing::error!(
+                            "[ EventWatcher ] we couldn't obtain the paths: [{paths:?}]"
+                        );
                         continue;
                     };
 

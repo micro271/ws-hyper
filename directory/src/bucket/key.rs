@@ -42,12 +42,6 @@ impl<'a> Key<'a> {
     }
 }
 
-impl<'a> AsRef<str> for Key<'a> {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
 impl<'a> std::fmt::Display for Key<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)

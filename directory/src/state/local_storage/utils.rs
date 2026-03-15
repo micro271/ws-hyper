@@ -4,9 +4,8 @@ use std::collections::HashSet;
 
 use crate::{
     bucket::{
-        Bucket, Cowed,
+        Cowed,
         bucket_map::{BucketMap, BucketMapType},
-        key::Key,
         object::Object,
     },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
@@ -24,10 +23,8 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
     loop {
         match cursor.next().await {
             Some(Ok(item)) => {
-                let tmp = tree_aux
-                    .entry(Bucket::new_unchecked(item.bucket))
-                    .or_default();
-                let tmp = tmp.entry(Key::new(item.key)).or_default();
+                let tmp = tree_aux.entry(item.bucket).or_default();
+                let tmp = tmp.entry(item.key).or_default();
                 tmp.push(item.object);
             }
             Some(Err(er)) => tracing::error!("{er}"),

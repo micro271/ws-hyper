@@ -1,6 +1,6 @@
 pub mod error;
 pub mod utils;
-use crate::bucket::{Bucket, key::Key, utils::Changed};
+use crate::bucket::{Bucket, Cowed, key::Key, utils::Changed};
 use mongodb::{
     Client, Database, IndexModel,
     bson::{self, doc},
@@ -28,13 +28,13 @@ const COLLECTION: &str = "objects";
 
 #[derive(Debug, Serialize)]
 struct AsObjectSerialize<'a> {
-    bucket: &'a str,
-    key: &'a str,
+    bucket: Bucket<'a>,
+    key: Key<'a>,
     object: &'a Object,
 }
 
 impl<'a> AsObjectSerialize<'a> {
-    fn new(bucket: &'a str, key: &'a str, obj: &'a Object) -> Self {
+    fn new(bucket: Bucket<'a>, key: Key<'a>, obj: &'a Object) -> Self {
         Self {
             bucket,
             key,
@@ -45,8 +45,8 @@ impl<'a> AsObjectSerialize<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct AsObjectDeserialize {
-    bucket: String,
-    key: String,
+    bucket: Bucket<'static>,
+    key: Key<'static>,
     object: Object,
 }
 
@@ -73,7 +73,7 @@ impl LocalStorage {
         let db = self.pool.default_database().unwrap();
         let tmp = db
             .collection::<AsObjectDeserialize>(COLLECTION)
-            .find_one(doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name})
+            .find_one(doc! {"bucket": bucket.borrow(), "key": key.borrow(), "object.file_name": &obj.file_name})
             .await
             .unwrap()
             .unwrap()
@@ -87,7 +87,7 @@ impl LocalStorage {
         _ = db
             .collection::<AsObjectSerialize>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name },
+                doc! {"bucket": bucket, "key": key, "object.file_name": &obj.file_name },
                 doc! {"$set": to_update},
             )
             .await
@@ -101,8 +101,7 @@ impl LocalStorage {
         filename: &str,
     ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let filter =
-            doc! { "bucket": bucket.name(), "key": key.name(), "object.file_name": filename };
+        let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
@@ -118,7 +117,7 @@ impl LocalStorage {
         name: &str,
     ) -> Result<Option<Object>, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let filter = doc! { "bucket": bucket.name(), "key": key.name(), "object.name": name };
+        let filter = doc! { "bucket": bucket, "key": key, "object.name": name };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
@@ -134,7 +133,7 @@ impl LocalStorage {
         object: &Object,
     ) -> Result<InsertOneResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
-        let new = AsObjectSerialize::new(bucket.name(), key.name(), object);
+        let new = AsObjectSerialize::new(bucket, key, object);
 
         Ok(tmp
             .collection::<AsObjectSerialize>(COLLECTION)
@@ -146,9 +145,7 @@ impl LocalStorage {
         let tmp = self.pool.default_database().unwrap();
         _ = tmp
             .collection::<&Object>(COLLECTION)
-            .delete_one(
-                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": filename },
-            )
+            .delete_one(doc! { "bucket": bucket, "key": key, "object.file_name": filename })
             .await;
     }
 
@@ -157,8 +154,8 @@ impl LocalStorage {
         _ = tmp
             .collection::<AsObjectSerialize>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": &obj.file_name },
-                doc! { "$addToSet": {"object.seen_by": id.to_string()} },
+                doc! { "bucket": bucket, "key": key, "object.file_name": &obj.file_name },
+                doc! { "$addToSet": { "object.seen_by": id.to_string() } },
             )
             .await;
     }
@@ -174,7 +171,7 @@ impl LocalStorage {
         Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_one(
-                doc! {"bucket": bucket.name(), "key": key.name(), "object.file_name": file_name },
+                doc! {"bucket": bucket, "key": key, "object.file_name": file_name },
                 doc! { "$set": { "object.name": new_name } },
             )
             .await?)
@@ -189,8 +186,8 @@ impl LocalStorage {
         Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_many(
-                doc! {"bucket": bucket.name() },
-                doc! { "$set": { "bucket": new_name.name() } },
+                doc! {"bucket": bucket },
+                doc! { "$set": { "bucket": new_name } },
             )
             .await?)
     }
@@ -205,8 +202,8 @@ impl LocalStorage {
         Ok(tmp
             .collection::<Object>(COLLECTION)
             .update_many(
-                doc! {"bucket": bucket.name(), "key": key.name() },
-                doc! { "$set": { "key": new_name.name() } },
+                doc! {"bucket": bucket, "key": key },
+                doc! { "$set": { "key": new_name } },
             )
             .await?)
     }
@@ -215,7 +212,7 @@ impl LocalStorage {
         let tmp = self.pool.default_database().unwrap();
         Ok(tmp
             .collection::<Object>(COLLECTION)
-            .delete_many(doc! {"bucket": bucket.name() })
+            .delete_many(doc! {"bucket": bucket })
             .await?)
     }
 

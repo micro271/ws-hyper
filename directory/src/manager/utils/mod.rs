@@ -12,6 +12,7 @@ use crate::{
         Bucket, Cowed,
         bucket_map::BucketMapType,
         key::Key,
+        object::Object,
         utils::{
             Renamed,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -176,9 +177,9 @@ pub async fn hd_new_object_watcher(path: PathBuf, root: &Path) -> Result<Change,
         return Err(());
     };
 
-    let path_obj = PathObject::new(root, &path).await.unwrap();
-    let (bucket, key, object) = path_obj.clone().inner();
-
+    let bucket = Bucket::find_bucket(root, &path).unwrap();
+    let key = Key::from_bucket(bucket.borrow(), path.parent().unwrap()).unwrap();
+    let object = Object::new(&path).await;
     tracing::trace!("[Event Watcher] bucket: {bucket} - key: {key} - object: {object:?}");
 
     tracing::trace!("[Event Watcher] {{ skipped }} to skip: {path:?}");
@@ -233,6 +234,7 @@ pub async fn hd_rename_path<'a>(
                 if skipped.skipped(skipper::Skip::Bucket {
                     bucket: bucket.cloned(),
                 }) {
+                    tracing::trace!("[ fn hd_rename_path ] Rename bucket, skipped name: {bucket}");
                     Err(())
                 } else {
                     Ok(Change::NameBucket {
@@ -336,15 +338,9 @@ pub async fn change_local_storage(ch: &mut Change, ls: Arc<LocalStorage>) {
             key,
             bucket,
         } => {
-            ls.new_object(bucket.borrow(), key.borrow(), object).await;
-
-            /*NewObjNameHandlerBuilder::default()
-            .bucket(bucket.borrow())
-            .key(key.borrow())
-            .object(object)
-            .build()
-            .run(ls)
-            .await;*/
+            if let Err(er) = ls.new_object(bucket.borrow(), key.borrow(), object).await {
+                tracing::error!("[ fn change_local_storage ] error: {er}");
+            }
         }
         Change::DeleteObject {
             file_name,
@@ -360,14 +356,12 @@ pub async fn change_local_storage(ch: &mut Change, ls: Arc<LocalStorage>) {
             bucket,
             file_name,
         } => {
-            RenameObjHandlerBuilder::default()
-                .bucket(bucket.borrow())
-                .key(key.borrow())
-                .to(to)
-                .from(file_name)
-                .build()
-                .run(ls)
-                .await;
+            if let Err(er) = ls
+                .set_name(bucket.borrow(), key.borrow(), file_name, to)
+                .await
+            {
+                tracing::error!("[ fn change_local_storage ] error: {er} ")
+            }
         }
         Change::DeleteBucket { bucket } => {
             if let Err(er) = ls.delete_bucket(bucket.borrow()).await {

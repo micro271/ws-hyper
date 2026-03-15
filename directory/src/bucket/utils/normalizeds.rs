@@ -114,27 +114,25 @@ impl NormalizePathUtf8 {
     }
 
     pub async fn run(self, to: &Path) -> Renamed<'_> {
-        if let Some(str) = to.file_name().and_then(|x| x.to_str()) {
-            let allowed_name = Regex::new(r"^[a-zA-Z0-9_@][A-Za-z0-9:@_-]+$").unwrap();
+        if let Some(str) = to.file_name().map(|x| x.to_string_lossy()) {
+            let new_name = str.trim_start_matches("-").replace("\u{FFFD}", "_");
 
-            if allowed_name.is_match(str) {
-                tracing::trace!("[ NormalizePathUtf8 ] The directory {to:?} is ok");
-                Renamed::Not(str.to_string())
-            } else if self.new_path {
-                tracing::trace!("[ NormalizePathUtf8 ] The directory {to:?} is not ok");
-                let reg = Regex::new(r"([^a-zA-Z0-9-_:@])|(^-)").unwrap();
-                let new_name = reg.replace_all(str, "_").into_owned();
-                tracing::warn!(
-                    "[ NormalizePathUtf8 ] {{ Invalid path in new path }} The directory {to:?} is renamed to {new_name}"
-                );
-                let mut to_ = PathBuf::from(to);
-                to_.pop();
-                to_.push(new_name);
-                Renamed::Yes(RenamedTo::new(to).to(to_))
-            } else {
-                Renamed::NeedRestore(RenamedTo::new(to))
+            if !new_name.is_empty() {
+                if str != new_name {
+                    tracing::trace!(
+                        "[ NormalizePathUtf8 ] We going to rename the directory from {str} to {new_name}"
+                    );
+                    let mut to_ = PathBuf::from(to);
+                    to_.pop();
+                    to_.push(new_name);
+                    return Renamed::Yes(RenamedTo::new(to).to(to_));
+                } else {
+                    return Renamed::Not(new_name);
+                }
             }
-        } else if self.new_path {
+        }
+
+        if self.new_path {
             let mut to_ = to.to_path_buf();
             to_.pop();
             to_.push(format!("INVALID_NAME-{}", nanoid!(DEFAULT_LENGTH_NANOID)));
