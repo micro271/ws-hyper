@@ -1,5 +1,4 @@
 use nanoid::nanoid;
-use regex::Regex;
 use std::path::{Path, PathBuf};
 
 use crate::bucket::utils::rename_handlers::{RenamedToNoTo, RenamedToWithTo};
@@ -148,32 +147,22 @@ pub struct NormalizeFileUtf8;
 
 impl NormalizeFileUtf8 {
     pub async fn run(path: &Path) -> Renamed<'_> {
-        if let Some(str) = path.file_name().and_then(|x| x.to_str()) {
-            Renamed::Not(str.to_string())
+        let Some(name) = path.file_name().map(|x| x.to_string_lossy()) else {
+            unreachable!("[ NormalizeFileUtf8 ] Path no filename: {:?}", path);
+        };
+
+        let new_name = name.trim_start_matches('-').replace("\u{FFFD}", "_");
+        let new_name = (!new_name.is_empty())
+            .then_some(new_name)
+            .unwrap_or(format!("{}.unknown", nanoid!(24)));
+
+        if name != new_name {
+            let mut newpath = path.to_path_buf();
+            newpath.pop();
+            newpath.push(new_name);
+            Renamed::Yes(RenamedTo::new(path).to(path))
         } else {
-            let mut to = PathBuf::from(path);
-            let file_name = to
-                .file_name()
-                .map(|x| x.to_string_lossy().replace("\u{FFFD}", ""))
-                .filter(|x| !x.is_empty())
-                .unwrap_or(nanoid!(24).to_string());
-
-            let ext = path
-                .extension()
-                .and_then(|x| x.to_str())
-                .unwrap_or("__unknown");
-
-            let new_name = format!("{file_name}.{ext}",);
-            to.push(&new_name);
-
-            if to.exists() {
-                if OBJECT_NAME_REPEATED.is_match(&new_name) {
-                    todo!()
-                }
-            }
-
-            tracing::warn!("[NormalizeFileUtf] {{ Rename file }} from: {path:?} to: {to:?}");
-            Renamed::Yes(RenamedTo::new(path).to(to))
+            Renamed::Not(new_name)
         }
     }
 }

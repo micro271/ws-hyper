@@ -16,7 +16,6 @@ use crate::{
         utils::{
             Renamed,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
-            rename_handlers::{PathObject, RenameObjHandlerBuilder},
         },
     },
     manager::{Change, utils::skipper::Skipper},
