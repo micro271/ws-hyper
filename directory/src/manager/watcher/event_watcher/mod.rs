@@ -52,7 +52,7 @@ where
             match event.kind {
                 notify::EventKind::Create(CreateKind::Folder) => {
                     let mut paths = event.paths;
-                    tracing::debug!("[Create key]: {paths:?}");
+                    tracing::debug!("[ EventWatcher ] Path: {paths:?}");
 
                     let Some(path) = paths.pop() else {
                         continue;

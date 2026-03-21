@@ -118,13 +118,16 @@ pub async fn hd_new_bucket_or_key_watcher(
 ) -> Result<Change, ()> {
     match NormalizePathUtf8::default().is_new().run(&path).await {
         Ok(RenameDecision::Not(str)) => {
+            tracing::debug!("[ fn hd_new_bucket_or_key_watcher ] File mane ok {str}");
             let Some(parent) = path.parent() else {
                 return Err(());
             };
-            let bucket = Bucket::new_unchecked(str);
+            tracing::debug!("[ fn hd_new_bucket_or_key_watcher ] Parent file {parent:?}");
             if parent == root {
+                let bucket = Bucket::new_unchecked(str);
                 Ok(Change::NewBucket { bucket })
             } else {
+                let bucket = Bucket::find_bucket(root, &path).unwrap();
                 let Some(key) = Key::from_bucket(bucket.borrow(), &path) else {
                     tracing::error!(
                         "[ fn hd_new_bucket_or_key_watcher ] key not found from the bucket {bucket:?} - path: {path:?}"
