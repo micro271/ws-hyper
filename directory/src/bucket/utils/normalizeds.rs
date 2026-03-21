@@ -1,105 +1,13 @@
 use nanoid::nanoid;
+use regex::Regex;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-use crate::bucket::utils::rename_handlers::{RenamedToNoTo, RenamedToWithTo};
-use crate::bucket::{DEFAULT_LENGTH_NANOID, utils::Renamed};
-use crate::manager::utils::Task;
-use crate::manager::utils::{OBJECT_NAME_REPEATED, SplitTask};
-use tokio::sync::oneshot::{Receiver, Sender, channel};
+use crate::bucket::utils::{RenameDecision, RenameError};
+use crate::bucket::{DEFAULT_LENGTH_NANOID, utils::Rename};
 
-#[derive(Debug)]
-pub struct RenamedTo<'a, T> {
-    from: &'a Path,
-    to: T,
-    tx: Sender<String>,
-    rx: Option<Receiver<String>>,
-}
-
-pub struct RenamedToTask {
-    from: PathBuf,
-    to: PathBuf,
-    tx: Sender<String>,
-}
-
-impl<'a> RenamedTo<'a, RenamedToWithTo> {
-    pub fn file_name(&self) -> &str {
-        self.to.file_name()
-    }
-    pub fn get_to(&self) -> &Path {
-        self.to.path()
-    }
-}
-
-impl<'a> RenamedTo<'a, RenamedToNoTo> {
-    pub fn get_from(&self) -> &Path {
-        self.from
-    }
-
-    pub fn new(from: &'a Path) -> Self {
-        let (tx, rx) = channel();
-        Self {
-            from,
-            to: RenamedToNoTo,
-            tx,
-            rx: Some(rx),
-        }
-    }
-
-    pub fn to<T: Into<PathBuf>>(self, path: T) -> RenamedTo<'a, RenamedToWithTo> {
-        RenamedTo {
-            from: self.from,
-            to: RenamedToWithTo(path.into()),
-            rx: self.rx,
-            tx: self.tx,
-        }
-    }
-}
-
-impl<'a> SplitTask for RenamedTo<'a, RenamedToWithTo> {
-    type Output = Receiver<String>;
-
-    fn split(mut self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
-        let RenamedToWithTo(to) = self.to;
-        (
-            self.rx.take().unwrap(),
-            RenamedToTask {
-                from: self.from.to_path_buf(),
-                to,
-                tx: self.tx,
-            },
-        )
-    }
-}
-
-impl Task for RenamedToTask {
-    async fn task(self)
-    where
-        Self: Sized,
-    {
-        if let Err(er) = tokio::fs::rename(&self.from, &self.to).await {
-            tracing::error!(
-                "[ RenamedToTask ] - Error to rename file from: {:?} - to: {:?}",
-                self.from,
-                self.to
-            );
-            tracing::error!("IoError: {er}");
-        }
-        tracing::warn!(
-            "[ RenamedToTask ] {{ Rename file }} from: {:?} to: {:?}",
-            self.from,
-            self.to
-        );
-
-        if let Err(er) = self.tx.send(
-            self.to
-                .file_name()
-                .and_then(|x| x.to_str().map(ToString::to_string))
-                .unwrap(),
-        ) {
-            tracing::error!("[ RenamedToTask ] Error to send {er:?}");
-        }
-    }
-}
+static NAME_ALLOWED: LazyLock<Regex> =
+    LazyLock::new(|| regex::Regex::new(r"[^a-zA-Z0-9_.]").unwrap());
 
 #[derive(Debug, Default)]
 pub struct NormalizePathUtf8 {
@@ -112,32 +20,45 @@ impl NormalizePathUtf8 {
         self
     }
 
-    pub async fn run(self, to: &Path) -> Renamed<'_> {
-        if let Some(str) = to.file_name().map(|x| x.to_string_lossy()) {
-            let new_name = str.trim_start_matches("-").replace("\u{FFFD}", "_");
+    pub async fn run<T: Into<PathBuf>>(self, to: T) -> Result<RenameDecision, RenameError> {
+        let to = to.into();
+        let Some(file_name) = to.file_name().map(|x| x.to_string_lossy()) else {
+            return Err(RenameError::InvalidPath(to));
+        };
 
-            if !new_name.is_empty() {
-                if str != new_name {
-                    tracing::trace!(
-                        "[ NormalizePathUtf8 ] We going to rename the directory from {str} to {new_name}"
-                    );
-                    let mut to_ = PathBuf::from(to);
-                    to_.pop();
-                    to_.push(new_name);
-                    return Renamed::Yes(RenamedTo::new(to).to(to_));
-                } else {
-                    return Renamed::Not(new_name);
-                }
+        let new_name = NAME_ALLOWED
+            .replace_all(file_name.trim_start_matches("-"), "_")
+            .into_owned();
+
+        if !new_name.is_empty() {
+            if file_name.as_ref() != new_name {
+                tracing::trace!(
+                    "[ NormalizePathUtf8 ] We going to rename the directory from {file_name} to {new_name}"
+                );
+                let Some(to_) = to.parent() else {
+                    return Err(RenameError::InvalidParent(to));
+                };
+                return Ok(RenameDecision::Yes(Rename {
+                    parent: to_.into(),
+                    from: file_name.into_owned(),
+                    to: new_name,
+                }));
+            } else {
+                return Ok(RenameDecision::Not(new_name));
             }
         }
 
         if self.new_path {
-            let mut to_ = to.to_path_buf();
-            to_.pop();
-            to_.push(format!("INVALID_NAME-{}", nanoid!(DEFAULT_LENGTH_NANOID)));
-            Renamed::Yes(RenamedTo::new(to).to(to_))
+            let Some(to_) = to.parent() else {
+                return Err(RenameError::InvalidParent(to));
+            };
+            Ok(RenameDecision::Yes(Rename::new(
+                to_.into(),
+                file_name.into_owned(),
+                format!("INVALID_NAME-{}", nanoid!(DEFAULT_LENGTH_NANOID)),
+            )))
         } else {
-            Renamed::NeedRestore(RenamedTo::new(to))
+            Ok(RenameDecision::NeedRestore)
         }
     }
 }
@@ -146,23 +67,27 @@ impl NormalizePathUtf8 {
 pub struct NormalizeFileUtf8;
 
 impl NormalizeFileUtf8 {
-    pub async fn run(path: &Path) -> Renamed<'_> {
+    pub async fn run(path: &Path) -> Result<RenameDecision, RenameError> {
         let Some(name) = path.file_name().map(|x| x.to_string_lossy()) else {
-            unreachable!("[ NormalizeFileUtf8 ] Path no filename: {:?}", path);
+            return Err(RenameError::InvalidPath(path.into()));
         };
 
         let new_name = name.trim_start_matches('-').replace("\u{FFFD}", "_");
         let new_name = (!new_name.is_empty())
             .then_some(new_name)
-            .unwrap_or(format!("{}.unknown", nanoid!(24)));
+            .unwrap_or_else(|| format!("{}.unknown", nanoid!(24)));
 
         if name != new_name {
-            let mut newpath = path.to_path_buf();
-            newpath.pop();
-            newpath.push(new_name);
-            Renamed::Yes(RenamedTo::new(path).to(path))
+            let Some(path) = path.parent() else {
+                return Err(RenameError::InvalidParent(path.into()));
+            };
+            Ok(RenameDecision::Yes(Rename::new(
+                path.into(),
+                name.into_owned(),
+                new_name,
+            )))
         } else {
-            Renamed::Not(new_name)
+            Ok(RenameDecision::Not(new_name))
         }
     }
 }

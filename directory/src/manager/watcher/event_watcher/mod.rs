@@ -44,8 +44,8 @@ where
     async fn task(mut self) {
         tracing::warn!("Watcher notify manage init");
 
-        let root = self.path.as_path();
         let tx_rename = self.rename_control_sender.inner();
+        let root = &self.path;
         let mut skipper = Skipper::default();
         while let Some(Ok(event)) = self.rx.recv().await {
             tracing::trace!("[Scheduler] new event: {event:?}");
@@ -58,7 +58,7 @@ where
                         continue;
                     };
 
-                    match hd_new_bucket_or_key_watcher(path, root, &mut skipper).await {
+                    match hd_new_bucket_or_key_watcher(path, &self.path, &mut skipper).await {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Wtcher] Sender error: {err}");
@@ -81,7 +81,7 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(path, root).await {
+                    match hd_new_object_watcher(path, &self.path, &mut skipper).await {
                         Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
@@ -121,9 +121,9 @@ where
                     }
 
                     let ch = if to.is_dir() {
-                        hd_rename_path(root, from, to, &mut skipper).await
+                        hd_rename_path(&self.path, from, to, &mut skipper).await
                     } else {
-                        hd_rename_object(root, from, to, &mut skipper).await
+                        hd_rename_object(&self.path, from, to, &mut skipper).await
                     };
 
                     match ch {
@@ -152,7 +152,7 @@ where
                     };
 
                     let change = if OBJECT_NAME_REPEATED.is_match(&name)
-                        && let Some(bucket) = Bucket::find_bucket(root, &path)
+                        && let Some(bucket) = Bucket::find_bucket(&self.path, &path)
                         && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
                     {
                         Change::DeleteObject {

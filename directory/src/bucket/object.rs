@@ -10,8 +10,6 @@ use std::{
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
 
-use crate::bucket::utils::NormalizeForObjectName;
-
 pub const EXTENSION_OBJECT: &str = "__object";
 
 macro_rules! from_transparent {
@@ -266,10 +264,8 @@ impl ObjectBuilder<BuilderObjPath> {
                 .unwrap()
         };
 
-        let file_name = NormalizeForObjectName::run(&path).await;
-
         Object {
-            file_name,
+            file_name: "".to_string(),
             chechsum,
             size,
             modified,

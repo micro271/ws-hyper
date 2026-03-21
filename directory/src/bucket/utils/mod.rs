@@ -1,47 +1,34 @@
 pub mod normalizeds;
 pub mod rename_handlers;
 
-use nanoid::nanoid;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{
-    bucket::{
-        Bucket, DEFAULT_LENGTH_NANOID,
-        key::Key,
-        object::{EXTENSION_OBJECT, Object},
-        utils::{
-            normalizeds::RenamedTo,
-            rename_handlers::{RenamedToNoTo, RenamedToWithTo},
-        },
-    },
+    bucket::{Bucket, key::Key, object::Object},
     state::local_storage::{LocalStorage, error::LsError},
 };
 
-pub struct NormalizeForObjectName;
+#[derive(Debug)]
+pub struct Rename {
+    pub parent: PathBuf,
+    pub from: String,
+    pub to: String,
+}
 
-impl NormalizeForObjectName {
-    pub async fn run(path: &Path) -> String {
-        let mut to = PathBuf::from(path);
-        to.pop();
-        let new_name = format!("data_{}.{EXTENSION_OBJECT}", nanoid!(DEFAULT_LENGTH_NANOID));
-        to.push(&new_name);
-
-        if let Err(er) = tokio::fs::rename(path, &to).await {
-            tracing::error!(
-                "From NormalizeFileUtf - Error to rename file from: {path:?} - to: {to:?}"
-            );
-            tracing::error!("IoError: {er}");
+impl Rename {
+    pub fn new(path: PathBuf, from: String, to: String) -> Self {
+        Self {
+            parent: path,
+            from,
+            to,
         }
-
-        tracing::warn!("[NormalizeFileUtf] {{ Rename file }} from: {path:?} to: {to:?}");
-        new_name
     }
 }
 
 #[derive(Debug)]
-pub enum Renamed<'a> {
-    Yes(RenamedTo<'a, RenamedToWithTo>),
-    NeedRestore(RenamedTo<'a, RenamedToNoTo>),
+pub enum RenameDecision {
+    NeedRestore,
+    Yes(Rename),
     Not(String),
     Fail(Box<dyn std::error::Error + Send + 'static>),
 }
@@ -54,4 +41,10 @@ impl<T, K: PartialEq<T>> Changed<T> for K {
     fn change(&self, other: &T) -> bool {
         self.ne(other)
     }
+}
+
+#[derive(Debug)]
+pub enum RenameError {
+    InvalidPath(PathBuf),
+    InvalidParent(PathBuf),
 }

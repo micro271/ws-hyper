@@ -233,6 +233,18 @@ impl<'a> BucketMap<'a> {
     }
 
     pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
+        let mut self_path = PathBuf::new();
+
+        for component in path.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    self_path.pop();
+                }
+                p => self_path.push(p),
+            }
+        }
+
         if !path.exists() {
             return Err(BucketMapErr::RootPathNotFound(path));
         }
@@ -243,7 +255,7 @@ impl<'a> BucketMap<'a> {
 
         Ok(BucketMap {
             inner: Default::default(),
-            path: path.canonicalize()?,
+            path: self_path,
         })
     }
 }
