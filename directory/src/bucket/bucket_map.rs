@@ -279,46 +279,11 @@ async fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut reader = entry.read_dir().unwrap();
 
     while let Some(Ok(path)) = reader.next() {
-        let path = path.path();
-        if path.is_dir() {
-            match NormalizePathUtf8::default().run(&path).await {
-                Ok(RenameDecision::Not(_)) => {
-                    dirs.push(path);
-                }
-                Ok(RenameDecision::Yes(Rename {
-                    mut parent,
-                    from,
-                    to,
-                })) => {
-                    let from = parent.join(from);
-                    parent.push(to);
-                    if let Err(er) = tokio::fs::rename(&from, &parent).await {
-                        tracing::error!("{er}");
-                    }
-                    dirs.push(parent);
-                }
-                Err(er) => tracing::error!("{er:?}"),
-                _ => {}
-            }
-        } else {
-            match NormalizeFileUtf8::run(&path).await {
-                Ok(RenameDecision::Not(_)) => {
-                    objects.push(path);
-                }
-                Ok(RenameDecision::Yes(Rename {
-                    mut parent,
-                    from,
-                    to,
-                })) => {
-                    let from = parent.join(&from);
-                    parent.push(to);
-                    if let Err(er) = tokio::fs::rename(from, &parent).await {
-                        tracing::error!("{er}");
-                    }
-                    objects.push(parent);
-                }
-                Err(er) => tracing::error!("{er:?}"),
-                _ => {}
+        if let Some(path) = dir_objects_rename(&path.path()).await {
+            if path.is_dir() {
+                dirs.push(path);
+            } else {
+                objects.push(path);
             }
         }
     }
@@ -326,4 +291,36 @@ async fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
         "[ fn dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
     );
     (dirs, objects)
+}
+
+async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
+    let des = if path.is_dir() {
+        NormalizePathUtf8::default().run(path).await
+    } else {
+        NormalizeFileUtf8::run(path).await
+    }
+    .ok()?;
+
+    match des {
+        RenameDecision::Yes(Rename {
+            mut parent,
+            from,
+            to,
+        }) => {
+            let from = parent.join(from);
+            parent.push(to);
+            if let Err(er) = tokio::fs::rename(from, &parent).await {
+                tracing::error!("{er}");
+                None
+            } else {
+                Some(parent)
+            }
+        }
+        RenameDecision::Not(_) => Some(path.to_path_buf()),
+        RenameDecision::Fail(error) => {
+            tracing::error!("{error:?}");
+            None
+        }
+        _ => unreachable!(),
+    }
 }
