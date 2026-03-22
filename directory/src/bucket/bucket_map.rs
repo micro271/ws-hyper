@@ -34,7 +34,7 @@ impl<'a> BucketMap<'a> {
                 p => self_path.push(p),
             }
         }
-
+        tracing::info!("[ BucketMap ] Root path: {self_path:?}");
         if !path.exists() {
             Err(BucketMapErr::RootPathNotFound(path))
         } else if !path.is_dir() {
@@ -227,13 +227,13 @@ impl<'a> BucketMap<'a> {
                     })
             })
             .collect::<HashMap<_, _>>();
-
+        tracing::trace!("[ BucketMap ] {{ build }} bucket found: {buckets:?}");
         for (bks, map) in &mut buckets {
-            tracing::trace!("[ BucketMap ] {{ build }} bucket found: {bks}");
+            tracing::trace!("[ BucketMap ] {{ build }} create barnch for bucket: {bks}");
 
             let mut list_dirs = VecDeque::from([self.path.join(bks.name())]);
 
-            tracing::trace!("[BucketMap] {{ Directories }} {list_dirs:?}");
+            tracing::trace!("[ BucketMap ] {{ Directories }} {list_dirs:?}");
             while let Some(dir) = list_dirs.pop_front() {
                 let (dirs, objs) = dir_objects(&dir);
                 list_dirs.extend(dirs);
@@ -287,7 +287,7 @@ async fn sync_objects(
 fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut dirs = Vec::new();
     let mut objects = Vec::new();
-    tracing::trace!("[ fn_dir_objects ] entry {entry:?}");
+    tracing::trace!("[ fn dir_objects ] entry {entry:?}");
     let mut reader = entry.read_dir().unwrap();
 
     while let Some(Ok(path)) = reader.next() {
