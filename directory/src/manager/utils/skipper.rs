@@ -70,7 +70,6 @@ impl<'a> Skipper<'a> {
                 key,
                 file_name,
             } => {
-                let file_name = file_name.into();
                 tracing::debug!(
                     "[ SkippedObj ] New skiped: bucker: {bucket} - key: {key} - file_name: {file_name} "
                 );
@@ -94,7 +93,7 @@ impl<'a> Skipper<'a> {
             Skip::Key { bucket, key } => self
                 .key_tracker
                 .as_mut()
-                .is_some_and(|x| x.get_mut(&bucket).is_some_and(|x| x.remove(&key))),
+                .is_some_and(|x| x.get_mut(bucket).is_some_and(|x| x.remove(key))),
             Skip::Object {
                 bucket,
                 key,

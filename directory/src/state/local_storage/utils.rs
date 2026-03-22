@@ -66,9 +66,9 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
             .get(i)
             .unwrap()
             .keys()
-            .into_iter()
-            .map(|x| x.cloned())
+            .cloned()
             .collect::<HashSet<_>>();
+
         let dif = key_db.difference(&key_map).collect::<HashSet<_>>();
 
         for j in dif {

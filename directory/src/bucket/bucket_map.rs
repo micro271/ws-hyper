@@ -22,6 +22,31 @@ pub struct BucketMap<'a> {
 }
 
 impl<'a> BucketMap<'a> {
+    pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
+        let mut self_path = PathBuf::new();
+
+        for component in path.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    self_path.pop();
+                }
+                p => self_path.push(p),
+            }
+        }
+
+        if !path.exists() {
+            Err(BucketMapErr::RootPathNotFound(path))
+        } else if !path.is_dir() {
+            Err(BucketMapErr::RootPathIsNotDirectory(path))
+        } else {
+            Ok(BucketMap {
+                inner: Default::default(),
+                path: self_path,
+            })
+        }
+    }
+
     pub fn get_bucket(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree<'a, Object>> {
         self.inner.get(&bucket)
     }
@@ -189,31 +214,24 @@ impl<'a> BucketMap<'a> {
     pub async fn build(&mut self, local_storage: &LocalStorage) -> Result<(), BucketMapErr> {
         let mut buckets = std::fs::read_dir(&self.path)?
             .filter_map(|x| {
-                x.ok().filter(|x| x.path().is_dir()).map(|e| {
-                    (
-                        e.path()
-                            .file_name()
-                            .map(|x| Bucket::new_unchecked(x.to_str().unwrap()).owned())
-                            .unwrap(),
-                        BTreeMap::<Key, Vec<Object>>::new(),
-                    )
-                })
+                x.map(|x| x.path())
+                    .ok()
+                    .filter(|x| x.is_dir())?
+                    .file_name()?
+                    .to_str()
+                    .map(|file_name| {
+                        (
+                            Bucket::new_unchecked(file_name.to_string()),
+                            BTreeMap::<Key, Vec<Object>>::new(),
+                        )
+                    })
             })
             .collect::<HashMap<_, _>>();
 
-        let mut path = self.path.clone();
         for (bks, map) in &mut buckets {
-            path.push(bks.name());
             tracing::trace!("[ BucketMap ] {{ build }} bucket found: {bks}");
 
-            let mut list_dirs = VecDeque::new();
-            list_dirs.push_back(path.clone());
-
-            list_dirs.extend(
-                path.read_dir()?
-                    .filter_map(|x| x.ok().filter(|y| y.path().is_dir()).map(|x| x.path()))
-                    .collect::<Vec<_>>(),
-            );
+            let mut list_dirs = VecDeque::from([self.path.join(bks.name())]);
 
             tracing::trace!("[BucketMap] {{ Directories }} {list_dirs:?}");
             while let Some(dir) = list_dirs.pop_front() {
@@ -221,42 +239,15 @@ impl<'a> BucketMap<'a> {
                 list_dirs.extend(dirs);
                 let key = Key::from_bucket(bks.borrow(), &dir).unwrap();
                 let objects = sync_objects(objs, bks.borrow(), key.borrow(), local_storage).await;
-                tracing::trace!("bucket {bks} - key {key:?} - {objects:?} - path: {path:?}");
+                tracing::trace!(
+                    "[ BucketMap build] bucket {bks} - key {key:?} - {objects:?} - path: {dir:?}"
+                );
                 map.insert(key, objects);
             }
-
-            path.pop();
         }
         self.inner = buckets;
         sync_object_with_database(local_storage, self).await;
         Ok(())
-    }
-
-    pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
-        let mut self_path = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                std::path::Component::CurDir => {}
-                std::path::Component::ParentDir => {
-                    self_path.pop();
-                }
-                p => self_path.push(p),
-            }
-        }
-
-        if !path.exists() {
-            return Err(BucketMapErr::RootPathNotFound(path));
-        }
-
-        if !path.is_dir() {
-            return Err(BucketMapErr::RootPathNotFound(path));
-        }
-
-        Ok(BucketMap {
-            inner: Default::default(),
-            path: self_path,
-        })
     }
 }
 

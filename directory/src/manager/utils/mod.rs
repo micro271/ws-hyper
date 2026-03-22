@@ -168,7 +168,7 @@ pub async fn hd_new_bucket_or_key_watcher(
                 Ok(Change::NewKey { bucket, key })
             }
         }
-        Err(_) => return Err(()),
+        Err(_) => Err(()),
         _ => {
             unreachable!("This arm should never be to reached")
         }
@@ -225,7 +225,7 @@ pub async fn hd_new_object_watcher(
         }
         Err(er) => {
             tracing::error!("[ fn hd_new_object_watcher ] NormalizeFIleUtf8 Error {er:?}");
-            return Err(());
+            Err(())
         }
         _ => unreachable!("This arm shound never be reached"),
     }
@@ -322,7 +322,7 @@ pub async fn hd_rename_path<'a>(
                     "[ fn hd_rename_path] Restore name from: {original_to:?} to: {original_from:?}"
                 );
             }
-            return Err(());
+            Err(())
         }
         Err(_) => todo!(),
         _ => Err(()),
@@ -365,7 +365,7 @@ pub async fn hd_rename_object<'a>(
         }
         Err(er) => {
             tracing::error!("{er:?}");
-            return Err(());
+            Err(())
         }
         _ => unreachable!(""),
     }
