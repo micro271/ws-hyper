@@ -287,9 +287,9 @@ pub async fn hd_rename_path<'a>(
             let from_ = parent.join(&from);
             let to_ = parent.join(&to);
 
+            tracing::trace!("[ fn hd_rename_part ] rename from: {from_:?} to: {to:?}");
             if let Err(er) = tokio::fs::rename(&from_, &to_).await {
-                tracing::trace!("[ fn hd_rename_part ] rename from: {from_:?} to: {to:?}");
-                todo!()
+                tracing::error!("{er}");
             }
 
             let bucket = Bucket::new_unchecked(to);
@@ -321,10 +321,11 @@ pub async fn hd_rename_path<'a>(
             }
         }
         Ok(RenameDecision::NeedRestore) => {
+            tracing::trace!(
+                "[ fn hd_rename_path] Restore name from: {original_to:?} to: {original_from:?}"
+            );
             if let Err(er) = tokio::fs::rename(&original_to, &original_from).await {
-                tracing::error!(
-                    "[ fn hd_rename_path] Restore name from: {original_to:?} to: {original_from:?}"
-                );
+                tracing::error!("{er}");
             }
             Err(())
         }

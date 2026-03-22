@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::{Bucket, BucketMapType, Cowed, Key};
+use super::{Bucket, BucketMapType, Key};
 
 #[derive(Debug, Default)]
 pub struct Skipper<'a> {
