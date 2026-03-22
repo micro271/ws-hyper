@@ -23,18 +23,8 @@ pub struct BucketMap<'a> {
 
 impl<'a> BucketMap<'a> {
     pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
-        let mut self_path = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                std::path::Component::CurDir => {}
-                std::path::Component::ParentDir => {
-                    self_path.pop();
-                }
-                p => self_path.push(p),
-            }
-        }
-        tracing::info!("[ BucketMap ] Root path: {self_path:?}");
+        let path = path.canonicalize()?;
+        tracing::info!("[ BucketMap ] Root path: {path:?}");
         if !path.exists() {
             Err(BucketMapErr::RootPathNotFound(path))
         } else if !path.is_dir() {
@@ -42,7 +32,7 @@ impl<'a> BucketMap<'a> {
         } else {
             Ok(BucketMap {
                 inner: Default::default(),
-                path: self_path,
+                path,
             })
         }
     }

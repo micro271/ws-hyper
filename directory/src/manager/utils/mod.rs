@@ -155,6 +155,7 @@ pub async fn hd_new_bucket_or_key_watcher(
                 skip.to_skip(Skip::Bucket {
                     bucket: bucket.cloned(),
                 });
+                tracing::debug!("[ fn hd_new_bucket_or_key_watcher ] new skip: {skip:?}");
                 Ok(Change::NewBucket { bucket })
             } else {
                 let Some(key) = Key::from_bucket(bucket.borrow(), &parent.join(&to)) else {
@@ -167,6 +168,7 @@ pub async fn hd_new_bucket_or_key_watcher(
                     bucket: bucket.cloned(),
                     key: key.cloned(),
                 });
+                tracing::debug!("[ fn hd_new_bucket_or_key_watcher ] new skip: {skip:?}");
                 Ok(Change::NewKey { bucket, key })
             }
         }
