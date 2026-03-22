@@ -1,6 +1,13 @@
 use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
-    bucket::{Cowed, key::Key},
+    bucket::{
+        Cowed,
+        key::Key,
+        utils::{
+            Rename, RenameDecision, list_buckets_and_normalize,
+            normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
+        },
+    },
     manager::Change,
     state::local_storage::{LocalStorage, utils::sync_object_with_database},
 };
@@ -202,21 +209,12 @@ impl<'a> BucketMap<'a> {
     }
 
     pub async fn build(&mut self, local_storage: &LocalStorage) -> Result<(), BucketMapErr> {
-        let mut buckets = std::fs::read_dir(&self.path)?
-            .filter_map(|x| {
-                x.map(|x| x.path())
-                    .ok()
-                    .filter(|x| x.is_dir())?
-                    .file_name()?
-                    .to_str()
-                    .map(|file_name| {
-                        (
-                            Bucket::new_unchecked(file_name.to_string()),
-                            BTreeMap::<Key, Vec<Object>>::new(),
-                        )
-                    })
-            })
-            .collect::<HashMap<_, _>>();
+        let mut buckets = list_buckets_and_normalize(&self.path)
+            .await
+            .into_iter()
+            .map(|x| (x, BTreeMap::new()))
+            .collect::<HashMap<Bucket, _>>();
+
         tracing::trace!("[ BucketMap ] {{ build }} bucket found: {buckets:?}");
         for (bks, map) in &mut buckets {
             tracing::trace!("[ BucketMap ] {{ build }} create branch for bucket: {bks}");
@@ -225,7 +223,7 @@ impl<'a> BucketMap<'a> {
 
             tracing::trace!("[ BucketMap ] {{ Directories }} {list_dirs:?}");
             while let Some(dir) = list_dirs.pop_front() {
-                let (dirs, objs) = dir_objects(&dir);
+                let (dirs, objs) = dir_objects(&dir).await;
                 list_dirs.extend(dirs);
                 let key = Key::from_bucket(bks.borrow(), &dir).unwrap();
                 let objects = sync_objects(objs, bks.borrow(), key.borrow(), local_storage).await;
@@ -274,7 +272,7 @@ async fn sync_objects(
     resp
 }
 
-fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+async fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut dirs = Vec::new();
     let mut objects = Vec::new();
     tracing::trace!("[ fn dir_objects ] entry {entry:?}");
@@ -283,9 +281,45 @@ fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     while let Some(Ok(path)) = reader.next() {
         let path = path.path();
         if path.is_dir() {
-            dirs.push(path);
+            match NormalizePathUtf8::default().run(&path).await {
+                Ok(RenameDecision::Not(_)) => {
+                    dirs.push(path);
+                }
+                Ok(RenameDecision::Yes(Rename {
+                    mut parent,
+                    from,
+                    to,
+                })) => {
+                    let from = parent.join(from);
+                    parent.push(to);
+                    if let Err(er) = tokio::fs::rename(&from, &parent).await {
+                        tracing::error!("{er}");
+                    }
+                    dirs.push(parent);
+                }
+                Err(er) => tracing::error!("{er:?}"),
+                _ => {}
+            }
         } else {
-            objects.push(path);
+            match NormalizeFileUtf8::run(&path).await {
+                Ok(RenameDecision::Not(_)) => {
+                    objects.push(path);
+                }
+                Ok(RenameDecision::Yes(Rename {
+                    mut parent,
+                    from,
+                    to,
+                })) => {
+                    let from = parent.join(&from);
+                    parent.push(to);
+                    if let Err(er) = tokio::fs::rename(from, &parent).await {
+                        tracing::error!("{er}");
+                    }
+                    objects.push(parent);
+                }
+                Err(er) => tracing::error!("{er:?}"),
+                _ => {}
+            }
         }
     }
     tracing::trace!(

@@ -249,7 +249,7 @@ pub async fn hd_rename_path<'a>(
                 let skip = Skip::Bucket { bucket: to };
 
                 if skipped.skipped(&skip) {
-                    tracing::trace!("[ fn hd_rename_part ] skipped {skip:?}");
+                    tracing::trace!("[ fn hd_rename_parh ] skipped {skip:?}");
                     return Err(());
                 }
 
