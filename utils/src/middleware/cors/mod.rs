@@ -36,13 +36,8 @@ where
             .filter(|x| self.origin.iter().any(|y| y == *x))
         else {
             return future::CorsFuture {
-                kind: Kind::Inmediate {
-                    res: Some(
-                        Response::builder()
-                            .status(StatusCode::OK)
-                            .body(<Self::Response as Default>::default())
-                            .unwrap_or_default(),
-                    ),
+                kind: Kind::Pass {
+                    fut: self.inner.call(req),
                 },
             };
         };

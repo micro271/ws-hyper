@@ -12,6 +12,7 @@ pub(super) enum Kind<F, Res> {
     Preflight { headers: HeaderMap },
     Cors { header: HeaderMap, fut: F },
     Inmediate { res: Option<Response<Res>> },
+    Pass { fut: F },
 }
 
 impl<F, ResBody, E> Future for CorsFuture<F, ResBody>
@@ -45,6 +46,7 @@ where
                 }))
             }
             Kind::Inmediate { res } => Poll::Ready(Ok(res.take().unwrap_or_default())),
+            Kind::Pass { fut } => unsafe { Pin::new_unchecked(fut) }.poll(cx),
         }
     }
 }
