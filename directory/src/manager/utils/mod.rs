@@ -151,7 +151,7 @@ pub async fn hd_new_bucket_or_key_watcher(
                 return Err(());
             }
             let bucket = Bucket::new_unchecked(&to).owned();
-            if path == parent {
+            if root == parent {
                 skip.to_skip(Skip::Bucket {
                     bucket: bucket.cloned(),
                 });
