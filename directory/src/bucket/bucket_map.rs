@@ -229,7 +229,7 @@ impl<'a> BucketMap<'a> {
             .collect::<HashMap<_, _>>();
         tracing::trace!("[ BucketMap ] {{ build }} bucket found: {buckets:?}");
         for (bks, map) in &mut buckets {
-            tracing::trace!("[ BucketMap ] {{ build }} create barnch for bucket: {bks}");
+            tracing::trace!("[ BucketMap ] {{ build }} create branch for bucket: {bks}");
 
             let mut list_dirs = VecDeque::from([self.path.join(bks.name())]);
 
@@ -240,7 +240,7 @@ impl<'a> BucketMap<'a> {
                 let key = Key::from_bucket(bks.borrow(), &dir).unwrap();
                 let objects = sync_objects(objs, bks.borrow(), key.borrow(), local_storage).await;
                 tracing::trace!(
-                    "[ BucketMap build] bucket {bks} - key {key:?} - {objects:?} - path: {dir:?}"
+                    "[ BucketMap build ] bucket {bks} - key {key:?} - {objects:?} - path: {dir:?}"
                 );
                 map.insert(key, objects);
             }
@@ -299,7 +299,7 @@ fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
         }
     }
     tracing::trace!(
-        "[ fn_dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
+        "[ fn dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
     );
     (dirs, objects)
 }

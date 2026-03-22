@@ -139,11 +139,13 @@ pub async fn hd_new_bucket_or_key_watcher(
         }
         Ok(RenameDecision::Yes(Rename { parent, from, to })) => {
             tracing::warn!(
-                "[ fn hd_new_bucket_or_key_watcher ] i need rename from {from} to {to} - path: {path:?} "
+                "[ fn hd_new_bucket_or_key_watcher ] We need rename from {from} to {to} - path: {parent:?} "
             );
-            let from = path.join(from);
-            let to_ = path.join(&to);
-
+            let from = parent.join(from);
+            let to_ = parent.join(&to);
+            tracing::trace!(
+                "[ fn hd_new_bucket_or_key_watcher ] Path from {from:?} - Path to {to_:?}"
+            );
             if let Err(er) = tokio::fs::rename(from, to_).await {
                 tracing::error!("[ fn hd_new_bucket_or_key_watcher ] Rename error: {er}");
                 return Err(());
