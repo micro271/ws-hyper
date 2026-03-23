@@ -44,7 +44,7 @@ impl<'a> BucketMap<'a> {
         }
     }
 
-    pub fn get_bucket(&'a self, bucket: Bucket<'a>) -> Option<&'a ObjectTree<'a, Object>> {
+    pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
         self.inner.get(&bucket)
     }
 
@@ -52,39 +52,41 @@ impl<'a> BucketMap<'a> {
         self.inner.keys().map(|x| x.borrow()).collect::<Vec<_>>()
     }
 
-    pub fn get_key(&'a self, bucket: &'a Bucket, key: Key<'a>) -> Option<&'a Vec<Object>> {
-        self.inner.get(bucket).and_then(|x| x.get(&key))
+    pub fn get_key<'b>(&'b self, bucket: Bucket<'b>, key: Key<'b>) -> Option<&'b Vec<Object>> {
+        self.inner.get(&bucket).and_then(|x| x.get(&key))
     }
 
-    pub fn get_keys(&'a self, bucket: &'a Bucket) -> Option<Vec<&'a Key<'a>>> {
-        self.inner.get(bucket).map(|x| x.keys().collect::<Vec<_>>())
+    pub fn get_keys<'b>(&'b self, bucket: Bucket<'b>) -> Option<Vec<&'b Key<'b>>> {
+        self.inner
+            .get(&bucket)
+            .map(|x| x.keys().collect::<Vec<_>>())
     }
 
-    pub fn get_object_name(
-        &'a self,
-        bucket: Bucket<'a>,
-        key: Key<'a>,
+    pub fn get_object_name<'b>(
+        &'b self,
+        bucket: Bucket<'b>,
+        key: Key<'b>,
         name: &str,
-    ) -> Option<&'a Object> {
+    ) -> Option<&'b Object> {
         self.inner
             .get(&bucket)
             .and_then(|x| x.get(&key))
             .and_then(|x| x.iter().find(|x| x.file_name == name))
     }
 
-    pub fn new_bucket(&mut self, bucket: Bucket<'_>) {
+    pub fn new_bucket(&mut self, bucket: Bucket<'a>) {
         self.inner
-            .entry(bucket.owned())
+            .entry(bucket)
             .or_default()
             .entry(Key::from("."))
             .or_default();
     }
 
-    pub fn new_key(&mut self, bucket: Bucket<'_>, key: Key<'_>) {
+    pub fn new_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
         self.inner
-            .entry(bucket.owned())
+            .entry(bucket)
             .or_default()
-            .entry(key.owned())
+            .entry(key)
             .or_default();
     }
 
@@ -109,24 +111,18 @@ impl<'a> BucketMap<'a> {
             .push(object);
     }
 
-    pub fn set_name_object(
-        &mut self,
-        bucket: Bucket<'a>,
-        key: Key<'a>,
-        file_name: String,
-        to: String,
-    ) {
+    pub fn set_name_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, from: String, to: String) {
         if let Some(val) = self
             .get_objs_or_insert_default(bucket, key)
             .iter_mut()
-            .find(|x| x.file_name == file_name)
+            .find(|x| x.file_name == from)
         {
             val.file_name = to;
         }
     }
 
-    pub fn set_key(&mut self, bucket: Bucket<'_>, from: Key<'_>, to: Key<'_>) {
-        let bk = self.inner.get_mut(&bucket.owned()).unwrap();
+    pub fn set_key(&mut self, bucket: Bucket<'a>, from: Key<'a>, to: Key<'a>) {
+        let bk = self.inner.get_mut(&bucket).unwrap();
         let keys = bk
             .range(&from..)
             .map(|(k, _)| k.cloned())
@@ -139,30 +135,27 @@ impl<'a> BucketMap<'a> {
         }
     }
 
-    pub fn set_name_bucket(&mut self, from: Bucket<'_>, to: Bucket<'_>) {
-        let tmp = self.inner.remove(&from.owned()).unwrap();
-        self.inner.insert(to.owned(), tmp);
+    pub fn set_name_bucket(&mut self, from: Bucket<'a>, to: Bucket<'a>) {
+        let tmp = self.inner.remove(&from).unwrap();
+        self.inner.insert(to, tmp);
     }
 
     pub fn remove_object(
         &mut self,
-        bucket: Bucket<'_>,
-        key: Key<'_>,
+        bucket: Bucket<'a>,
+        key: Key<'a>,
         file_name: &str,
     ) -> Option<Object> {
         self.inner
-            .get_mut(&bucket.owned())
+            .get_mut(&bucket)
             .unwrap()
-            .get_mut(&key.owned())
+            .get_mut(&key)
             .unwrap()
             .pop_if(|x| x.file_name == file_name)
     }
 
-    pub fn remove_key(&mut self, bucket: Bucket<'_>, key: Key<'_>) {
-        self.inner
-            .get_mut(&bucket.owned())
-            .unwrap()
-            .remove(&key.owned());
+    pub fn remove_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
+        self.inner.get_mut(&bucket).unwrap().remove(&key);
     }
 
     pub async fn change(&mut self, change: Change) {
