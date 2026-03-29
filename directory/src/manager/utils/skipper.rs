@@ -9,7 +9,7 @@ pub struct Skipper<'a> {
     object_tracker: Option<BucketMapType<'a, String>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Skip<'a> {
     Bucket {
         bucket: Bucket<'a>,

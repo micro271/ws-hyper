@@ -2,6 +2,7 @@ pub mod skipper;
 
 use regex::Regex;
 use std::{
+    fs,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
@@ -288,12 +289,12 @@ pub async fn hd_rename_path<'a>(
             let to_ = parent.join(&to);
 
             tracing::trace!("[ fn hd_rename_part ] rename from: {from_:?} to: {to:?}");
-            if let Err(er) = tokio::fs::rename(&from_, &to_).await {
+            if let Err(er) = fs::rename(&from_, &to_) {
                 tracing::error!("{er}");
             }
 
-            let bucket = Bucket::new_unchecked(to);
             if parent == root {
+                let bucket = Bucket::new_unchecked(to);
                 skipped.to_skip(Skip::Bucket {
                     bucket: bucket.cloned(),
                 });
@@ -306,6 +307,7 @@ pub async fn hd_rename_path<'a>(
                     to: bucket,
                 })
             } else {
+                let bucket = Bucket::find_bucket(root, &original_to).unwrap();
                 let original_key = Key::from_bucket(bucket.borrow(), &original_from).unwrap();
                 let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
                 skipped.to_skip(Skip::Key {
@@ -365,6 +367,28 @@ pub async fn hd_rename_object<'a>(
                 bucket,
                 key,
                 file_name: old_name,
+                to,
+            })
+        }
+        Ok(RenameDecision::Yes(Rename { parent, from, to })) => {
+            let from_ = parent.join(&from);
+            let to_ = parent.join(&to);
+            if let Err(er) = fs::rename(&from_, &to_) {
+                tracing::error!("{er}");
+                return Err(());
+            }
+            let bucket = Bucket::find_bucket(root, &parent).unwrap();
+            let key = Key::from_bucket(bucket.borrow(), &parent).unwrap();
+            let skip = Skip::Object {
+                bucket: bucket.cloned(),
+                key: key.cloned(),
+                file_name: to.clone(),
+            };
+            to_skip.to_skip(skip);
+            Ok(Change::NameObject {
+                bucket,
+                key,
+                file_name: from,
                 to,
             })
         }

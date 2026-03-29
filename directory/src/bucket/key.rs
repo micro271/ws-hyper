@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bucket::{Bucket, Cowed};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key<'a>(Cow<'a, str>);
 
 impl<'a> Key<'a> {
@@ -39,6 +39,12 @@ impl<'a> Key<'a> {
         path.split_once(name)
             .map(|(_, x)| x.strip_prefix("/").unwrap_or(x).to_string())
             .map(|x| Self::new(if x.is_empty() { ".".to_string() } else { x }))
+    }
+}
+
+impl<'a> std::clone::Clone for Key<'a> {
+    fn clone(&self) -> Self {
+        self.cloned()
     }
 }
 

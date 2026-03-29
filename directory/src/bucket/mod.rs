@@ -9,7 +9,7 @@ use std::{borrow::Cow, ffi::OsStr, path::Path};
 
 pub const DEFAULT_LENGTH_NANOID: usize = 21;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash)]
+#[derive(Debug, Serialize, Deserialize, Hash)]
 pub struct Bucket<'a>(Cow<'a, str>);
 
 impl<'a> Bucket<'a> {
@@ -53,6 +53,12 @@ impl<'a> Bucket<'a> {
             child = parent;
         }
         None
+    }
+}
+
+impl<'a> std::clone::Clone for Bucket<'a> {
+    fn clone(&self) -> Self {
+        self.cloned()
     }
 }
 
