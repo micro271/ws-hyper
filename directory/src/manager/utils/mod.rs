@@ -343,7 +343,7 @@ pub async fn hd_rename_object<'a>(
     to_skip: &mut Skipper<'a>,
 ) -> Result<Change, ()> {
     let bucket = Bucket::find_bucket(root, &original_to).unwrap();
-    let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
+    let key = Key::from_bucket(bucket.borrow(), original_to.parent().unwrap()).unwrap();
 
     match NormalizeFileUtf8::run(&original_to).await {
         Ok(RenameDecision::Not(name)) => {
@@ -377,8 +377,6 @@ pub async fn hd_rename_object<'a>(
                 tracing::error!("{er}");
                 return Err(());
             }
-            let bucket = Bucket::find_bucket(root, &parent).unwrap();
-            let key = Key::from_bucket(bucket.borrow(), &parent).unwrap();
             let skip = Skip::Object {
                 bucket: bucket.cloned(),
                 key: key.cloned(),

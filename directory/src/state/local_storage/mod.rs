@@ -280,7 +280,7 @@ impl LocalStorageBuild {
 
         let index_opts = IndexOptions::builder().unique(true).build();
         let index = IndexModel::builder()
-            .keys(doc! { "key": 1, "bucket": 1, "object.name": 1 })
+            .keys(doc! { "key": 1, "bucket": 1, "object.file_name": 1 })
             .options(index_opts)
             .build();
         let db = ls.pool.default_database().unwrap();
