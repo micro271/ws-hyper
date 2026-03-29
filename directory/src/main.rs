@@ -12,7 +12,7 @@ pub mod ws;
 use crate::{
     bucket::bucket_map::BucketMap,
     cli::Args,
-    handlers::entry,
+    handlers::{auth_layer::Auth, entry},
     manager::{
         Manager, WatcherParams,
         utils::{Run, SplitTask},
@@ -147,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stack_layer = Arc::new(
         MiddlwareStack::default()
             .entry_fn(entry)
+            .layer(Auth)
             .state(state)
             .layer(cors)
             .layer(trace),

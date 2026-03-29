@@ -2,7 +2,6 @@ pub mod skipper;
 
 use regex::Regex;
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };

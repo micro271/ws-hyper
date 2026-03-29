@@ -1,4 +1,3 @@
-pub mod cache;
 pub mod local_storage;
 
 use crate::{
