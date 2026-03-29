@@ -289,7 +289,7 @@ pub async fn hd_rename_path<'a>(
             let to_ = parent.join(&to);
 
             tracing::trace!("[ fn hd_rename_part ] rename from: {from_:?} to: {to:?}");
-            if let Err(er) = fs::rename(&from_, &to_) {
+            if let Err(er) = tokio::fs::rename(&from_, &to_).await {
                 tracing::error!("{er}");
             }
 
@@ -373,7 +373,7 @@ pub async fn hd_rename_object<'a>(
         Ok(RenameDecision::Yes(Rename { parent, from, to })) => {
             let from_ = parent.join(&from);
             let to_ = parent.join(&to);
-            if let Err(er) = fs::rename(&from_, &to_) {
+            if let Err(er) = tokio::fs::rename(&from_, &to_).await {
                 tracing::error!("{er}");
                 return Err(());
             }
@@ -384,6 +384,7 @@ pub async fn hd_rename_object<'a>(
                 key: key.cloned(),
                 file_name: to.clone(),
             };
+            tracing::debug!("[ fn hd_rename_object ] skip {skip:?}");
             to_skip.to_skip(skip);
             Ok(Change::NameObject {
                 bucket,
@@ -396,7 +397,10 @@ pub async fn hd_rename_object<'a>(
             tracing::error!("{er:?}");
             Err(())
         }
-        _ => unreachable!(""),
+        Ok(des) => unreachable!(
+            "[ fn rename_object ] this arm never would reached {:?}",
+            des
+        ),
     }
 }
 
