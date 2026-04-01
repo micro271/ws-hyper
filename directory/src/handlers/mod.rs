@@ -22,16 +22,40 @@ pub type ResponseHttp = Result<Response<Full<Bytes>>, ResponseError>;
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
 
-    if let Some(path) = path.strip_prefix("/tree/") {
+    if let Some(path) = path.strip_prefix("/tree") {
+        if req.method() != http::Method::GET {
+            return Ok(Response::builder()
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Full::default())
+                .unwrap_or_default());
+        }
+
         let state = req.extensions().get::<TypeState>().unwrap().clone();
+
+        let body = if path.is_empty() {
+            tracing::error!("I need to check if the user logged have the role Admin");
+            Bytes::from(state.tree_as_json().await)
+        } else {
+            let Some((bucket, key)) = path[1..].split_once('/') else {
+                todo!("");
+            };
+            let bucket = Bucket::new_unchecked(bucket).owned();
+            let key = Key::new(key).owned();
+            let tmp = state.read().await;
+            let tmp = tmp.get_until(bucket, key).collect::<Vec<_>>();
+
+            Bytes::from(json!(tmp).to_string())
+        };
+
         if hyper_tungstenite::is_upgrade_request(&req) {
             let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
             state.add_client(todo!(), todo!(), ws).await;
             Ok(res)
         } else {
             Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Full::new(Bytes::from(state.tree_as_json().await)))
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Full::new(body))
                 .unwrap_or_default())
         }
     } else {

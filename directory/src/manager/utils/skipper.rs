@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::bucket::Cowed;
+
 use super::{Bucket, BucketMapType, Key};
 
 #[derive(Debug, Default)]

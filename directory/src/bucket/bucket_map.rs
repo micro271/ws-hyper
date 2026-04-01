@@ -3,6 +3,7 @@ use crate::{
     bucket::{
         Cowed,
         key::Key,
+        object_entry::ObjectEntry,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -42,6 +43,18 @@ impl<'a> BucketMap<'a> {
                 path,
             })
         }
+    }
+
+    pub fn get_until(
+        &'a self,
+        bucket: Bucket<'a>,
+        key: Key<'a>,
+    ) -> impl Iterator<Item = ObjectEntry<'a>> {
+        let tmp = self.inner.get(&bucket).unwrap();
+        let tmp = tmp.range(key..);
+
+        tmp.take_while(|(key, _)| key.name().starts_with(key.name()))
+            .map(Into::into)
     }
 
     pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
