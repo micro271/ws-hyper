@@ -36,11 +36,13 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             tracing::error!("I need to check if the user logged have the role Admin");
             (None, None)
         } else {
-            let Some((bucket, key)) = path[1..].split_once('/') else {
-                todo!("");
-            };
-            let bucket = Bucket::new_unchecked(bucket).owned();
-            let key = Key::new(key).owned();
+            let mut item = path[1..].split("/");
+            let bucket = Bucket::new_unchecked(item.nth(0).unwrap()).owned();
+            let key = Key::from(
+                item.nth(0)
+                    .map(|x| x.to_string())
+                    .unwrap_or(".".to_string()),
+            );
             (Some(bucket), Some(key))
         };
 
