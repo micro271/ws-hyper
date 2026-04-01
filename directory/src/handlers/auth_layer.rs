@@ -43,6 +43,14 @@ where
         &self,
         mut req: http::Request<ReqBody>,
     ) -> impl Future<Output = Result<http::Response<Self::Response>, Self::Error>> {
+        if req
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .is_some_and(|x| x.to_str().is_ok_and(|x| x != "application/json"))
+        {
+            return AuthFuture::UnsoportedMediaType;
+        }
+
         let Some(token) = Token::<JwtBoth>::get_token(req.headers()) else {
             return AuthFuture::Aunauthorized;
         };
@@ -64,6 +72,7 @@ where
 
 pub enum AuthFuture<F> {
     Aunauthorized,
+    UnsoportedMediaType,
     Pass { f: F },
 }
 
@@ -78,11 +87,15 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         match unsafe { self.get_unchecked_mut() } {
-            AuthFuture::Aunauthorized => Poll::Ready(Ok(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
+            AuthFuture::Pass { f } => unsafe { Pin::new_unchecked(f) }.poll(cx),
+            status_code => Poll::Ready(Ok(Response::builder()
+                .status(match status_code {
+                    AuthFuture::Aunauthorized => StatusCode::UNAUTHORIZED,
+                    AuthFuture::UnsoportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    _ => StatusCode::BAD_GATEWAY,
+                })
                 .body(Full::default())
                 .unwrap_or_default())),
-            AuthFuture::Pass { f } => unsafe { Pin::new_unchecked(f) }.poll(cx),
         }
     }
 }
