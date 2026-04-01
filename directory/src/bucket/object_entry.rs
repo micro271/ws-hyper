@@ -1,4 +1,4 @@
-use crate::bucket::{key::Key, object::Object};
+use crate::bucket::{Cowed, key::Key, object::Object};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

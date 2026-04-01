@@ -45,11 +45,14 @@ impl<'a> BucketMap<'a> {
         }
     }
 
-    pub fn get_until(
+    pub fn get_until<'b>(
         &'a self,
         bucket: Bucket<'a>,
         key: Key<'a>,
-    ) -> impl Iterator<Item = ObjectEntry<'a>> {
+    ) -> impl Iterator<Item = ObjectEntry<'b>>
+    where
+        'a: 'b,
+    {
         let tmp = self.inner.get(&bucket).unwrap();
         let tmp = tmp.range(key..);
 
