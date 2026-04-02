@@ -54,9 +54,10 @@ impl<'a> BucketMap<'a> {
         'a: 'b,
     {
         let tmp = self.inner.get(&bucket).unwrap();
+        let pref = key.name().to_string();
         let tmp = tmp.range(key..);
 
-        tmp.take_while(|(key, _)| key.name().starts_with(key.name()))
+        tmp.take_while(move |(k, _)| k.name().starts_with(&pref))
             .map(Into::into)
     }
 
