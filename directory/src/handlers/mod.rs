@@ -24,7 +24,7 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
 
     if let Some(path) = path
         .strip_prefix("/tree")
-        .and_then(|path| path.get(if path.starts_with("/") { 1 } else { 0 }..))
+        .map(|path| path.strip_prefix("/").unwrap_or(path))
     {
         if req.method() != http::Method::GET {
             return Ok(Response::builder()
@@ -39,7 +39,6 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             todo!("I need to check if the user logged is admin");
             (None, None)
         } else {
-            let path = path.strip_suffix("/").unwrap_or(path);
             let (path, key) = path.split_once("/").unwrap_or((path, ""));
             (
                 Some(Bucket::new_unchecked(path)),
