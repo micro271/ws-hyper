@@ -3,7 +3,7 @@ pub mod error;
 use crate::{
     bucket::{Bucket, Cowed, key::Key},
     handlers::error::ResponseError,
-    state::State,
+    state::{self, State},
 };
 
 use http::{StatusCode, header};
@@ -51,11 +51,19 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             state.add_client(todo!(), todo!(), ws).await;
             Ok(res)
         } else {
-            let body = if let (Some(bucket), Some(key)) = (bucket, key) {
-                let state = state.read().await;
-                json!(state.get_until(bucket, key).collect::<Vec<_>>()).to_string()
-            } else {
-                state.tree_as_json().await
+            let body = match (bucket, key) {
+                (Some(bucket), Some(key)) => {
+                    let state = state.read().await;
+                    json!(state.get_until(bucket, key).collect::<Vec<_>>()).to_string()
+                }
+                (Some(bucket), None) => {
+                    let state = state.read().await;
+                    json!(state.get_bucket(bucket)).to_string()
+                }
+                (None, None) => state.tree_as_json().await,
+                (None, _) => {
+                    unreachable!()
+                }
             };
 
             Ok(Response::builder()
