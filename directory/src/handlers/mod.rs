@@ -22,7 +22,10 @@ pub type ResponseHttp = Result<Response<Full<Bytes>>, ResponseError>;
 pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
 
-    if let Some(path) = path.strip_prefix("/tree") {
+    if let Some(path) = path
+        .strip_prefix("/tree")
+        .and_then(|path| path.get(if path.starts_with("/") { 1 } else { 0 }..))
+    {
         if req.method() != http::Method::GET {
             return Ok(Response::builder()
                 .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -33,17 +36,15 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
         let state = req.extensions().get::<TypeState>().unwrap().clone();
 
         let (bucket, key) = if path.is_empty() {
-            tracing::error!("I need to check if the user logged have the role Admin");
+            todo!("I need to check if the user logged is admin");
             (None, None)
         } else {
-            let mut item = path[1..].split("/");
-            let bucket = Bucket::new_unchecked(item.nth(0).unwrap()).owned();
-            let key = Key::from(
-                item.nth(0)
-                    .map(|x| x.to_string())
-                    .unwrap_or(".".to_string()),
-            );
-            (Some(bucket), Some(key))
+            let path = path.strip_suffix("/").unwrap_or(path);
+            let (path, key) = path.split_once("/").unwrap_or((path, ""));
+            (
+                Some(Bucket::new_unchecked(path)),
+                (!key.is_empty()).then_some(Key::new(key.strip_suffix("/").unwrap_or(key))),
+            )
         };
 
         if hyper_tungstenite::is_upgrade_request(&req) {
