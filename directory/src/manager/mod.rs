@@ -2,7 +2,7 @@ pub mod channels_types;
 pub mod new_file_tba;
 pub mod utils;
 pub mod watcher;
-pub mod websocker;
+pub mod websocket;
 
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
@@ -20,18 +20,12 @@ use tokio::sync::{
 };
 
 use crate::{
-    bucket::{
-        Bucket, Cowed,
-        bucket_map::BucketMap,
-        key::Key,
-        object::Object,
-        utils::rename_handlers::{NewObjNameHandlerBuilder, RenameObjHandlerBuilder},
-    },
+    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key, object::Object},
     grpc_v1::ConnectionAuthMS,
     manager::{
         utils::{Run, SplitTask, Task, change_local_storage},
         watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
-        websocker::{MsgWs, WebSocket, WebSocketChSender},
+        websocket::{MsgWs, WebSocket, WebSocketChSender},
     },
     state::local_storage::LocalStorage,
 };
@@ -89,11 +83,7 @@ impl Run for Manager {
         Self: Sized,
     {
         match self.watcher_params {
-            WatcherParams::Event {
-                path,
-                r#await,
-                ignore_rename_suffix,
-            } => {
+            WatcherParams::Event { path, r#await } => {
                 let task = EventWatcherBuilder::default()
                     .path(path)
                     .unwrap()
@@ -166,16 +156,6 @@ impl Task for ManagerRunning {
                 }
             }
         }
-    }
-}
-
-impl ManagerChSenders {
-    fn client_grpc(&self) -> &ConnectionAuthMS {
-        &self.grpc
-    }
-
-    fn ws_sender(&self) -> &WebSocketChSender {
-        &self.ws
     }
 }
 
@@ -258,7 +238,6 @@ pub enum WatcherParams {
     Event {
         path: PathBuf,
         r#await: Option<u64>,
-        ignore_rename_suffix: String,
     },
     Poll {
         path: PathBuf,

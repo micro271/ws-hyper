@@ -1,9 +1,9 @@
 pub mod auth_layer;
 pub mod error;
 use crate::{
-    bucket::{Bucket, Cowed, key::Key},
+    bucket::{Bucket, key::Key},
     handlers::error::ResponseError,
-    state::{self, State},
+    state::State,
 };
 
 use http::{StatusCode, header};
@@ -19,8 +19,8 @@ type TypeState = Arc<State>;
 
 pub type ResponseHttp = Result<Response<Full<Bytes>>, ResponseError>;
 
-pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    let path = req.uri().path();
+pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+    let path = req.uri().path().to_string();
 
     if let Some(path) = path
         .strip_prefix("/tree")
@@ -47,8 +47,8 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
         };
 
         if hyper_tungstenite::is_upgrade_request(&req) {
-            let (res, ws) = hyper_tungstenite::upgrade(req, None).unwrap();
-            state.add_client(todo!(), todo!(), ws).await;
+            let (res, ws) = hyper_tungstenite::upgrade(&mut req, None).unwrap();
+            state.add_client(bucket, key, ws).await;
             Ok(res)
         } else {
             let body = match (bucket, key) {
@@ -78,25 +78,6 @@ pub async fn entry(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infa
             .body(Full::default())
             .unwrap_or_default())
     }
-}
-
-async fn get_path(
-    req: Request<Incoming>,
-    bucket: Option<Bucket<'_>>,
-    key: Option<Key<'_>>,
-) -> ResponseHttp {
-    let state = req.extensions().get::<TypeState>().unwrap();
-    let reader = state.read().await;
-    let body = bucket.unwrap();
-    let body = reader.get_bucket(body.borrow()).unwrap();
-
-    // TODO: we need to obtain all keys contained whithin a single key
-
-    Ok(Response::builder()
-        .header(header::CONTENT_TYPE, "application/json")
-        .status(StatusCode::OK)
-        .body(Full::new(Bytes::from_owner(json!(body).to_string())))
-        .unwrap_or_default())
 }
 
 pub async fn not_found(req: Request<Incoming>) -> ResponseError {

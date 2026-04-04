@@ -48,7 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         md_username,
         md_pass,
         md_database,
-        ignore_rename_suffix,
         pki_dir: _,
         grpc_endpoint,
     } = Args::parse();
@@ -86,7 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli::TypeWatcher::Event => WatcherParams::Event {
                 path: PathBuf::from(state.read().await.path()),
                 r#await: None,
-                ignore_rename_suffix,
             },
         },
         grpc_auth_server,

@@ -40,7 +40,12 @@ impl State {
         todo!()
     }
 
-    pub async fn add_client(&self, bucket: Bucket<'_>, key: Key<'_>, sender: HyperWebsocket) {
+    pub async fn add_client(
+        &self,
+        bucket: Option<Bucket<'_>>,
+        key: Option<Key<'_>>,
+        sender: HyperWebsocket,
+    ) {
         /*
         if let Err(er) = self
             .tx_subs

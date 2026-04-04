@@ -46,7 +46,7 @@ where
 
         let tx_rename = self.rename_control_sender.inner();
         let root = &self.path;
-        let mut skipper = Skipper::default();
+        let skipper = Skipper::default();
         while let Some(Ok(event)) = self.rx.recv().await {
             tracing::trace!("[Scheduler] new event: {event:?}");
             match event.kind {
@@ -58,7 +58,7 @@ where
                         continue;
                     };
 
-                    match hd_new_bucket_or_key_watcher(path, &self.path, &mut skipper).await {
+                    match hd_new_bucket_or_key_watcher(path, &self.path, skipper.clone()).await {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Wtcher] Sender error: {err}");
@@ -81,7 +81,7 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(path, &self.path, &mut skipper).await {
+                    match hd_new_object_watcher(path, &self.path, skipper.clone()).await {
                         Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
@@ -121,9 +121,9 @@ where
                     }
 
                     let ch = if to.is_dir() {
-                        hd_rename_path(&self.path, from, to, &mut skipper).await
+                        hd_rename_path(&self.path, from, to, skipper.clone()).await
                     } else {
-                        hd_rename_object(&self.path, from, to, &mut skipper).await
+                        hd_rename_object(&self.path, from, to, skipper.clone()).await
                     };
 
                     match ch {
