@@ -3,7 +3,7 @@ mod future;
 pub mod layer;
 
 pub use builder::*;
-use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, header};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, header};
 use hyper::body::Body;
 
 use crate::middleware::{Layer, cors::future::Kind};

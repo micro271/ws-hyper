@@ -4,18 +4,17 @@ use futures::ready;
 use http::{HeaderMap, Response};
 use hyper::body::Body;
 
-pub struct CorsFuture<F, ResBody> {
-    pub(super) kind: Kind<F, ResBody>,
+pub struct CorsFuture<F> {
+    pub(super) kind: Kind<F>,
 }
 
-pub(super) enum Kind<F, Res> {
+pub(super) enum Kind<F> {
     Preflight { headers: HeaderMap },
     Cors { header: HeaderMap, fut: F },
-    Inmediate { res: Option<Response<Res>> },
     Pass { fut: F },
 }
 
-impl<F, ResBody, E> Future for CorsFuture<F, ResBody>
+impl<F, ResBody, E> Future for CorsFuture<F>
 where
     F: Future<Output = Result<Response<ResBody>, E>>,
     ResBody: Body + Default + Send,
@@ -45,7 +44,6 @@ where
                     x
                 }))
             }
-            Kind::Inmediate { res } => Poll::Ready(Ok(res.take().unwrap_or_default())),
             Kind::Pass { fut } => unsafe { Pin::new_unchecked(fut) }.poll(cx),
         }
     }

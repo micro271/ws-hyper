@@ -1,6 +1,5 @@
 pub mod app_info;
 pub mod claim;
-pub mod connection_manager;
 pub mod middleware;
 mod peer;
 
