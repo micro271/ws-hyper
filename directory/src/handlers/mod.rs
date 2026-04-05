@@ -54,7 +54,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             let body = match (bucket, key) {
                 (Some(bucket), Some(key)) => {
                     let state = state.read().await;
-                    json!(state.get_until(bucket, key).collect::<Vec<_>>()).to_string()
+                    json!(state.get_response(&bucket, &key)).to_string()
                 }
                 (Some(bucket), None) => {
                     let state = state.read().await;

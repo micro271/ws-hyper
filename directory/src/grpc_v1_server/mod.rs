@@ -65,7 +65,7 @@ impl Directory for BucketGrpcSrv<'static> {
             .map
             .read()
             .await
-            .get_object_name(bucket.clone(), key.borrow(), &name)
+            .get_object_by_file_name(bucket.clone(), key.borrow(), &name)
             .map(|x| x.file_name.clone())
         {
             Some(file_name) => Ok(tonic::Response::new(FileNameReply { file_name })),

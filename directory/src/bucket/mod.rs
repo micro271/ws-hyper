@@ -1,8 +1,8 @@
 pub mod bucket_map;
 pub mod error;
+pub mod fhs_response;
 pub mod key;
 pub mod object;
-pub mod object_entry;
 pub mod utils;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};

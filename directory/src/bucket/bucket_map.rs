@@ -2,8 +2,8 @@ use super::{Bucket, error::BucketMapErr, object::Object};
 use crate::{
     bucket::{
         Cowed,
+        fhs_response::FhsResponse,
         key::Key,
-        object_entry::ObjectEntry,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -45,20 +45,21 @@ impl<'a> BucketMap<'a> {
         }
     }
 
-    pub fn get_until<'b>(
-        &'a self,
-        bucket: Bucket<'a>,
-        key: Key<'a>,
-    ) -> impl Iterator<Item = ObjectEntry<'b>>
-    where
-        'a: 'b,
-    {
-        let tmp = self.inner.get(&bucket).unwrap();
-        let pref = key.name().to_string();
-        let tmp = tmp.range(key..);
+    pub fn get_response<'b>(
+        &'b self,
+        bucket: &'b Bucket<'_>,
+        key: &'b Key<'_>,
+    ) -> Option<FhsResponse<'b>> {
+        let tree = self.inner.get(&bucket).unwrap();
+        let objects = tree.get(&key)?;
+        let key_ = key.name();
+        let keys = tree
+            .range(key..)
+            .take_while(|(k, _)| k.name() == key_)
+            .map(|(k, _)| k.name())
+            .collect::<Vec<_>>();
 
-        tmp.take_while(move |(k, _)| k.name().starts_with(&pref))
-            .map(Into::into)
+        Some(FhsResponse::new(key_, keys, objects))
     }
 
     pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
@@ -79,7 +80,7 @@ impl<'a> BucketMap<'a> {
             .map(|x| x.keys().collect::<Vec<_>>())
     }
 
-    pub fn get_object_name<'b>(
+    pub fn get_object_by_file_name<'b>(
         &'b self,
         bucket: Bucket<'b>,
         key: Key<'b>,
@@ -91,7 +92,7 @@ impl<'a> BucketMap<'a> {
             .and_then(|x| x.iter().find(|x| x.file_name == name))
     }
 
-    pub fn new_bucket(&mut self, bucket: Bucket<'a>) {
+    pub fn insert_bucket(&mut self, bucket: Bucket<'a>) {
         self.inner
             .entry(bucket)
             .or_default()
@@ -99,7 +100,7 @@ impl<'a> BucketMap<'a> {
             .or_default();
     }
 
-    pub fn new_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
+    pub fn insert_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
         self.inner
             .entry(bucket)
             .or_default()
@@ -107,19 +108,15 @@ impl<'a> BucketMap<'a> {
             .or_default();
     }
 
-    pub fn get_objs_or_insert_default(
-        &mut self,
-        bucket: Bucket<'a>,
-        key: Key<'a>,
-    ) -> &mut Vec<Object> {
-        self.inner
-            .entry(bucket)
-            .or_default()
-            .entry(key)
-            .or_default()
+    pub fn get_objects<'b>(
+        &'b mut self,
+        bucket: &'b Bucket<'_>,
+        key: &'b Key<'_>,
+    ) -> Option<&'b Vec<Object>> {
+        self.inner.get(&bucket).and_then(|x| x.get(&key))
     }
 
-    pub fn new_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, object: Object) {
+    pub fn insert_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, object: Object) {
         self.inner
             .entry(bucket)
             .or_default()
@@ -128,13 +125,18 @@ impl<'a> BucketMap<'a> {
             .push(object);
     }
 
-    pub fn set_name_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, from: String, to: String) {
-        if let Some(val) = self
-            .get_objs_or_insert_default(bucket, key)
-            .iter_mut()
-            .find(|x| x.file_name == from)
-        {
-            val.file_name = to;
+    pub fn set_name_object(
+        &mut self,
+        bucket: &Bucket<'a>,
+        key: &Key<'a>,
+        from: &str,
+        to: impl Into<String>,
+    ) {
+        if let Some(val) = self.inner.get_mut(bucket).and_then(|x| {
+            x.get_mut(key)
+                .and_then(|x| x.iter_mut().find(|x| x.file_name == from))
+        }) {
+            val.file_name = to.into();
         }
     }
 
@@ -182,13 +184,13 @@ impl<'a> BucketMap<'a> {
                 key,
                 object,
             } => {
-                self.new_object(bucket, key, object);
+                self.insert_object(bucket, key, object);
             }
             Change::NewKey { bucket, key } => {
-                self.new_key(bucket, key);
+                self.insert_key(bucket, key);
             }
             Change::NewBucket { bucket } => {
-                self.new_bucket(bucket);
+                self.insert_bucket(bucket);
             }
             Change::NameObject {
                 bucket,
@@ -196,7 +198,7 @@ impl<'a> BucketMap<'a> {
                 file_name,
                 to,
             } => {
-                self.set_name_object(bucket, key, file_name, to);
+                self.set_name_object(&bucket, &key, &file_name, to);
             }
             Change::NameBucket { from, to } => self.set_name_bucket(from, to),
             Change::NameKey { bucket, from, to } => self.set_key(bucket, from, to),
