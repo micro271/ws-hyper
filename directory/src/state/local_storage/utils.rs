@@ -58,8 +58,7 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
         let key_map = map
             .get_keys(i.borrow())
             .unwrap()
-            .iter()
-            .map(|x| x.borrow())
+            .into_iter()
             .collect::<HashSet<_>>();
 
         let key_db = tree_aux

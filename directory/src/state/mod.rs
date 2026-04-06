@@ -63,8 +63,4 @@ impl State {
     pub fn create_rate_limit(&self) -> &CreateRateLimit {
         &self.create_limit
     }
-
-    pub async fn tree_as_json(&self) -> String {
-        json!(&*self.tree.read().await).to_string()
-    }
 }

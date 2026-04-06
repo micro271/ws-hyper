@@ -53,13 +53,17 @@ impl<'a> BucketMap<'a> {
         let tree = self.inner.get(&bucket).unwrap();
         let objects = tree.get(&key)?;
         let key_ = key.name();
-        let keys = tree
-            .range(key..)
-            .take_while(|(k, _)| k.name() == key_)
-            .map(|(k, _)| k.name())
-            .collect::<Vec<_>>();
+        let keys = key
+            .is_root()
+            .then(|| tree.keys().map(|x| x.name()).collect::<Vec<_>>())
+            .unwrap_or_else(|| {
+                tree.range(key..)
+                    .take_while(|(k, _)| k.name() == key_)
+                    .map(|(k, _)| k.name())
+                    .collect::<Vec<_>>()
+            });
 
-        Some(FhsResponse::new(key_, keys, objects))
+        Some(FhsResponse::new(bucket.name(), key_, keys, objects))
     }
 
     pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
@@ -74,10 +78,10 @@ impl<'a> BucketMap<'a> {
         self.inner.get(&bucket).and_then(|x| x.get(&key))
     }
 
-    pub fn get_keys<'b>(&'b self, bucket: Bucket<'b>) -> Option<Vec<&'b Key<'b>>> {
+    pub fn get_keys<'b>(&'b self, bucket: Bucket<'b>) -> Option<Vec<Key<'b>>> {
         self.inner
             .get(&bucket)
-            .map(|x| x.keys().collect::<Vec<_>>())
+            .map(|x| x.keys().map(|x| x.borrow()).collect::<Vec<_>>())
     }
 
     pub fn get_object_by_file_name<'b>(

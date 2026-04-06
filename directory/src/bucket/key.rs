@@ -8,6 +8,14 @@ use crate::bucket::{Bucket, Cowed};
 pub struct Key<'a>(Cow<'a, str>);
 
 impl<'a> Key<'a> {
+    pub fn root() -> Self {
+        Key(".".into())
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.0 == "."
+    }
+
     pub fn is_parent(&self, child: &Key) -> bool {
         child.name().strip_prefix(self.name()).is_some()
     }

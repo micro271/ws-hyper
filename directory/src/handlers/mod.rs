@@ -51,16 +51,13 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             state.add_client(bucket, key, ws).await;
             Ok(res)
         } else {
+            let state = state.read().await;
             let body = match (bucket, key) {
-                (Some(bucket), Some(key)) => {
-                    let state = state.read().await;
-                    json!(state.get_response(&bucket, &key)).to_string()
-                }
+                (Some(bucket), Some(key)) => json!(state.get_response(&bucket, &key)).to_string(),
                 (Some(bucket), None) => {
-                    let state = state.read().await;
-                    json!(state.get_bucket(bucket)).to_string()
+                    json!(state.get_response(&bucket, &Key::root())).to_string()
                 }
-                (None, None) => state.tree_as_json().await,
+                (None, None) => json!(state.get_buckets()).to_string(),
                 (None, _) => {
                     unreachable!()
                 }
