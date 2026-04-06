@@ -50,8 +50,8 @@ impl<'a> BucketMap<'a> {
         bucket: &'b Bucket<'_>,
         key: &'b Key<'_>,
     ) -> Option<FhsResponse<'b>> {
-        let tree = self.inner.get(&bucket).unwrap();
-        let objects = tree.get(&key)?;
+        let tree = self.inner.get(&bucket)?;
+        let objects = tree.get(&key);
         let key_ = key.name();
         let keys = key
             .is_root()

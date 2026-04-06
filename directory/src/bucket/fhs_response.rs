@@ -15,13 +15,13 @@ impl<'a> FhsResponse<'a> {
         bucket: &'a str,
         key: &'a str,
         inner_key: Vec<&'a str>,
-        objects: &'a Vec<Object>,
+        objects: Option<&'a Vec<Object>>,
     ) -> Self {
         Self {
             bucket,
             key,
             inner_key: (!inner_key.is_empty()).then_some(inner_key),
-            objects: (!objects.is_empty()).then_some(objects),
+            objects: objects.filter(|x| !x.is_empty()),
         }
     }
 }
