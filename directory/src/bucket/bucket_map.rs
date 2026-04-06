@@ -97,11 +97,7 @@ impl<'a> BucketMap<'a> {
     }
 
     pub fn insert_bucket(&mut self, bucket: Bucket<'a>) {
-        self.inner
-            .entry(bucket)
-            .or_default()
-            .entry(Key::from("."))
-            .or_default();
+        self.inner.entry(bucket).or_default();
     }
 
     pub fn insert_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
