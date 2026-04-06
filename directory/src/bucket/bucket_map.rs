@@ -58,8 +58,13 @@ impl<'a> BucketMap<'a> {
             .then(|| tree.keys().map(|x| x.name()).collect::<Vec<_>>())
             .unwrap_or_else(|| {
                 tree.range(key..)
-                    .take_while(|(k, _)| k.name() == key_)
-                    .map(|(k, _)| k.name())
+                    .take_while(|(k, _)| k.name().starts_with(key_))
+                    .filter_map(|(k, _)| {
+                        k.name()
+                            .strip_prefix(key_)
+                            .and_then(|x| x.strip_prefix("/"))
+                            .and_then(|x| x.split("/").next())
+                    })
                     .collect::<Vec<_>>()
             });
 
