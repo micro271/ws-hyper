@@ -1,5 +1,4 @@
 pub mod channels_types;
-pub mod new_file_tba;
 pub mod utils;
 pub mod watcher;
 pub mod websocket;

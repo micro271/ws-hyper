@@ -3,10 +3,9 @@ pub mod local_storage;
 use crate::{
     bucket::{Bucket, bucket_map::BucketMap, key::Key},
     grpc_v1::Permissions,
-    manager::{ManagerChSenders, new_file_tba::CreateRateLimit},
+    manager::ManagerChSenders,
 };
 use hyper_tungstenite::HyperWebsocket;
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard};
 use uuid::Uuid;
@@ -14,17 +13,12 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct State {
     tree: Arc<RwLock<BucketMap<'static>>>,
-    create_limit: CreateRateLimit,
     mgr: ManagerChSenders,
 }
 
 impl State {
     pub async fn new(tree: Arc<RwLock<BucketMap<'static>>>, mgr: ManagerChSenders) -> Self {
-        Self {
-            tree,
-            create_limit: CreateRateLimit::new(),
-            mgr,
-        }
+        Self { tree, mgr }
     }
 
     pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap<'_>> {
@@ -58,9 +52,5 @@ impl State {
         {
             tracing::error!("{er}");
         } */
-    }
-
-    pub fn create_rate_limit(&self) -> &CreateRateLimit {
-        &self.create_limit
     }
 }
