@@ -55,7 +55,13 @@ impl<'a> BucketMap<'a> {
         let key_ = key.name();
         let keys = key
             .is_root()
-            .then(|| tree.keys().map(|x| x.name()).collect::<Vec<_>>())
+            .then(|| {
+                tree.keys()
+                    .map(|x| x.name())
+                    .filter(|x| x.ne(&"."))
+                    .filter_map(|x| x.split("/").next())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_else(|| {
                 tree.range(key..)
                     .take_while(|(k, _)| k.name().starts_with(key_))
