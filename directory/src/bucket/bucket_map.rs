@@ -53,7 +53,7 @@ impl<'a> BucketMap<'a> {
         let tree = self.inner.get(&bucket)?;
         let objects = tree.get(&key);
         let key_ = key.name();
-        let keys = key
+        let mut keys = key
             .is_root()
             .then(|| {
                 tree.keys()
@@ -73,7 +73,7 @@ impl<'a> BucketMap<'a> {
                     })
                     .collect::<Vec<_>>()
             });
-
+        keys.dedup();
         Some(FhsResponse::new(bucket.name(), key_, keys, objects))
     }
 

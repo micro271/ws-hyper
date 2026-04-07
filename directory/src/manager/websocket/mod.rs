@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+pub mod user_tracker;
+use std::{fmt::Debug, sync::Arc};
 
 use futures::{
     SinkExt, StreamExt,
@@ -10,15 +11,15 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tokio::sync::{
     Mutex,
-    broadcast::{self, Receiver as ReceivedBr, Sender as SenderBr},
     mpsc::{self, Receiver, Sender},
 };
 
 use crate::{
-    bucket::{Bucket, Cowed, key::Key},
+    bucket::{Bucket, key::Key},
     manager::{
-        Change, Scope,
+        Change,
         utils::{SplitTask, Task},
+        websocket::user_tracker::UserTracker,
     },
 };
 
@@ -64,41 +65,46 @@ impl Task for WebSocket {
     where
         Self: Sized,
     {
-        let mut users = ListToNotification::<Change>::new();
+        let mut users = UserTracker::<Change>::new();
         tracing::info!("Web socket manage init");
 
         loop {
             let msg = self.rx.recv().await;
             tracing::trace!("{msg:?}");
             match msg {
-                Some(MsgWs::Change(change)) => match change.scope() {
-                    Scope::Bucket(bucket) => match users.send_all_in_bucket(&bucket) {
-                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                        Ok(snd) => {
-                            if let Err(er) = snd.send(change) {
-                                tracing::error!(
-                                    "We had a problem sending the message to this keys {er:?}"
-                                );
-                            }
-                        }
-                    },
-                    Scope::Key(bucket, key) => match users.send_message(&bucket, &key) {
-                        Err(er) => tracing::error!("No one is listening the bucket {er}"),
-                        Ok(snd) => {
-                            if let Err(er) = snd.send(change) {
-                                tracing::error!(
-                                    "We had a problem sending the message to this key {er:?}"
-                                );
-                            }
-                        }
-                    },
-                },
+                Some(MsgWs::Change(change)) => {
+                    match change {
+                        Change::NewObject {
+                            bucket,
+                            key,
+                            object,
+                        } => todo!(),
+                        Change::NewKey { bucket, key } => todo!(),
+                        Change::NewBucket { bucket } => todo!(),
+                        Change::NameObject {
+                            bucket,
+                            key,
+                            file_name,
+                            to,
+                        } => todo!(),
+                        Change::NameBucket { from, to } => todo!(),
+                        Change::NameKey { bucket, from, to } => todo!(),
+                        Change::DeleteObject {
+                            bucket,
+                            key,
+                            file_name,
+                        } => todo!(),
+                        Change::DeleteKey { bucket, key } => todo!(),
+                        Change::DeleteBucket { bucket } => todo!(),
+                    }
+                    todo!();
+                }
                 Some(MsgWs::NewUser {
                     bucket,
                     key,
                     sender,
                 }) => {
-                    let mut rx = users.rcv_or_create(bucket, key);
+                    let mut rx = users.get_rx(bucket, key);
 
                     let (tx_client, rx_client) = sender.await.unwrap().split();
                     let tx_client = Arc::new(Mutex::new(tx_client));
@@ -183,90 +189,4 @@ pub enum MsgWs {
         sender: HyperWebsocket,
     },
     Change(Change),
-}
-
-struct ListToNotification<T>(HashMap<Bucket<'static>, HashMap<Key<'static>, SenderBr<T>>>);
-
-impl<T: Clone + Send + 'static> ListToNotification<T> {
-    fn new() -> Self {
-        Self(HashMap::new())
-    }
-
-    fn send_message<'a>(
-        &'a self,
-        bucket: &'a Bucket,
-        key: &'a Key,
-    ) -> Result<SendMessage<'a, T>, ListToNotificationError<'a, T>> {
-        let sender = self
-            .0
-            .get(bucket)
-            .ok_or(ListToNotificationError::BucketNotFound(bucket.to_string()))
-            .and_then(|x| {
-                x.get(key)
-                    .ok_or(ListToNotificationError::KeyNotFound(key.name()))
-            })?;
-
-        Ok(SendMessage(sender))
-    }
-
-    pub fn send_all_in_bucket<'a>(
-        &'a self,
-        bucket: &'a Bucket,
-    ) -> Result<SendAllBucket<'a, T>, ListToNotificationError<'a, T>> {
-        Ok(SendAllBucket(self.0.get(bucket).ok_or(
-            ListToNotificationError::BucketNotFound(bucket.to_string()),
-        )?))
-    }
-
-    fn rcv_or_create(&mut self, bucket: Bucket<'_>, key: Key<'_>) -> ReceivedBr<T> {
-        let bucket = self.0.entry(bucket.owned()).or_default();
-        let key = bucket.entry(key.owned()).or_insert_with(|| {
-            let (tx, _) = broadcast::channel::<T>(128);
-            tx
-        });
-        key.subscribe()
-    }
-}
-
-struct SendMessage<'a, T>(&'a SenderBr<T>);
-
-impl<'a, T: Clone> SendMessage<'a, T> {
-    pub fn send(self, msj: T) -> Result<usize, broadcast::error::SendError<T>> {
-        self.0.send(msj.clone())
-    }
-}
-
-struct SendAllBucket<'a, T>(&'a HashMap<Key<'a>, SenderBr<T>>);
-
-impl<'a, T: Clone> SendAllBucket<'a, T> {
-    pub fn send(self, msj: T) -> Result<(), Vec<(Key<'a>, broadcast::error::SendError<T>)>> {
-        let mut err = Vec::new();
-        for (key, snd) in self.0 {
-            if let Err(er) = snd.send(msj.clone()) {
-                err.push((key.clone(), er));
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub enum ListToNotificationError<'a, T> {
-    BucketNotFound(String),
-    KeyNotFound(&'a str),
-    SendError(broadcast::error::SendError<T>),
-}
-
-impl<'a, T: Debug> std::error::Error for ListToNotificationError<'a, T> {}
-
-impl<'a, T> std::fmt::Display for ListToNotificationError<'a, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ListToNotificationError::BucketNotFound(bucket) => {
-                write!(f, "Bucket {bucket:?} not found")
-            }
-            ListToNotificationError::KeyNotFound(key) => write!(f, "Bucket {key:?} not found"),
-            ListToNotificationError::SendError(send_error) => write!(f, "{send_error}"),
-        }
-    }
 }

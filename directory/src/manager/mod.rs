@@ -19,7 +19,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key, object::Object},
+    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
     grpc_v1::ConnectionAuthMS,
     manager::{
         utils::{Run, SplitTask, Task, change_local_storage},
@@ -199,29 +199,6 @@ pub enum Change {
     DeleteBucket {
         bucket: Bucket<'static>,
     },
-}
-
-#[derive(Debug)]
-enum Scope {
-    Bucket(Bucket<'static>),
-    Key(Bucket<'static>, Key<'static>),
-}
-
-impl Change {
-    fn scope(&self) -> Scope {
-        match self {
-            Change::NewObject { bucket, key, .. }
-            | Change::NewKey { bucket, key }
-            | Change::NameObject { bucket, key, .. }
-            | Change::DeleteObject { bucket, key, .. }
-            | Change::DeleteKey { bucket, key } => Scope::Key(bucket.cloned(), key.cloned()),
-            Change::NameBucket { from, .. } => Scope::Bucket(from.cloned()),
-            Change::NameKey { bucket, from, .. } => Scope::Key(bucket.cloned(), from.cloned()),
-            Change::NewBucket { bucket } | Change::DeleteBucket { bucket } => {
-                Scope::Bucket(bucket.cloned())
-            }
-        }
-    }
 }
 
 pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>) {
