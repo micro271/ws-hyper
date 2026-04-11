@@ -4,16 +4,16 @@ use crate::bucket::object::Object;
 
 #[derive(Debug, Serialize)]
 pub struct FhsResponse<'a> {
-    bucket: &'a str,
-    key: &'a str,
+    bucket: Option<&'a str>,
+    key: Option<&'a str>,
     inner_key: Option<Vec<&'a str>>,
     objects: Option<&'a Vec<Object>>,
 }
 
 impl<'a> FhsResponse<'a> {
     pub fn new(
-        bucket: &'a str,
-        key: &'a str,
+        bucket: Option<&'a str>,
+        key: Option<&'a str>,
         inner_key: Vec<&'a str>,
         objects: Option<&'a Vec<Object>>,
     ) -> Self {

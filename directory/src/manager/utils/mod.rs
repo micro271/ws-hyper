@@ -339,7 +339,7 @@ pub async fn hd_rename_object<'a>(
             Ok(Change::NameObject {
                 bucket,
                 key,
-                file_name: old_name,
+                from: old_name,
                 to: name,
             })
         }
@@ -358,7 +358,7 @@ pub async fn hd_rename_object<'a>(
             Ok(Change::NameObject {
                 bucket,
                 key,
-                file_name: from,
+                from,
                 to,
             })
         }
@@ -396,12 +396,9 @@ pub async fn change_local_storage(ch: &mut Change, ls: Arc<LocalStorage>) {
             key,
             to,
             bucket,
-            file_name,
+            from,
         } => {
-            if let Err(er) = ls
-                .set_name(bucket.borrow(), key.borrow(), file_name, to)
-                .await
-            {
+            if let Err(er) = ls.set_name(bucket.borrow(), key.borrow(), from, to).await {
                 tracing::error!("[ fn change_local_storage ] error: {er} ")
             }
         }

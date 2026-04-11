@@ -53,11 +53,13 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
         } else {
             let state = state.read().await;
             let body = match (bucket, key) {
-                (Some(bucket), Some(key)) => json!(state.get_response(&bucket, &key)).to_string(),
-                (Some(bucket), None) => {
-                    json!(state.get_response(&bucket, &Key::root())).to_string()
+                (bucket @ Some(_), key @ Some(_)) => {
+                    json!(state.get_response(bucket.as_ref(), key.as_ref())).to_string()
                 }
-                (None, None) => json!(state.get_buckets()).to_string(),
+                (bucket @ Some(_), None) => {
+                    json!(state.get_response(bucket.as_ref(), Some(&Key::root()))).to_string()
+                }
+                (None, None) => json!(state.get_response(None, None)).to_string(),
                 (None, _) => {
                     unreachable!()
                 }

@@ -47,9 +47,14 @@ impl<'a> BucketMap<'a> {
 
     pub fn get_response<'b>(
         &'b self,
-        bucket: &'b Bucket<'_>,
-        key: &'b Key<'_>,
+        bucket: Option<&'b Bucket<'_>>,
+        key: Option<&'b Key<'_>>,
     ) -> Option<FhsResponse<'b>> {
+        let (Some(bucket), Some(key)) = (bucket, key) else {
+            let buckets = self.get_buckets().map(|x| x.name()).collect::<Vec<_>>();
+            return Some(FhsResponse::new(None, None, buckets, None));
+        };
+
         let tree = self.inner.get(&bucket)?;
         let objects = tree.get(&key);
         let key_ = key.name();
@@ -74,15 +79,20 @@ impl<'a> BucketMap<'a> {
                     .collect::<Vec<_>>()
             });
         keys.dedup();
-        Some(FhsResponse::new(bucket.name(), key_, keys, objects))
+        Some(FhsResponse::new(
+            Some(bucket.name()),
+            Some(key_),
+            keys,
+            objects,
+        ))
     }
 
     pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
         self.inner.get(&bucket)
     }
 
-    pub fn get_buckets(&self) -> Vec<Bucket<'_>> {
-        self.inner.keys().map(|x| x.borrow()).collect::<Vec<_>>()
+    pub fn get_buckets(&self) -> impl Iterator<Item = &Bucket<'_>> {
+        self.inner.keys()
     }
 
     pub fn get_key<'b>(&'b self, bucket: Bucket<'b>, key: Key<'b>) -> Option<&'b Vec<Object>> {
@@ -206,10 +216,10 @@ impl<'a> BucketMap<'a> {
             Change::NameObject {
                 bucket,
                 key,
-                file_name,
+                from,
                 to,
             } => {
-                self.set_name_object(&bucket, &key, &file_name, to);
+                self.set_name_object(&bucket, &key, &from, to);
             }
             Change::NameBucket { from, to } => self.set_name_bucket(from, to),
             Change::NameKey { bucket, from, to } => self.set_key(bucket, from, to),

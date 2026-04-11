@@ -31,7 +31,10 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
             None => break,
         }
     }
-    let bucket_map = map.get_buckets().into_iter().collect::<HashSet<_>>();
+    let bucket_map = map
+        .get_buckets()
+        .map(|x| x.borrow())
+        .collect::<HashSet<_>>();
     let bucket_db = tree_aux.keys().cloned().collect::<HashSet<_>>();
     let dif = bucket_db.difference(&bucket_map).collect::<HashSet<_>>();
 

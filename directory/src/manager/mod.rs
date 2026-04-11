@@ -175,7 +175,7 @@ pub enum Change {
     NameObject {
         bucket: Bucket<'static>,
         key: Key<'static>,
-        file_name: String,
+        from: String,
         to: String,
     },
     NameBucket {
