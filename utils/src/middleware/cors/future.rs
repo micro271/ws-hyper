@@ -26,9 +26,7 @@ where
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        let this = unsafe { self.get_unchecked_mut() };
-
-        match &mut this.kind {
+        match unsafe { &mut self.get_unchecked_mut().kind } {
             Kind::Preflight { headers } => {
                 let mut resp = Response::builder()
                     .body(<ResBody as Default>::default())
