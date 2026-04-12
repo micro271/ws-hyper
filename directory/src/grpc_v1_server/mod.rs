@@ -9,16 +9,8 @@ use tokio::sync::RwLock;
 use tonic::{async_trait, transport::Server};
 
 use crate::{
-    bucket::{
-        Bucket, Cowed,
-        bucket_map::BucketMap,
-        key::Key,
-        utils::rename_handlers::{
-            NewObjNameHandlerBuilder, RenameObjHandler, RenameObjHandlerBuilder,
-        },
-    },
+    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key},
     grpc_v1_server,
-    state::local_storage::LocalStorage,
 };
 
 pub struct BucketGrpcSrv<'a> {

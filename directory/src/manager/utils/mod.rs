@@ -11,7 +11,7 @@ use crate::{
     bucket::{
         Bucket, Cowed,
         key::Key,
-        object::Object,
+        object::{Object, OwnerFile},
         utils::{
             Rename, RenameDecision,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -194,7 +194,7 @@ pub async fn hd_new_object_watcher(
 
             let bucket = Bucket::find_bucket(root, &path).unwrap();
             let key = Key::from_bucket(bucket.borrow(), &parent).unwrap();
-            let object = Object::new(&to_).await;
+            let object = Object::new(&to_, OwnerFile::User("Test".to_string())).await;
             skip.object_tracker()
                 .to_skip(bucket.cloned(), key.cloned(), to)
                 .await;
@@ -208,7 +208,7 @@ pub async fn hd_new_object_watcher(
         Ok(RenameDecision::Not(_)) => {
             let bucket = Bucket::find_bucket(root, &path).unwrap();
             let key = Key::from_bucket(bucket.borrow(), path.parent().unwrap()).unwrap();
-            let object = Object::new(&path).await;
+            let object = Object::new(&path, OwnerFile::User("test".to_string())).await;
             tracing::trace!("[Event Watcher] bucket: {bucket} - key: {key} - object: {object:?}");
 
             Ok(Change::NewObject {

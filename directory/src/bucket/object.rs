@@ -91,6 +91,7 @@ pub struct ObjectBuilder<T> {
 pub struct Object {
     pub id: Option<ObjectId>,
     pub size: i64,
+    pub owner: OwnerFile,
     pub file_name: String,
     pub checksum: String,
     pub seen_by: Option<Vec<String>>,
@@ -101,7 +102,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub async fn new<T>(path: T) -> Self
+    pub async fn new<T>(path: T, owner: OwnerFile) -> Self
     where
         T: AsRef<Path>,
     {
@@ -130,6 +131,7 @@ impl Object {
             checksum,
             size,
             modified,
+            owner,
             accessed,
             created,
             ..Default::default()
@@ -142,6 +144,14 @@ impl std::cmp::PartialEq for Object {
         self.id.is_some_and(|x| other.id.is_some_and(|y| x == y))
             || (self.file_name == other.file_name && self.checksum == other.checksum)
     }
+}
+
+#[derive(Deserialize, Serialize, Default, Debug, Clone)]
+#[serde(tag = "type", content = "value")]
+pub enum OwnerFile {
+    #[default]
+    System,
+    User(String),
 }
 
 fn get_info_metadata(

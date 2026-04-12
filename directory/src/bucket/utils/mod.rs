@@ -1,12 +1,8 @@
 pub mod normalizeds;
-pub mod rename_handlers;
 
 use std::path::{Path, PathBuf};
 
-use crate::{
-    bucket::{Bucket, key::Key, object::Object, utils::normalizeds::NormalizePathUtf8},
-    state::local_storage::{LocalStorage, error::LsError},
-};
+use crate::bucket::{Bucket, utils::normalizeds::NormalizePathUtf8};
 
 #[derive(Debug)]
 pub struct Rename {

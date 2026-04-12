@@ -4,6 +4,7 @@ use crate::{
         Cowed,
         fhs_response::FhsResponse,
         key::Key,
+        object::OwnerFile,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -287,7 +288,7 @@ async fn sync_objects(
 
             continue;
         } else {
-            let obj = Object::new(path).await;
+            let obj = Object::new(path, OwnerFile::default()).await;
             if let Err(er) = local_storage
                 .new_object(bucket.borrow(), key.borrow(), &obj)
                 .await
