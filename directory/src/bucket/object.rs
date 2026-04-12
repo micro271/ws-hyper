@@ -82,7 +82,7 @@ pub struct BuilderObjPath(PathBuf);
 pub struct ObjectBuilder<T> {
     path: T,
     name: Option<String>,
-    chechsum: Option<String>,
+    checksum: Option<String>,
     seen_by: Option<Vec<String>>,
     taken_by: Option<Vec<String>>,
 }
@@ -92,7 +92,7 @@ pub struct Object {
     pub id: Option<ObjectId>,
     pub size: i64,
     pub file_name: String,
-    pub chechsum: String,
+    pub checksum: String,
     pub seen_by: Option<Vec<String>>,
     pub taken_by: Option<Vec<String>>,
     pub modified: ObjectModified,
@@ -109,7 +109,7 @@ impl Object {
         let meta = path.metadata().ok();
         let (modified, accessed, created, size) = get_info_metadata(meta);
 
-        let chechsum = match CheckSum::new(path.to_path_buf()).check_sum_async().await {
+        let checksum = match CheckSum::new(path.to_path_buf()).check_sum_async().await {
             Ok(msg) => msg,
             Err(er) => {
                 tracing::error!(
@@ -127,7 +127,7 @@ impl Object {
 
         Self {
             file_name,
-            chechsum,
+            checksum,
             size,
             modified,
             accessed,
@@ -140,7 +140,7 @@ impl Object {
 impl std::cmp::PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
         self.id.is_some_and(|x| other.id.is_some_and(|y| x == y))
-            || (self.file_name == other.file_name && self.chechsum == other.chechsum)
+            || (self.file_name == other.file_name && self.checksum == other.checksum)
     }
 }
 
@@ -211,7 +211,7 @@ impl std::default::Default for ObjectBuilder<BuilderObjNotPath> {
         Self {
             path: BuilderObjNotPath,
             name: None,
-            chechsum: None,
+            checksum: None,
             seen_by: None,
             taken_by: None,
         }
@@ -223,7 +223,7 @@ impl ObjectBuilder<BuilderObjNotPath> {
         ObjectBuilder {
             path: BuilderObjPath(path),
             name: self.name,
-            chechsum: self.chechsum,
+            checksum: self.checksum,
             seen_by: self.seen_by,
             taken_by: self.taken_by,
         }
@@ -235,8 +235,8 @@ impl<T> ObjectBuilder<T> {
         self.name = Some(name);
         self
     }
-    pub fn chechsum(mut self, chechsum: String) -> Self {
-        self.chechsum = Some(chechsum);
+    pub fn checksum(mut self, checksum: String) -> Self {
+        self.checksum = Some(checksum);
         self
     }
     pub fn seen_by(mut self, seen_by: Vec<String>) -> Self {
@@ -255,7 +255,7 @@ impl ObjectBuilder<BuilderObjPath> {
         let meta = path.metadata().ok();
         let (modified, accessed, created, size) = get_info_metadata(meta);
 
-        let chechsum = if let Some(chk) = self.chechsum {
+        let checksum = if let Some(chk) = self.checksum {
             chk
         } else {
             CheckSum::new(path.to_path_buf())
@@ -266,7 +266,7 @@ impl ObjectBuilder<BuilderObjPath> {
 
         Object {
             file_name: "".to_string(),
-            chechsum,
+            checksum,
             size,
             modified,
             accessed,

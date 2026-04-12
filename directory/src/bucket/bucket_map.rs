@@ -52,7 +52,7 @@ impl<'a> BucketMap<'a> {
     ) -> Option<FhsResponse<'b>> {
         let (Some(bucket), Some(key)) = (bucket, key) else {
             let buckets = self.get_buckets().map(|x| x.name()).collect::<Vec<_>>();
-            return Some(FhsResponse::new(None, None, buckets, None));
+            return Some(FhsResponse::new(buckets, None));
         };
 
         let tree = self.inner.get(&bucket)?;
@@ -79,12 +79,7 @@ impl<'a> BucketMap<'a> {
                     .collect::<Vec<_>>()
             });
         keys.dedup();
-        Some(FhsResponse::new(
-            Some(bucket.name()),
-            Some(key_),
-            keys,
-            objects,
-        ))
+        Some(FhsResponse::new(keys, objects))
     }
 
     pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {

@@ -91,7 +91,7 @@ pub async fn sync_object_with_database(local_storage: &LocalStorage, map: &mut B
             let vec_db = tree_aux.get(i).and_then(|x| x.get(m)).unwrap();
             let to_delete = vec_db
                 .iter()
-                .filter(|x| !vec_map.iter().any(|y| y.chechsum == x.chechsum))
+                .filter(|x| !vec_map.iter().any(|y| y.checksum == x.checksum))
                 .collect::<Vec<_>>();
             for n in to_delete {
                 if let Err(er) = db
