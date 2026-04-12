@@ -1,9 +1,8 @@
 pub mod skipper;
 
-use regex::Regex;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
+    sync::Arc,
 };
 use tokio::sync::mpsc::error::SendError;
 
@@ -20,9 +19,6 @@ use crate::{
     manager::{Change, utils::skipper::Skipper},
     state::local_storage::LocalStorage,
 };
-
-pub static OBJECT_NAME_REPEATED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new("^( .{{4}} ) ").unwrap());
 
 pub type SenderErrorTokio<T> = Result<(), tokio::sync::mpsc::error::SendError<T>>;
 

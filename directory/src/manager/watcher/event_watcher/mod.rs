@@ -11,16 +11,12 @@ pub use rename_control::*;
 use std::path::PathBuf;
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::{
-    bucket::{Bucket, Cowed, key::Key},
-    manager::{
-        utils::{
-            AsyncRecv, OBJECT_NAME_REPEATED, OneshotSender, SplitTask, Task,
-            hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_object, hd_rename_path,
-            skipper::Skipper,
-        },
-        watcher::{NotifyChType, error::WatcherErr},
+use crate::manager::{
+    utils::{
+        AsyncRecv, OneshotSender, SplitTask, Task, hd_new_bucket_or_key_watcher,
+        hd_new_object_watcher, hd_rename_object, hd_rename_path, skipper::Skipper,
     },
+    watcher::{NotifyChType, error::WatcherErr},
 };
 
 #[derive(Debug, Clone)]
@@ -58,7 +54,7 @@ where
                         continue;
                     };
 
-                    match hd_new_bucket_or_key_watcher(path, &self.path, skipper.clone()).await {
+                    match hd_new_bucket_or_key_watcher(path, root, skipper.clone()).await {
                         Ok(ch) => {
                             if let Err(err) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Wtcher] Sender error: {err}");
@@ -81,7 +77,7 @@ where
                         continue;
                     };
 
-                    match hd_new_object_watcher(path, &self.path, skipper.clone()).await {
+                    match hd_new_object_watcher(path, root, skipper.clone()).await {
                         Ok(ch) => {
                             if let Err(er) = self.change_notify.send(ch) {
                                 tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
@@ -121,9 +117,9 @@ where
                     }
 
                     let ch = if to.is_dir() {
-                        hd_rename_path(&self.path, from, to, skipper.clone()).await
+                        hd_rename_path(root, from, to, skipper.clone()).await
                     } else {
-                        hd_rename_object(&self.path, from, to, skipper.clone()).await
+                        hd_rename_object(root, from, to, skipper.clone()).await
                     };
 
                     match ch {
@@ -139,44 +135,7 @@ where
                 }
                 notify::EventKind::Remove(er) => {
                     tracing::trace!("{er:?}");
-                    let mut path = event.paths;
-                    let Some(path) = path.pop() else {
-                        continue;
-                    };
-
-                    let Some(name) = path
-                        .file_name()
-                        .and_then(|x| x.to_str().map(ToString::to_string))
-                    else {
-                        continue;
-                    };
-
-                    let change = if OBJECT_NAME_REPEATED.is_match(&name)
-                        && let Some(bucket) = Bucket::find_bucket(&self.path, &path)
-                        && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
-                    {
-                        Change::DeleteObject {
-                            bucket,
-                            key,
-                            file_name: name.to_string(),
-                        }
-                    } else if let Some(path) = path.parent()
-                        && path == root
-                    {
-                        let bucket = Bucket::new_unchecked(name);
-                        Change::DeleteBucket { bucket }
-                    } else if let Some(bucket) = Bucket::find_bucket(root, &path)
-                        && let Some(key) = Key::from_bucket(bucket.borrow(), &path)
-                    {
-                        Change::DeleteKey { bucket, key }
-                    } else {
-                        tracing::error!("[ Event Watcher ] {{ Error to delete path }} {path:?}");
-                        continue;
-                    };
-
-                    if let Err(er) = self.change_notify.send(change) {
-                        tracing::error!("[ EventWatcher ] {{ Remove file }} Error: {er}");
-                    }
+                    todo!("soon!")
                 }
                 _ => {}
             }
