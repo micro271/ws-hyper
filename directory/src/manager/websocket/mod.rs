@@ -73,31 +73,29 @@ impl Task for WebSocket {
             tracing::trace!("{msg:?}");
             match msg {
                 Some(MsgWs::Change(change)) => {
-                    match change {
-                        Change::NewObject {
-                            bucket,
-                            key,
-                            object,
-                        } => todo!(),
-                        Change::NewKey { bucket, key } => todo!(),
-                        Change::NewBucket { bucket } => todo!(),
-                        Change::NameObject {
-                            bucket,
-                            key,
-                            from,
-                            to,
-                        } => todo!(),
-                        Change::NameBucket { from, to } => todo!(),
-                        Change::NameKey { bucket, from, to } => todo!(),
-                        Change::DeleteObject {
-                            bucket,
-                            key,
-                            file_name,
-                        } => todo!(),
-                        Change::DeleteKey { bucket, key } => todo!(),
-                        Change::DeleteBucket { bucket } => todo!(),
-                    }
-                    todo!();
+                    let bucket = match &change {
+                        Change::NewObject { bucket, .. } => bucket.clone(),
+                        Change::NewKey { bucket, .. } => bucket.clone(),
+                        Change::NewBucket { bucket } => bucket.clone(),
+                        Change::NameObject { bucket, .. } => bucket.clone(),
+                        Change::NameKey { bucket, .. } => bucket.clone(),
+                        Change::DeleteObject { bucket, .. } => bucket.clone(),
+                        Change::DeleteKey { bucket, .. } => bucket.clone(),
+                        Change::NameBucket { from, .. } => from.clone(),
+                        Change::DeleteBucket { bucket } => bucket.clone(),
+                    };
+
+                    let key = match &change {
+                        Change::NewObject { key, .. } => Some(key.clone()),
+                        Change::NewKey { key, .. } => Some(key.clone()),
+                        Change::NameObject { key, .. } => Some(key.clone()),
+                        Change::NameKey { from, .. } => Some(from.clone()),
+                        Change::DeleteObject { key, .. } => Some(key.clone()),
+                        Change::DeleteKey { key, .. } => Some(key.clone()),
+                        _ => None,
+                    };
+
+                    users.broadcast(bucket, key, change);
                 }
                 Some(MsgWs::NewUser {
                     bucket,

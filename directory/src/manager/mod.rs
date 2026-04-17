@@ -33,8 +33,8 @@ type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 
 #[derive(Debug)]
 pub struct ManagerChSenders {
-    grpc: ConnectionAuthMS,
-    ws: WebSocketChSender,
+    pub grpc: ConnectionAuthMS,
+    pub ws: WebSocketChSender,
 }
 
 pub struct Manager {

@@ -1,9 +1,9 @@
 pub mod local_storage;
 
 use crate::{
-    bucket::{Bucket, bucket_map::BucketMap, key::Key},
+    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key},
     grpc_v1::Permissions,
-    manager::ManagerChSenders,
+    manager::{ManagerChSenders, websocket::MsgWs},
 };
 use hyper_tungstenite::HyperWebsocket;
 use std::sync::Arc;
@@ -40,17 +40,17 @@ impl State {
         key: Option<Key<'_>>,
         sender: HyperWebsocket,
     ) {
-        /*
         if let Err(er) = self
-            .tx_subs
+            .mgr
+            .ws
             .send(MsgWs::NewUser {
-                bucket,
-                key,
+                bucket: bucket.unwrap().owned(),
+                key: key.unwrap().owned(),
                 sender,
             })
             .await
         {
             tracing::error!("{er}");
-        } */
+        }
     }
 }

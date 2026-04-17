@@ -26,6 +26,24 @@ where
             rx
         }
     }
+
+    pub fn broadcast(&self, bucket: Bucket<'static>, key: Option<Key<'static>>, value: T) {
+        match key {
+            Some(key) => {
+                if let Some(sender) = self.inner.get(&bucket).and_then(|bk| bk.get(&key)) {
+                    let _ = sender.send(value);
+                }
+            }
+            None => {
+                // NameBucket / DeleteBucket — notificar a todas las keys del bucket
+                if let Some(bk) = self.inner.get(&bucket) {
+                    for sender in bk.values() {
+                        let _ = sender.send(value.clone());
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl<T> std::default::Default for UserTracker<T> {
