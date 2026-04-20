@@ -1,24 +1,27 @@
 pub mod local_storage;
 
 use crate::{
-    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key},
+    actor::Actor,
+    bucket::{Bucket, bucket_map::BucketMap, key::Key},
     grpc_v1::Permissions,
-    manager::{ManagerChSenders, websocket::MsgWs},
+    manager::Manager,
 };
 use hyper_tungstenite::HyperWebsocket;
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard};
 use uuid::Uuid;
 
-#[derive(Debug)]
 pub struct State {
     tree: Arc<RwLock<BucketMap<'static>>>,
-    mgr: ManagerChSenders,
+    ref_manager: <Manager as Actor>::Handler,
 }
 
 impl State {
-    pub async fn new(tree: Arc<RwLock<BucketMap<'static>>>, mgr: ManagerChSenders) -> Self {
-        Self { tree, mgr }
+    pub async fn new(
+        tree: Arc<RwLock<BucketMap<'static>>>,
+        ref_manager: <Manager as Actor>::Handler,
+    ) -> Self {
+        Self { tree, ref_manager }
     }
 
     pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap<'_>> {
@@ -40,7 +43,7 @@ impl State {
         key: Option<Key<'_>>,
         sender: HyperWebsocket,
     ) {
-        if let Err(er) = self
+        /*if let Err(er) = self
             .mgr
             .ws
             .send(MsgWs::NewUser {
@@ -51,6 +54,7 @@ impl State {
             .await
         {
             tracing::error!("{er}");
-        }
+        }*/
+        todo!()
     }
 }

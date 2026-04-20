@@ -1,170 +1,211 @@
-mod builder;
 mod rename_control;
 
-use super::super::Change;
-pub use builder::*;
 use notify::{
-    INotifyWatcher, RecursiveMode, Watcher,
-    event::{CreateKind, ModifyKind, RenameMode},
+    INotifyWatcher, Watcher as _,
+    event::{CreateKind, Event, ModifyKind, RenameMode},
 };
 pub use rename_control::*;
 use std::path::PathBuf;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::manager::{
-    utils::{
-        AsyncRecv, OneshotSender, SplitTask, Task, hd_new_bucket_or_key_watcher,
-        hd_new_object_watcher, hd_rename_object, hd_rename_path, skipper::Skipper,
+use crate::{
+    actor::{Actor, ActorRef, Envelope, Handler},
+    manager::{
+        Manager,
+        utils::{
+            hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_object, hd_rename_path,
+            skipper::Skipper,
+        },
     },
-    watcher::{NotifyChType, error::WatcherErr},
 };
 
-#[derive(Debug, Clone)]
-pub struct EventWatcherCh<Tx>(Tx);
-
-pub struct EventWatcher<Tx, Rx, TxChange> {
-    _notify_watcher: INotifyWatcher,
-    tx: Tx,
-    rx: Rx,
-    change_notify: TxChange,
+pub struct EventWatcher {
+    notify_watcher: Option<INotifyWatcher>,
+    r#await: u64,
+    ref_manager: Option<<Manager as Actor>::Handler>,
     path: PathBuf,
-    rename_control_sender: RenameControlCh,
+    ref_rename_control: Option<<RenameControl as Actor>::Handler>,
+    skipper: Skipper,
 }
 
-impl<Tx, Rx, TxChange> Task for EventWatcher<Tx, Rx, TxChange>
-where
-    TxChange: OneshotSender<Item = Change>,
-    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
-    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
-{
-    async fn task(mut self) {
-        tracing::warn!("Watcher notify manage init");
+impl std::fmt::Debug for EventWatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventWatcher").finish()
+    }
+}
 
-        let tx_rename = self.rename_control_sender.inner();
-        let root = &self.path;
-        let skipper = Skipper::default();
-        while let Some(Ok(event)) = self.rx.recv().await {
-            tracing::trace!("[Scheduler] new event: {event:?}");
-            match event.kind {
-                notify::EventKind::Create(CreateKind::Folder) => {
-                    let mut paths = event.paths;
-                    tracing::debug!("[ EventWatcher ] Path: {paths:?}");
+impl EventWatcher {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            notify_watcher: None,
+            r#await: 2000,
+            ref_manager: None,
+            ref_rename_control: None,
+            path,
+            skipper: Skipper::default(),
+        }
+    }
 
-                    let Some(path) = paths.pop() else {
-                        continue;
-                    };
+    pub fn set_ref_manager(&mut self, actor_ref: <Manager as Actor>::Handler) {
+        self.ref_manager = Some(actor_ref);
+    }
 
-                    match hd_new_bucket_or_key_watcher(path, root, skipper.clone()).await {
-                        Ok(ch) => {
-                            if let Err(err) = self.change_notify.send(ch) {
-                                tracing::error!("[Event Wtcher] Sender error: {err}");
-                            }
-                        }
-                        Err(()) => {
-                            tracing::error!("[ CreateKinfFolder ] Error")
-                        }
-                    }
-                }
-                notify::EventKind::Create(action) => {
-                    tracing::trace!("Event: {event:?}");
-                    tracing::trace!("Action: {action:?}");
-                    let mut path = event.paths;
+    pub fn set_rename_control_await(&mut self, r#await: u64) {
+        self.r#await = r#await;
+    }
+}
 
-                    let Some(path) = path.pop() else {
-                        tracing::error!(
-                            "[Event Watcher] {{ Create file skip }} Path is not present in action.path"
-                        );
-                        continue;
-                    };
-
-                    match hd_new_object_watcher(path, root, skipper.clone()).await {
-                        Ok(ch) => {
-                            if let Err(er) = self.change_notify.send(ch) {
-                                tracing::error!("[Event Watcher] {{ Modify Name Object }} {er}");
-                                continue;
-                            }
-                        }
-                        Err(()) => {
-                            tracing::error!("[ CreateKinfOther ] Error")
-                        }
-                    }
-                }
-                notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
-                    let mut path = event.paths;
-                    let path = path.pop().unwrap();
-
-                    tracing::debug!(
-                        "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
-                    );
-
-                    if let Err(err) = tx_rename.send(Rename::From(RenameFrom::new(path))) {
-                        tracing::error!("{err}");
-                    }
-                }
-                notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                    tracing::trace!("Modify both {:?}", event.paths);
-                    let mut paths = event.paths;
-
-                    let (Some(to), Some(from)) = (paths.pop(), paths.pop()) else {
-                        tracing::error!(
-                            "[ EventWatcher ] we couldn't obtain the paths: [{paths:?}]"
-                        );
-                        continue;
-                    };
-
-                    if let Err(err) = tx_rename.send(Rename::Decline(from.clone())) {
-                        tracing::error!("{err}");
-                    }
-
-                    let ch = if to.is_dir() {
-                        hd_rename_path(root, from, to, skipper.clone()).await
-                    } else {
-                        hd_rename_object(root, from, to, skipper.clone()).await
-                    };
-
-                    match ch {
-                        Ok(ch) => {
-                            if let Err(err) = self.change_notify.send(ch) {
-                                tracing::error!("{err}");
-                            }
-                        }
-                        Err(()) => {
-                            tracing::error!("[ ModifyKind::Rename ] Error")
-                        }
-                    }
-                }
-                notify::EventKind::Remove(er) => {
-                    tracing::trace!("{er:?}");
-                    todo!("soon!")
-                }
-                _ => {}
-            }
+impl std::clone::Clone for EventWatcher {
+    fn clone(&self) -> Self {
+        Self {
+            notify_watcher: None,
+            r#await: self.r#await,
+            ref_manager: None,
+            ref_rename_control: None,
+            path: self.path.clone(),
+            skipper: Skipper::default(),
         }
     }
 }
 
-impl<Tx> std::ops::Deref for EventWatcherCh<Tx> {
-    type Target = Tx;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl Actor for EventWatcher {
+    type Msg = Event;
+
+    type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
+
+    fn start(mut self) -> Self::Handler {
+        let (tx, mut rx) = unbounded_channel();
+        let tx_0 = tx.clone();
+        let ref_self = ActorRef::new(tx);
+        let mut notify_w = notify::recommended_watcher(move |ev| match ev {
+            Ok(ev) => {
+                tracing::info!("[ New Event ]: {ev:?}");
+                tx_0.send(Envelope::tell(ev)).unwrap();
+            }
+            Err(er) => tracing::error!("[ Notify Error ]: {er}"),
+        })
+        .unwrap();
+
+        notify_w
+            .watch(&self.path, notify::RecursiveMode::Recursive)
+            .unwrap();
+
+        let rename_control = RenameControl::new(ref_self.clone(), self.r#await);
+        self.ref_rename_control = Some(rename_control.start());
+
+        self.notify_watcher = Some(notify_w);
+
+        tokio::spawn(async move {
+            tracing::info!("[ EventWatcher Init ]");
+            loop {
+                match rx.recv().await {
+                    Some(e) => {
+                        tracing::debug!("[ EventWatcher Actor ] new message {e:?}");
+                        self.handle(e.message).await
+                    }
+                    None => todo!(),
+                }
+            }
+        });
+
+        ref_self
     }
 }
 
-impl<Tx: Clone> EventWatcherCh<Tx> {
-    fn new(tx: Tx) -> Self {
-        Self(tx)
-    }
-}
+impl Handler for EventWatcher {
+    type Reply = ();
 
-impl<Tx, Rx, TxChange> SplitTask for EventWatcher<Tx, Rx, TxChange>
-where
-    TxChange: OneshotSender<Item = Change>,
-    Tx: OneshotSender<Item = NotifyChType> + Clone + Send + 'static,
-    Rx: AsyncRecv<Item = NotifyChType> + Send + 'static,
-{
-    type Output = EventWatcherCh<Tx>;
+    async fn handle(&mut self, message: Self::Msg) -> Self::Reply {
+        let root = &self.path;
+        let event = message;
+        match event.kind {
+            notify::EventKind::Create(CreateKind::Folder) => {
+                let mut paths = event.paths;
+                tracing::debug!("[ EventWatcher ] Path: {paths:?}");
 
-    fn split(self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
-        (EventWatcherCh::new(self.tx.clone()), self)
+                let Some(path) = paths.pop() else {
+                    return ();
+                };
+
+                match hd_new_bucket_or_key_watcher(path, root, self.skipper.clone()).await {
+                    Ok(ch) => {
+                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                    }
+                    Err(()) => {
+                        tracing::error!("[ CreateKinfFolder ] Error")
+                    }
+                }
+            }
+            notify::EventKind::Create(action) => {
+                tracing::trace!("Event: {event:?}");
+                tracing::trace!("Action: {action:?}");
+                let mut path = event.paths;
+
+                let Some(path) = path.pop() else {
+                    tracing::error!(
+                        "[Event Watcher] {{ Create file skip }} Path is not present in action.path"
+                    );
+                    return ();
+                };
+
+                match hd_new_object_watcher(path, root, self.skipper.clone()).await {
+                    Ok(ch) => {
+                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                    }
+                    Err(()) => {
+                        tracing::error!("[ CreateKinfOther ] Error")
+                    }
+                }
+            }
+            notify::EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+                let mut path = event.paths;
+                let path = path.pop().unwrap();
+
+                tracing::debug!(
+                    "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
+                );
+
+                self.ref_rename_control
+                    .as_ref()
+                    .unwrap()
+                    .tell(Rename::From(RenameFrom::new(path)))
+                    .await;
+            }
+            notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                tracing::trace!("Modify both {:?}", event.paths);
+                let mut paths = event.paths;
+
+                let (Some(to), Some(from)) = (paths.pop(), paths.pop()) else {
+                    tracing::error!("[ EventWatcher ] we couldn't obtain the paths: [{paths:?}]");
+                    return ();
+                };
+
+                self.ref_rename_control
+                    .as_ref()
+                    .unwrap()
+                    .tell(Rename::Decline(from.clone()))
+                    .await;
+
+                let ch = if to.is_dir() {
+                    hd_rename_path(root, from, to, self.skipper.clone()).await
+                } else {
+                    hd_rename_object(root, from, to, self.skipper.clone()).await
+                };
+
+                match ch {
+                    Ok(ch) => {
+                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                    }
+                    Err(()) => {
+                        tracing::error!("[ ModifyKind::Rename ] Error")
+                    }
+                }
+            }
+            notify::EventKind::Remove(er) => {
+                tracing::trace!("{er:?}");
+                todo!("soon!")
+            }
+            _ => {}
+        }
     }
 }

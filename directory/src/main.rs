@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod bucket;
 pub mod cli;
 pub mod grpc_v1;
@@ -10,19 +11,17 @@ pub mod user;
 pub mod ws;
 
 use crate::{
+    actor::Actor,
     bucket::bucket_map::BucketMap,
     cli::Args,
     handlers::{auth_layer::Auth, entry},
-    manager::{
-        Manager, WatcherParams,
-        utils::{Run, SplitTask},
-    },
+    manager::{Manager, watcher::event_watcher::EventWatcher},
     state::{State, local_storage::LocalStorageBuild},
 };
 use clap::Parser;
 use http::{Method, header};
 use hyper::{server::conn::http1, service::service_fn};
-use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, env, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -73,31 +72,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ls = Arc::new(ls);
     state.write().await.build(ls.as_ref()).await.unwrap();
+    let path = state.read().await.path().to_path_buf();
+    grpc_v1_server::BucketGrpcSrv::new(state.clone(), path.clone()).run(grpc_endpoint);
 
-    grpc_v1_server::BucketGrpcSrv::new(state.clone(), state.read().await.path()).run(grpc_endpoint);
+    let manager = Manager::new(state.clone(), EventWatcher::new(path), ls)
+        .await
+        .start();
 
-    let (msgs, task) = Manager::new(
-        state.clone(),
-        match watcher {
-            cli::TypeWatcher::Poll => {
-                todo!()
-            }
-            cli::TypeWatcher::Event => WatcherParams::Event {
-                path: PathBuf::from(state.read().await.path()),
-                r#await: None,
-            },
-        },
-        grpc_auth_server,
-        ls,
-    )
-    .await
-    .split();
-
-    let state = Arc::new(State::new(state, msgs).await);
-    task.run();
+    let state = Arc::new(State::new(state, manager).await);
 
     let cors = CorsBuilder::default()
-        .allow_origin("http://localhost:5173")
+        .allow_origin("http://localhost:8080")
         .allow_method(Method::PUT)
         .allow_method(Method::GET)
         .allow_method(Method::OPTIONS)

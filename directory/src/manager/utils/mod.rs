@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     bucket::{
@@ -19,89 +18,6 @@ use crate::{
     manager::{Change, utils::skipper::Skipper},
     state::local_storage::LocalStorage,
 };
-
-pub type SenderErrorTokio<T> = Result<(), tokio::sync::mpsc::error::SendError<T>>;
-
-pub trait AsyncRecv: Send {
-    type Item;
-
-    fn recv(&mut self) -> impl Future<Output = Option<Self::Item>> + Send;
-}
-
-pub trait AsyncSender: Send + 'static {
-    type Item;
-
-    fn send(
-        &mut self,
-        item: Self::Item,
-    ) -> impl Future<Output = Result<(), SendError<Self::Item>>> + Send;
-}
-
-pub trait OneshotSender: Send + 'static {
-    type Item;
-
-    fn send(&self, item: Self::Item) -> Result<(), SendError<Self::Item>>;
-}
-
-pub trait TakeOwn<T: Send + 'static> {
-    fn take(self) -> T;
-}
-
-#[derive(Debug)]
-pub enum ValidateError {
-    RegexError(Box<dyn std::error::Error>),
-    PathNotExist(PathBuf),
-}
-
-#[derive(Debug, Clone)]
-pub struct Pending<W: Send + 'static>(W);
-
-impl<W: Send + 'static> Pending<W> {
-    pub fn new(inner: W) -> Self {
-        Self(inner)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Executing;
-
-impl<W: Send + 'static> TakeOwn<W> for Pending<W> {
-    fn take(self) -> W {
-        self.0
-    }
-}
-
-pub trait Task {
-    fn task(self) -> impl Future<Output = ()> + Send + 'static
-    where
-        Self: Sized;
-}
-
-pub trait Run {
-    fn run(self)
-    where
-        Self: Sized;
-    fn executor(self) -> impl Run
-    where
-        Self: Sized,
-    {
-        self
-    }
-}
-
-impl<T: Task> Run for T {
-    fn run(self)
-    where
-        Self: Sized,
-    {
-        tokio::spawn(self.task());
-    }
-}
-
-pub trait SplitTask {
-    type Output;
-    fn split(self) -> (<Self as SplitTask>::Output, impl Run);
-}
 
 pub async fn hd_new_bucket_or_key_watcher(
     path: PathBuf,

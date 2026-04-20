@@ -1,160 +1,85 @@
-pub mod channels_types;
 pub mod utils;
 pub mod watcher;
 pub mod websocket;
 
-use futures::{SinkExt, stream::SplitSink};
-use hyper::upgrade::Upgraded;
-use hyper_tungstenite::{WebSocketStream, tungstenite::Message};
-use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
-use tonic::transport::Endpoint;
-
-use serde_json::json;
 use tokio::sync::{
     RwLock,
-    broadcast::Receiver as ReceivedBr,
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+    mpsc::{UnboundedSender, unbounded_channel},
 };
 
 use crate::{
+    actor::{Actor, ActorRef, Envelope, Handler},
     bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
-    grpc_v1::ConnectionAuthMS,
     manager::{
-        utils::{Run, SplitTask, Task, change_local_storage},
-        watcher::{event_watcher::EventWatcherBuilder, pool_watcher::PollWatcherNotify},
-        websocket::{MsgWs, WebSocket, WebSocketChSender},
+        utils::change_local_storage, watcher::event_watcher::EventWatcher, websocket::WebSocket,
     },
     state::local_storage::LocalStorage,
 };
 
-type WsSenderType = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
-
-#[derive(Debug)]
-pub struct ManagerChSenders {
-    pub grpc: ConnectionAuthMS,
-    pub ws: WebSocketChSender,
-}
-
 pub struct Manager {
     state: Arc<RwLock<BucketMap<'static>>>,
-    tx: UnboundedSender<Change>,
-    rx: UnboundedReceiver<Change>,
-    grpc: ConnectionAuthMS,
-    ws: WebSocket,
-    watcher_params: WatcherParams,
-    local_storage: Arc<LocalStorage>,
-}
-
-pub struct ManagerRunning {
-    ws_sender: WebSocketChSender,
-    rx: UnboundedReceiver<Change>,
-    state: Arc<RwLock<BucketMap<'static>>>,
-    grpc: ConnectionAuthMS,
+    ref_ws: Option<<WebSocket as Actor>::Handler>,
+    ref_watcher: Option<<EventWatcher as Actor>::Handler>,
+    watcher: EventWatcher,
     local_storage: Arc<LocalStorage>,
 }
 
 impl Manager {
     pub async fn new(
         state: Arc<RwLock<BucketMap<'static>>>,
-        watcher_params: WatcherParams,
-        endpoint: Endpoint,
+        watcher: EventWatcher,
         local_storage: Arc<LocalStorage>,
     ) -> Self {
-        let (tx_sch, rx_sch) = unbounded_channel();
-
         Self {
             state,
-            tx: tx_sch.clone(),
-            rx: rx_sch,
-            grpc: ConnectionAuthMS::new(endpoint, tx_sch).await,
-            watcher_params,
-            ws: WebSocket::new(),
+            ref_watcher: None,
+            ref_ws: None,
+            watcher,
             local_storage,
         }
     }
 }
 
-impl Run for Manager {
-    fn run(self)
-    where
-        Self: Sized,
-    {
-        match self.watcher_params {
-            WatcherParams::Event { path, r#await } => {
-                let task = EventWatcherBuilder::default()
-                    .path(path)
-                    .unwrap()
-                    .change_notify(self.tx.clone())
-                    .rename_control_await(r#await.unwrap_or(3000))
-                    .build()
-                    .unwrap();
-                task.run();
+impl Actor for Manager {
+    type Msg = Change;
+    type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
+
+    fn start(mut self) -> Self::Handler {
+        let (tx, mut rx) = unbounded_channel();
+        let actor_ref_manager = ActorRef::new(tx);
+
+        let mut w = self.watcher.clone();
+        w.set_ref_manager(actor_ref_manager.clone());
+
+        self.ref_watcher = Some(w.start());
+
+        let ws = WebSocket::new().start();
+
+        self.ref_ws = Some(ws);
+
+        tokio::spawn(async move {
+            tracing::info!("[ Manager Init ]");
+            loop {
+                match rx.recv().await {
+                    Some(e) => self.handle(e.message).await,
+                    None => todo!(),
+                }
             }
-            WatcherParams::Poll { path, interval } => {
-                let task = PollWatcherNotify::new(path, interval.unwrap_or_default()).unwrap();
-                task.run();
-            }
-        }
+        });
 
-        let (ws_sender, ws_task) = self.ws.split();
-
-        ws_task.run();
-
-        let task = ManagerRunning {
-            ws_sender,
-            rx: self.rx,
-            state: self.state,
-            grpc: self.grpc,
-            local_storage: self.local_storage,
-        };
-
-        task.run();
-    }
-
-    fn executor(self) -> impl Run
-    where
-        Self: Sized,
-    {
-        self
+        actor_ref_manager
     }
 }
 
-impl SplitTask for Manager {
-    type Output = ManagerChSenders;
-
-    fn split(self) -> (<Self as SplitTask>::Output, impl Run) {
-        (
-            ManagerChSenders {
-                ws: self.ws.get_sender(),
-                grpc: self.grpc.clone(),
-            },
-            self,
-        )
-    }
-}
-
-impl Task for ManagerRunning {
-    async fn task(mut self) {
-        tracing::info!("Scheduler init");
-
-        let tx_ws = self.ws_sender;
-
-        loop {
-            match self.rx.recv().await {
-                Some(mut change) => {
-                    tracing::info!("[Scheduler]: New change: {change:?}");
-                    change_local_storage(&mut change, self.local_storage.clone()).await;
-                    self.state.write().await.change(change.clone()).await;
-                    tx_ws.send(MsgWs::Change(change.clone())).await.unwrap();
-                }
-                None => {
-                    tracing::error!("[Scheduler] Peer: tx_watcher closed");
-                    break;
-                }
-            }
-        }
+impl Handler for Manager {
+    type Reply = ();
+    async fn handle(&mut self, mut message: Self::Msg) -> Self::Reply {
+        tracing::info!("[Scheduler]: New change: {message:?}");
+        change_local_storage(&mut message, self.local_storage.clone()).await;
+        self.state.write().await.change(message.clone()).await;
+        //self.ws(MsgWs::Change(message.clone())).await.unwrap();
     }
 }
 
@@ -200,14 +125,6 @@ pub enum Change {
     DeleteBucket {
         bucket: Bucket<'static>,
     },
-}
-
-pub async fn ws_changes_handle(mut ws: WsSenderType, mut rx: ReceivedBr<Change>) {
-    while let Ok(recv) = rx.recv().await {
-        ws.send(Message::Text(json!(recv).to_string().into()))
-            .await
-            .unwrap();
-    }
 }
 
 #[derive(Debug)]

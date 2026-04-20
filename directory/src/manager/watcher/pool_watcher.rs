@@ -6,10 +6,7 @@ use std::{
 use notify::{Config, PollWatcher, Watcher};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::manager::{
-    utils::{SplitTask, Task},
-    watcher::error::WatcherErr,
-};
+use crate::manager::watcher::error::WatcherErr;
 
 pub struct PollWatcherNotifyCh<Tx>(Tx);
 
@@ -60,24 +57,5 @@ impl PollWatcherNotify {
             _poll_watcher: poll,
             path: real_path.as_ref().to_string_lossy().into_owned(),
         })
-    }
-}
-
-impl Task for PollWatcherNotify {
-    async fn task(mut self)
-    where
-        Self: Sized,
-    {
-        let mut rx = self.rx.take().unwrap();
-        loop {
-            rx.recv().await;
-        }
-    }
-}
-
-impl SplitTask for PollWatcherNotify {
-    type Output = PollWatcherNotifyCh<UnboundedSender<Result<notify::Event, notify::Error>>>;
-    fn split(self) -> (<Self as SplitTask>::Output, impl crate::manager::utils::Run) {
-        (PollWatcherNotifyCh::new(self.tx.clone()), self)
     }
 }

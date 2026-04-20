@@ -11,16 +11,13 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tokio::sync::{
     Mutex,
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Sender},
 };
 
 use crate::{
+    actor::{Actor, ActorRef, Envelope, Handler},
     bucket::{Bucket, key::Key},
-    manager::{
-        Change,
-        utils::{SplitTask, Task},
-        websocket::user_tracker::UserTracker,
-    },
+    manager::{Change, websocket::user_tracker::UserTracker},
 };
 
 #[derive(Clone, Debug)]
@@ -40,92 +37,83 @@ impl WebSocketChSender {
     }
 }
 
-#[derive(Debug)]
 pub struct WebSocket {
-    rx: Receiver<MsgWs>,
-    tx: Sender<MsgWs>,
+    users: UserTracker<Change>,
 }
 
-impl WebSocket {
-    pub fn get_sender(&self) -> WebSocketChSender {
-        WebSocketChSender(self.tx.clone())
+impl Actor for WebSocket {
+    type Msg = MsgWs;
+    type Handler = ActorRef<Sender<Envelope<Self>>, Self>;
+
+    fn start(mut self) -> Self::Handler {
+        let (tx, mut rx) = mpsc::channel(128);
+
+        tokio::spawn(async move {
+            tracing::info!("[ WebSocket Init ]");
+            loop {
+                let msg: Envelope<WebSocket> = rx.recv().await.unwrap();
+                self.handle(msg.message).await;
+            }
+        });
+
+        ActorRef::new(tx)
     }
 }
 
-impl SplitTask for WebSocket {
-    fn split(self) -> (<Self as SplitTask>::Output, impl super::utils::Run) {
-        (WebSocketChSender(self.tx.clone()), self)
-    }
+impl Handler for WebSocket {
+    type Reply = ();
 
-    type Output = WebSocketChSender;
-}
+    async fn handle(&mut self, message: Self::Msg) -> Self::Reply {
+        match message {
+            MsgWs::Change(change) => {
+                let bucket = match &change {
+                    Change::NewObject { bucket, .. } => bucket.clone(),
+                    Change::NewKey { bucket, .. } => bucket.clone(),
+                    Change::NewBucket { bucket } => bucket.clone(),
+                    Change::NameObject { bucket, .. } => bucket.clone(),
+                    Change::NameKey { bucket, .. } => bucket.clone(),
+                    Change::DeleteObject { bucket, .. } => bucket.clone(),
+                    Change::DeleteKey { bucket, .. } => bucket.clone(),
+                    Change::NameBucket { from, .. } => from.clone(),
+                    Change::DeleteBucket { bucket } => bucket.clone(),
+                };
 
-impl Task for WebSocket {
-    async fn task(mut self)
-    where
-        Self: Sized,
-    {
-        let mut users = UserTracker::<Change>::new();
-        tracing::info!("Web socket manage init");
+                let key = match &change {
+                    Change::NewObject { key, .. } => Some(key.clone()),
+                    Change::NewKey { key, .. } => Some(key.clone()),
+                    Change::NameObject { key, .. } => Some(key.clone()),
+                    Change::NameKey { from, .. } => Some(from.clone()),
+                    Change::DeleteObject { key, .. } => Some(key.clone()),
+                    Change::DeleteKey { key, .. } => Some(key.clone()),
+                    _ => None,
+                };
 
-        loop {
-            let msg = self.rx.recv().await;
-            tracing::trace!("{msg:?}");
-            match msg {
-                Some(MsgWs::Change(change)) => {
-                    let bucket = match &change {
-                        Change::NewObject { bucket, .. } => bucket.clone(),
-                        Change::NewKey { bucket, .. } => bucket.clone(),
-                        Change::NewBucket { bucket } => bucket.clone(),
-                        Change::NameObject { bucket, .. } => bucket.clone(),
-                        Change::NameKey { bucket, .. } => bucket.clone(),
-                        Change::DeleteObject { bucket, .. } => bucket.clone(),
-                        Change::DeleteKey { bucket, .. } => bucket.clone(),
-                        Change::NameBucket { from, .. } => from.clone(),
-                        Change::DeleteBucket { bucket } => bucket.clone(),
-                    };
+                self.users.broadcast(bucket, key, change);
+            }
+            MsgWs::NewUser {
+                bucket,
+                key,
+                sender,
+            } => {
+                let mut rx = self.users.get_rx(bucket, key);
 
-                    let key = match &change {
-                        Change::NewObject { key, .. } => Some(key.clone()),
-                        Change::NewKey { key, .. } => Some(key.clone()),
-                        Change::NameObject { key, .. } => Some(key.clone()),
-                        Change::NameKey { from, .. } => Some(from.clone()),
-                        Change::DeleteObject { key, .. } => Some(key.clone()),
-                        Change::DeleteKey { key, .. } => Some(key.clone()),
-                        _ => None,
-                    };
-
-                    users.broadcast(bucket, key, change);
-                }
-                Some(MsgWs::NewUser {
-                    bucket,
-                    key,
-                    sender,
-                }) => {
-                    let mut rx = users.get_rx(bucket, key);
-
-                    let (tx_client, rx_client) = sender.await.unwrap().split();
-                    let tx_client = Arc::new(Mutex::new(tx_client));
-                    let tx_client_clone = tx_client.clone();
-                    tokio::spawn(async move {
-                        while let Ok(change) = rx.recv().await {
-                            if let Err(err) = tx_client_clone
-                                .lock()
-                                .await
-                                .send(Message::Text(json!(change).to_string().into()))
-                                .await
-                            {
-                                tracing::error!("{err}");
-                            }
+                let (tx_client, rx_client) = sender.await.unwrap().split();
+                let tx_client = Arc::new(Mutex::new(tx_client));
+                let tx_client_clone = tx_client.clone();
+                tokio::spawn(async move {
+                    while let Ok(change) = rx.recv().await {
+                        if let Err(err) = tx_client_clone
+                            .lock()
+                            .await
+                            .send(Message::Text(json!(change).to_string().into()))
+                            .await
+                        {
+                            tracing::error!("{err}");
                         }
-                    });
+                    }
+                });
 
-                    tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
-                }
-                _ => {
-                    tracing::debug!("Peer tx_ws closed");
-                    break;
-                }
+                tokio::spawn(Self::client_messages_handler(rx_client, tx_client));
             }
         }
     }
@@ -133,7 +121,9 @@ impl Task for WebSocket {
 
 impl WebSocket {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            users: UserTracker::<Change>::new(),
+        }
     }
     async fn client_messages_handler(
         mut ws: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
@@ -169,13 +159,6 @@ impl WebSocket {
         }
 
         Ok(())
-    }
-}
-
-impl std::default::Default for WebSocket {
-    fn default() -> Self {
-        let (tx, rx) = mpsc::channel(128);
-        Self { rx, tx }
     }
 }
 
