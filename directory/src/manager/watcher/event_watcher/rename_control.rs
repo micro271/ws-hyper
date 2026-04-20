@@ -1,28 +1,20 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use notify::{Event, event::RemoveKind};
-use tokio::sync::{
-    Mutex,
-    mpsc::{UnboundedSender, unbounded_channel},
+use tokio::{
+    sync::mpsc::{UnboundedSender, unbounded_channel},
+    task::JoinHandle,
 };
 
 use crate::{
-    actor::{Actor, ActorRef, Envelope, Handler},
+    actor::{Actor, ActorContext, ActorRef, Context, Envelope, Handler},
     manager::watcher::event_watcher::EventWatcher,
 };
-
-pub struct RenameControlCh(UnboundedSender<Rename>);
-
-impl RenameControlCh {
-    pub fn inner(self) -> UnboundedSender<Rename> {
-        self.0
-    }
-}
 
 pub struct RenameControl {
     r#await: u64,
     sender_watcher: <EventWatcher as Actor>::Handler,
-    files: Arc<Mutex<HashMap<PathBuf, UnboundedSender<DropDelete>>>>,
+    tasks: HashMap<PathBuf, JoinHandle<()>>,
 }
 
 impl RenameControl {
@@ -30,77 +22,69 @@ impl RenameControl {
         Self {
             sender_watcher,
             r#await,
-            files: Arc::new(Mutex::new(
-                HashMap::<PathBuf, UnboundedSender<DropDelete>>::new(),
-            )),
+            tasks: HashMap::new(),
         }
     }
 }
 
 impl Actor for RenameControl {
-    type Msg = Rename;
+    type Reply = ();
+    type Message = Rename;
+    type Context = Context<Self>;
     type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
 
     fn start(mut self) -> Self::Handler {
         let (tx, mut rx) = unbounded_channel();
+        let self_ref = ActorRef::new(tx);
+        let mut ctx = Context::new(self_ref.clone());
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
-                    Some(Envelope { message, .. }) => self.handle(message).await,
+                    Some(Envelope { message, .. }) => {
+                        self.handle(message, &mut ctx).await;
+                    }
                     None => {}
                 }
             }
         });
 
-        ActorRef::new(tx)
+        self_ref
     }
 }
 
 impl Handler for RenameControl {
-    type Reply = ();
-
-    async fn handle(&mut self, message: Self::Msg) -> Self::Reply {
-        let files_inner = self.files.clone();
+    async fn handle(&mut self, message: Self::Message, _ctx: &mut Self::Context) -> Self::Reply {
         let duration = Duration::from_millis(self.r#await);
         match message {
             Rename::From(RenameFrom(from)) => {
-                let (tx_inner, mut rx_inner) = unbounded_channel::<DropDelete>();
-                files_inner.lock().await.insert(from.clone(), tx_inner);
                 let sender_watcher = self.sender_watcher.clone();
-
-                tokio::spawn(async move {
-                    tokio::select! {
-                        () = tokio::time::sleep(duration) => {
-                            if files_inner.lock().await.remove(&from).is_some() {
-                                tracing::trace!("[RenameControl] {{ Time expired }} Delete {from:?}");
-
-                                let event = Event::new(notify::EventKind::Remove(RemoveKind::Any)).add_path(from);
-                                sender_watcher.tell(event).await;
-                            }
-                        }
-                        resp = rx_inner.recv() => {
-                            tracing::trace!("[RenameControl Inner task] Decline {from:?}");
-                            if resp.is_none() {
-                                tracing::error!("tx_inner of the RenameControl closed");
-                            }
-                        }
-                    };
+                let from_ = from.clone();
+                let self_ref = _ctx.actor_ref();
+                let handler = tokio::spawn(async move {
+                    tokio::time::sleep(duration).await;
+                    let event = Event::new(notify::EventKind::Remove(RemoveKind::Any))
+                        .add_path(from.clone());
+                    sender_watcher.tell(event).await;
+                    self_ref.tell(Rename::Expire(from)).await;
                 });
+
+                self.tasks.insert(from_, handler);
             }
             Rename::Decline(path) => {
-                if let Some(sender) = files_inner.lock().await.remove(&path) {
+                if let Some(handler) = self.tasks.remove(&path) {
                     tracing::trace!("[RenameControl] Decline from Watcher, path: {path:?}");
-                    if let Err(err) = sender.send(DropDelete) {
-                        tracing::error!("{err}");
-                    }
+                    handler.abort();
+                } else {
+                    tracing::warn!("[ RenameControl ] {path:?} Nothing task found");
                 }
             }
+            Rename::Expire(path) => match self.tasks.remove(&path) {
+                Some(_) => tracing::trace!("[ RenameControl ] Expired {path:?}"),
+                None => tracing::warn!("[ RenameControl ] Expire for unknown path {path:?}"),
+            },
         }
     }
 }
-
-#[derive(Debug)]
-pub struct DropDelete;
 
 #[derive(Debug)]
 pub struct RenameFrom(PathBuf);
@@ -114,4 +98,5 @@ impl RenameFrom {
 pub enum Rename {
     From(RenameFrom),
     Decline(PathBuf),
+    Expire(PathBuf),
 }

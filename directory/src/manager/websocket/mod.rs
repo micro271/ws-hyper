@@ -15,7 +15,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    actor::{Actor, ActorRef, Envelope, Handler},
+    actor::{Actor, ActorRef, Context, Envelope, Handler},
     bucket::{Bucket, key::Key},
     manager::{Change, websocket::user_tracker::UserTracker},
 };
@@ -42,28 +42,29 @@ pub struct WebSocket {
 }
 
 impl Actor for WebSocket {
-    type Msg = MsgWs;
+    type Message = MsgWs;
+    type Reply = ();
+    type Context = Context<Self>;
     type Handler = ActorRef<Sender<Envelope<Self>>, Self>;
 
     fn start(mut self) -> Self::Handler {
         let (tx, mut rx) = mpsc::channel(128);
-
+        let self_ref = ActorRef::new(tx);
+        let mut ctx = Context::new(self_ref.clone());
         tokio::spawn(async move {
             tracing::info!("[ WebSocket Init ]");
             loop {
                 let msg: Envelope<WebSocket> = rx.recv().await.unwrap();
-                self.handle(msg.message).await;
+                self.handle(msg.message, &mut ctx).await;
             }
         });
 
-        ActorRef::new(tx)
+        self_ref
     }
 }
 
 impl Handler for WebSocket {
-    type Reply = ();
-
-    async fn handle(&mut self, message: Self::Msg) -> Self::Reply {
+    async fn handle(&mut self, message: Self::Message, _ctx: &mut Self::Context) -> Self::Reply {
         match message {
             MsgWs::Change(change) => {
                 let bucket = match &change {

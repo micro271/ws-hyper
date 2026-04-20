@@ -5,9 +5,41 @@ use tokio::sync::{
     oneshot,
 };
 
+pub struct Context<A: Actor> {
+    self_ref: A::Handler,
+}
+
+impl<A: Actor> Context<A> {
+    pub fn new(actor_ref: A::Handler) -> Self {
+        Self {
+            self_ref: actor_ref,
+        }
+    }
+}
+
+pub trait ActorContext: Send + 'static {
+    type Actor: Actor;
+    fn actor_ref(&self) -> <Self::Actor as Actor>::Handler
+    where
+        <Self::Actor as Actor>::Handler: Clone;
+}
+
+impl<T: Actor> ActorContext for Context<T> {
+    type Actor = T;
+
+    fn actor_ref(&self) -> <Self::Actor as Actor>::Handler
+    where
+        <Self::Actor as Actor>::Handler: Clone,
+    {
+        self.self_ref.clone()
+    }
+}
+
 pub trait Actor: Send + 'static {
-    type Msg: Send + 'static;
+    type Message: Send + 'static;
+    type Reply: Send + 'static;
     type Handler: Send + 'static;
+    type Context: ActorContext;
 
     fn start(self) -> Self::Handler;
 }
@@ -35,27 +67,29 @@ impl<S: Clone, A> std::clone::Clone for ActorRef<S, A> {
     }
 }
 
-pub trait Handler: Actor {
-    type Reply: Send + 'static;
-
-    fn handle(&mut self, message: Self::Msg) -> impl Future<Output = Self::Reply>;
+pub trait Handler: Actor + Sized {
+    fn handle(
+        &mut self,
+        message: Self::Message,
+        _ctx: &mut Self::Context,
+    ) -> impl Future<Output = Self::Reply>;
 }
 
 #[derive(Debug)]
-pub struct Envelope<H: Handler> {
-    pub message: H::Msg,
-    pub reply_to: Option<tokio::sync::oneshot::Sender<H::Reply>>,
+pub struct Envelope<A: Actor> {
+    pub message: A::Message,
+    pub reply_to: Option<tokio::sync::oneshot::Sender<A::Reply>>,
 }
 
-impl<H: Handler> Envelope<H> {
-    pub fn tell(msg: H::Msg) -> Self {
+impl<A: Actor> Envelope<A> {
+    pub fn tell(msg: A::Message) -> Self {
         Self {
             message: msg,
             reply_to: None,
         }
     }
 
-    pub fn ask(msg: H::Msg) -> (Self, oneshot::Receiver<H::Reply>) {
+    pub fn ask(msg: A::Message) -> (Self, oneshot::Receiver<A::Reply>) {
         let (tx, rx) = oneshot::channel();
         (
             Self {
@@ -68,11 +102,11 @@ impl<H: Handler> Envelope<H> {
 }
 
 impl<S: SenderActor<H>, H: Handler> ActorRef<S, H> {
-    pub async fn tell(&self, msg: H::Msg) {
+    pub async fn tell(&self, msg: H::Message) {
         let _ = self.sender.send(Envelope::tell(msg)).await;
     }
 
-    pub async fn ask(&self, msg: H::Msg) -> H::Reply {
+    pub async fn ask(&self, msg: H::Message) -> H::Reply {
         let (msg, rx) = Envelope::ask(msg);
         let _ = self.sender.send(msg).await;
         rx.await.unwrap()

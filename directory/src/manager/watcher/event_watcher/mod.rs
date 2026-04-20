@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::{
-    actor::{Actor, ActorRef, Envelope, Handler},
+    actor::{Actor, ActorRef, Context, Envelope, Handler},
     manager::{
         Manager,
         utils::{
@@ -69,14 +69,15 @@ impl std::clone::Clone for EventWatcher {
 }
 
 impl Actor for EventWatcher {
-    type Msg = Event;
-
+    type Message = Event;
+    type Reply = ();
+    type Context = Context<Self>;
     type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
 
     fn start(mut self) -> Self::Handler {
         let (tx, mut rx) = unbounded_channel();
         let tx_0 = tx.clone();
-        let ref_self = ActorRef::new(tx);
+        let self_ref = ActorRef::new(tx);
         let mut notify_w = notify::recommended_watcher(move |ev| match ev {
             Ok(ev) => {
                 tracing::info!("[ New Event ]: {ev:?}");
@@ -90,10 +91,12 @@ impl Actor for EventWatcher {
             .watch(&self.path, notify::RecursiveMode::Recursive)
             .unwrap();
 
-        let rename_control = RenameControl::new(ref_self.clone(), self.r#await);
+        let rename_control = RenameControl::new(self_ref.clone(), self.r#await);
         self.ref_rename_control = Some(rename_control.start());
 
         self.notify_watcher = Some(notify_w);
+
+        let mut ctx = Context::new(self_ref.clone());
 
         tokio::spawn(async move {
             tracing::info!("[ EventWatcher Init ]");
@@ -101,21 +104,19 @@ impl Actor for EventWatcher {
                 match rx.recv().await {
                     Some(e) => {
                         tracing::debug!("[ EventWatcher Actor ] new message {e:?}");
-                        self.handle(e.message).await
+                        self.handle(e.message, &mut ctx).await
                     }
                     None => todo!(),
                 }
             }
         });
 
-        ref_self
+        self_ref
     }
 }
 
 impl Handler for EventWatcher {
-    type Reply = ();
-
-    async fn handle(&mut self, message: Self::Msg) -> Self::Reply {
+    async fn handle(&mut self, message: Self::Message, _ctx: &mut Self::Context) -> Self::Reply {
         let root = &self.path;
         let event = message;
         match event.kind {
@@ -143,7 +144,7 @@ impl Handler for EventWatcher {
 
                 let Some(path) = path.pop() else {
                     tracing::error!(
-                        "[Event Watcher] {{ Create file skip }} Path is not present in action.path"
+                        "[ EventWatcher ] {{ Create file skip }} Path is not present in action.path"
                     );
                     return ();
                 };
@@ -162,7 +163,7 @@ impl Handler for EventWatcher {
                 let path = path.pop().unwrap();
 
                 tracing::debug!(
-                    "[Watcher] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
+                    "[ EventWatcher ] {{ ModifyKind::Name(RenameMode::From) }} {path:?} (Maybe Delete)"
                 );
 
                 self.ref_rename_control

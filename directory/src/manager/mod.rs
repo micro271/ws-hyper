@@ -10,7 +10,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    actor::{Actor, ActorRef, Envelope, Handler},
+    actor::{Actor, ActorRef, Context, Envelope, Handler},
     bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
     manager::{
         utils::change_local_storage, watcher::event_watcher::EventWatcher, websocket::WebSocket,
@@ -43,7 +43,9 @@ impl Manager {
 }
 
 impl Actor for Manager {
-    type Msg = Change;
+    type Message = Change;
+    type Reply = ();
+    type Context = Context<Self>;
     type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
 
     fn start(mut self) -> Self::Handler {
@@ -56,14 +58,14 @@ impl Actor for Manager {
         self.ref_watcher = Some(w.start());
 
         let ws = WebSocket::new().start();
-
         self.ref_ws = Some(ws);
+        let mut ctx = Context::new(actor_ref_manager.clone());
 
         tokio::spawn(async move {
             tracing::info!("[ Manager Init ]");
             loop {
                 match rx.recv().await {
-                    Some(e) => self.handle(e.message).await,
+                    Some(e) => self.handle(e.message, &mut ctx).await,
                     None => todo!(),
                 }
             }
@@ -74,8 +76,11 @@ impl Actor for Manager {
 }
 
 impl Handler for Manager {
-    type Reply = ();
-    async fn handle(&mut self, mut message: Self::Msg) -> Self::Reply {
+    async fn handle(
+        &mut self,
+        mut message: Self::Message,
+        _ctx: &mut Self::Context,
+    ) -> Self::Reply {
         tracing::info!("[Scheduler]: New change: {message:?}");
         change_local_storage(&mut message, self.local_storage.clone()).await;
         self.state.write().await.change(message.clone()).await;
