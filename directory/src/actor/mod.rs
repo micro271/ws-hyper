@@ -6,11 +6,11 @@ use tokio::sync::{
 };
 
 pub struct Context<A: Actor> {
-    self_ref: A::Handler,
+    self_ref: A::ActorRef,
 }
 
 impl<A: Actor> Context<A> {
-    pub fn new(actor_ref: A::Handler) -> Self {
+    pub fn new(actor_ref: A::ActorRef) -> Self {
         Self {
             self_ref: actor_ref,
         }
@@ -19,29 +19,24 @@ impl<A: Actor> Context<A> {
 
 pub trait ActorContext: Send + 'static {
     type Actor: Actor;
-    fn actor_ref(&self) -> <Self::Actor as Actor>::Handler
-    where
-        <Self::Actor as Actor>::Handler: Clone;
+    fn actor_ref(&self) -> &<Self::Actor as Actor>::ActorRef;
 }
 
 impl<T: Actor> ActorContext for Context<T> {
     type Actor = T;
 
-    fn actor_ref(&self) -> <Self::Actor as Actor>::Handler
-    where
-        <Self::Actor as Actor>::Handler: Clone,
-    {
-        self.self_ref.clone()
+    fn actor_ref(&self) -> &<Self::Actor as Actor>::ActorRef {
+        &self.self_ref
     }
 }
 
 pub trait Actor: Send + 'static {
     type Message: Send + 'static;
     type Reply: Send + 'static;
-    type Handler: Send + 'static;
+    type ActorRef: Send + Clone + 'static;
     type Context: ActorContext;
 
-    fn start(self) -> Self::Handler;
+    fn start(self) -> Self::ActorRef;
 }
 
 pub struct ActorRef<S, A> {

@@ -13,13 +13,13 @@ use uuid::Uuid;
 
 pub struct State {
     tree: Arc<RwLock<BucketMap<'static>>>,
-    ref_manager: <Manager as Actor>::Handler,
+    ref_manager: <Manager as Actor>::ActorRef,
 }
 
 impl State {
     pub async fn new(
         tree: Arc<RwLock<BucketMap<'static>>>,
-        ref_manager: <Manager as Actor>::Handler,
+        ref_manager: <Manager as Actor>::ActorRef,
     ) -> Self {
         Self { tree, ref_manager }
     }

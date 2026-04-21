@@ -46,6 +46,10 @@ impl<'a> BucketMap<'a> {
         }
     }
 
+    pub fn is_key(&self, bucket: &Bucket<'_>, key: &Key<'_>) -> bool {
+        self.inner.get(bucket).is_some_and(|x| x.get(key).is_some())
+    }
+
     pub fn get_response<'b>(
         &'b self,
         bucket: Option<&'b Bucket<'_>>,

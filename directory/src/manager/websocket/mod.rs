@@ -45,9 +45,9 @@ impl Actor for WebSocket {
     type Message = MsgWs;
     type Reply = ();
     type Context = Context<Self>;
-    type Handler = ActorRef<Sender<Envelope<Self>>, Self>;
+    type ActorRef = ActorRef<Sender<Envelope<Self>>, Self>;
 
-    fn start(mut self) -> Self::Handler {
+    fn start(mut self) -> Self::ActorRef {
         let (tx, mut rx) = mpsc::channel(128);
         let self_ref = ActorRef::new(tx);
         let mut ctx = Context::new(self_ref.clone());

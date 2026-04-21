@@ -11,7 +11,7 @@ use tokio::sync::{
 
 use crate::{
     actor::{Actor, ActorRef, Context, Envelope, Handler},
-    bucket::{Bucket, bucket_map::BucketMap, key::Key, object::Object},
+    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key, object::Object},
     manager::{
         utils::change_local_storage, watcher::event_watcher::EventWatcher, websocket::WebSocket,
     },
@@ -20,8 +20,8 @@ use crate::{
 
 pub struct Manager {
     state: Arc<RwLock<BucketMap<'static>>>,
-    ref_ws: Option<<WebSocket as Actor>::Handler>,
-    ref_watcher: Option<<EventWatcher as Actor>::Handler>,
+    ref_ws: Option<<WebSocket as Actor>::ActorRef>,
+    ref_watcher: Option<<EventWatcher as Actor>::ActorRef>,
     watcher: EventWatcher,
     local_storage: Arc<LocalStorage>,
 }
@@ -43,12 +43,12 @@ impl Manager {
 }
 
 impl Actor for Manager {
-    type Message = Change;
-    type Reply = ();
+    type Message = ManagerMessage;
+    type Reply = ManagerReply;
     type Context = Context<Self>;
-    type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
+    type ActorRef = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
 
-    fn start(mut self) -> Self::Handler {
+    fn start(mut self) -> Self::ActorRef {
         let (tx, mut rx) = unbounded_channel();
         let actor_ref_manager = ActorRef::new(tx);
 
@@ -65,7 +65,14 @@ impl Actor for Manager {
             tracing::info!("[ Manager Init ]");
             loop {
                 match rx.recv().await {
-                    Some(e) => self.handle(e.message, &mut ctx).await,
+                    Some(Envelope { message, reply_to }) => {
+                        let reply = self.handle(message, &mut ctx).await;
+                        if let Some(reply_to) = reply_to {
+                            if let Err(er) = reply_to.send(reply) {
+                                tracing::error!("[ ManagerActor ] error reply");
+                            }
+                        }
+                    }
                     None => todo!(),
                 }
             }
@@ -76,15 +83,32 @@ impl Actor for Manager {
 }
 
 impl Handler for Manager {
-    async fn handle(
-        &mut self,
-        mut message: Self::Message,
-        _ctx: &mut Self::Context,
-    ) -> Self::Reply {
-        tracing::info!("[Scheduler]: New change: {message:?}");
-        change_local_storage(&mut message, self.local_storage.clone()).await;
-        self.state.write().await.change(message.clone()).await;
-        //self.ws(MsgWs::Change(message.clone())).await.unwrap();
+    async fn handle(&mut self, message: Self::Message, _ctx: &mut Self::Context) -> Self::Reply {
+        match message {
+            ManagerMessage::Change(mut change) => {
+                tracing::info!("[Scheduler]: New change: {change:?}");
+                change_local_storage(&mut change, self.local_storage.clone()).await;
+                self.state.write().await.change(change.clone()).await;
+                //self.ws(MsgWs::Change(message.clone())).await.unwrap();
+                ManagerReply::None
+            }
+            ManagerMessage::Ask(ManagerAsk::WhatIs(path)) => {
+                let tree = self.state.read().await;
+                let root = tree.path();
+                if path.parent().is_some_and(|x| x == root) {
+                    ManagerReply::IsDir
+                } else {
+                    let bucket = Bucket::find_bucket(root, root).unwrap();
+                    let key = Key::from_bucket(bucket.borrow(), root).unwrap();
+
+                    if tree.is_key(&bucket, &key) {
+                        ManagerReply::IsDir
+                    } else {
+                        ManagerReply::IsFile
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -132,14 +156,17 @@ pub enum Change {
     },
 }
 
-#[derive(Debug)]
-pub enum WatcherParams {
-    Event {
-        path: PathBuf,
-        r#await: Option<u64>,
-    },
-    Poll {
-        path: PathBuf,
-        interval: Option<u64>,
-    },
+pub enum ManagerMessage {
+    Change(Change),
+    Ask(ManagerAsk),
+}
+
+pub enum ManagerAsk {
+    WhatIs(PathBuf),
+}
+
+pub enum ManagerReply {
+    None,
+    IsDir,
+    IsFile,
 }

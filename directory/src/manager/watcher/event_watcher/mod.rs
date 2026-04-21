@@ -2,16 +2,17 @@ mod rename_control;
 
 use notify::{
     INotifyWatcher, Watcher as _,
-    event::{CreateKind, Event, ModifyKind, RenameMode},
+    event::{CreateKind, Event, ModifyKind, RemoveKind, RenameMode},
 };
 pub use rename_control::*;
 use std::path::PathBuf;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::{
-    actor::{Actor, ActorRef, Context, Envelope, Handler},
+    actor::{Actor, ActorContext, ActorRef, Context, Envelope, Handler},
+    bucket::{Bucket, Cowed, key::Key},
     manager::{
-        Manager,
+        Change, Manager, ManagerAsk, ManagerMessage, ManagerReply,
         utils::{
             hd_new_bucket_or_key_watcher, hd_new_object_watcher, hd_rename_object, hd_rename_path,
             skipper::Skipper,
@@ -22,9 +23,9 @@ use crate::{
 pub struct EventWatcher {
     notify_watcher: Option<INotifyWatcher>,
     r#await: u64,
-    ref_manager: Option<<Manager as Actor>::Handler>,
+    ref_manager: Option<<Manager as Actor>::ActorRef>,
     path: PathBuf,
-    ref_rename_control: Option<<RenameControl as Actor>::Handler>,
+    ref_rename_control: Option<<RenameControl as Actor>::ActorRef>,
     skipper: Skipper,
 }
 
@@ -46,7 +47,7 @@ impl EventWatcher {
         }
     }
 
-    pub fn set_ref_manager(&mut self, actor_ref: <Manager as Actor>::Handler) {
+    pub fn set_ref_manager(&mut self, actor_ref: <Manager as Actor>::ActorRef) {
         self.ref_manager = Some(actor_ref);
     }
 
@@ -72,9 +73,9 @@ impl Actor for EventWatcher {
     type Message = Event;
     type Reply = ();
     type Context = Context<Self>;
-    type Handler = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
+    type ActorRef = ActorRef<UnboundedSender<Envelope<Self>>, Self>;
 
-    fn start(mut self) -> Self::Handler {
+    fn start(mut self) -> Self::ActorRef {
         let (tx, mut rx) = unbounded_channel();
         let tx_0 = tx.clone();
         let self_ref = ActorRef::new(tx);
@@ -130,7 +131,11 @@ impl Handler for EventWatcher {
 
                 match hd_new_bucket_or_key_watcher(path, root, self.skipper.clone()).await {
                     Ok(ch) => {
-                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                        self.ref_manager
+                            .as_ref()
+                            .unwrap()
+                            .tell(ManagerMessage::Change(ch))
+                            .await;
                     }
                     Err(()) => {
                         tracing::error!("[ CreateKinfFolder ] Error")
@@ -151,7 +156,11 @@ impl Handler for EventWatcher {
 
                 match hd_new_object_watcher(path, root, self.skipper.clone()).await {
                     Ok(ch) => {
-                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                        self.ref_manager
+                            .as_ref()
+                            .unwrap()
+                            .tell(ManagerMessage::Change(ch))
+                            .await;
                     }
                     Err(()) => {
                         tracing::error!("[ CreateKinfOther ] Error")
@@ -195,16 +204,86 @@ impl Handler for EventWatcher {
 
                 match ch {
                     Ok(ch) => {
-                        self.ref_manager.as_ref().unwrap().tell(ch).await;
+                        self.ref_manager
+                            .as_ref()
+                            .unwrap()
+                            .tell(ManagerMessage::Change(ch))
+                            .await;
                     }
                     Err(()) => {
                         tracing::error!("[ ModifyKind::Rename ] Error")
                     }
                 }
             }
-            notify::EventKind::Remove(er) => {
-                tracing::trace!("{er:?}");
-                todo!("soon!")
+            notify::EventKind::Remove(RemoveKind::Folder) => {
+                let mut path = event.paths;
+                let Some(path) = path.pop() else {
+                    return ();
+                };
+
+                let bucket = Bucket::find_bucket(root, &path).unwrap();
+
+                if path.parent().is_some_and(|x| x == root) {
+                    tracing::warn!("[ EventWatcher ] Bucket deleted: {bucket:?}");
+                    self.ref_manager
+                        .as_ref()
+                        .unwrap()
+                        .tell(ManagerMessage::Change(Change::DeleteBucket { bucket }))
+                        .await;
+                } else {
+                    let key = Key::from_bucket(bucket.borrow(), &path).unwrap();
+                    self.ref_manager
+                        .as_ref()
+                        .unwrap()
+                        .tell(ManagerMessage::Change(Change::DeleteKey { bucket, key }))
+                        .await;
+                }
+            }
+            notify::EventKind::Remove(RemoveKind::File) => {
+                let mut path = event.paths;
+                let Some(path) = path.pop() else {
+                    return ();
+                };
+
+                let bucket = Bucket::find_bucket(root, &path).unwrap();
+                let key = Key::from_bucket(bucket.borrow(), &path).unwrap();
+                let file_name = path
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap()
+                    .to_string();
+                self.ref_manager
+                    .as_ref()
+                    .unwrap()
+                    .tell(ManagerMessage::Change(Change::DeleteObject {
+                        bucket,
+                        key,
+                        file_name,
+                    }))
+                    .await;
+            }
+            notify::EventKind::Remove(RemoveKind::Any | RemoveKind::Other) => {
+                let mut path = event.paths;
+                let path = path.pop().unwrap();
+                match self
+                    .ref_manager
+                    .as_ref()
+                    .unwrap()
+                    .ask(ManagerMessage::Ask(ManagerAsk::WhatIs(path)))
+                    .await
+                {
+                    ManagerReply::IsDir => {
+                        _ctx.actor_ref()
+                            .tell(Event::new(notify::EventKind::Remove(RemoveKind::Folder)))
+                            .await;
+                    }
+                    ManagerReply::IsFile => {
+                        _ctx.actor_ref()
+                            .tell(Event::new(notify::EventKind::Remove(RemoveKind::File)))
+                            .await;
+                    }
+                    ManagerReply::None => {}
+                }
             }
             _ => {}
         }
