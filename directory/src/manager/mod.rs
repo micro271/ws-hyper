@@ -100,7 +100,7 @@ impl Handler for Manager {
                 } else {
                     let bucket = Bucket::find_bucket(root, &path).unwrap();
 
-                    let key = Key::from_bucket(bucket.borrow(), root).unwrap();
+                    let key = Key::from_bucket(bucket.borrow(), &path).unwrap();
 
                     if tree.is_key(&bucket, &key) {
                         ManagerReply::IsDir
