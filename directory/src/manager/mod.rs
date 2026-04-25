@@ -12,15 +12,12 @@ use tokio::sync::{
 use crate::{
     actor::{Actor, ActorRef, Context, Envelope, Handler},
     bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key, object::Object},
-    manager::{
-        utils::change_local_storage, watcher::event_watcher::EventWatcher, websocket::WebSocket,
-    },
+    manager::{utils::change_local_storage, watcher::event_watcher::EventWatcher},
     state::local_storage::LocalStorage,
 };
 
 pub struct Manager {
     state: Arc<RwLock<BucketMap<'static>>>,
-    ref_ws: Option<<WebSocket as Actor>::ActorRef>,
     ref_watcher: Option<<EventWatcher as Actor>::ActorRef>,
     watcher: EventWatcher,
     local_storage: Arc<LocalStorage>,
@@ -35,7 +32,6 @@ impl Manager {
         Self {
             state,
             ref_watcher: None,
-            ref_ws: None,
             watcher,
             local_storage,
         }
@@ -57,8 +53,6 @@ impl Actor for Manager {
 
         self.ref_watcher = Some(w.start());
 
-        let ws = WebSocket::new().start();
-        self.ref_ws = Some(ws);
         let mut ctx = Context::new(actor_ref_manager.clone());
 
         tokio::spawn(async move {

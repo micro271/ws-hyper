@@ -1,6 +1,7 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use tokio::sync::{
+    Mutex,
     mpsc::{UnboundedSender, error::SendError},
     oneshot,
 };
@@ -37,6 +38,42 @@ pub trait Actor: Send + 'static {
     type Context: ActorContext;
 
     fn start(self) -> Self::ActorRef;
+}
+
+pub struct Shutdown;
+
+pub struct ActorRefWithShutdown<S, A> {
+    actor_ref: ActorRef<S, A>,
+    shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Shutdown>>>>,
+}
+
+impl<S: Clone, A> std::clone::Clone for ActorRefWithShutdown<S, A> {
+    fn clone(&self) -> Self {
+        Self {
+            actor_ref: self.actor_ref.clone(),
+            shutdown: self.shutdown.clone(),
+        }
+    }
+}
+
+impl<S, A> ActorRefWithShutdown<S, A> {
+    pub fn new(actor_ref: ActorRef<S, A>, sender: tokio::sync::oneshot::Sender<Shutdown>) -> Self {
+        Self {
+            actor_ref,
+            shutdown: Arc::new(Mutex::new(Some(sender))),
+        }
+    }
+
+    pub async fn shutdown(self) {
+        match self.shutdown.lock().await.take() {
+            Some(sender) => {
+                if let Err(_) = sender.send(Shutdown) {
+                    tracing::error!("[ ActorRefWithShutdown ] Send command error");
+                }
+            }
+            None => tracing::error!("[ ActorRefWithShutdown ] Channel closed"),
+        }
+    }
 }
 
 pub struct ActorRef<S, A> {

@@ -18,6 +18,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
 };
+
 pub type ObjectTree<'a, T> = BTreeMap<Key<'a>, Vec<T>>;
 pub type BucketMapType<'a, T> = HashMap<Bucket<'a>, ObjectTree<'a, T>>;
 
@@ -355,5 +356,17 @@ async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
             None
         }
         _ => unreachable!(),
+    }
+}
+
+mod bucket_map_new {
+    use crate::{bucket::object::Object, manager::websocket::observer::Observer};
+
+    pub struct BucketMap {}
+
+    pub struct KeyEntry {
+        objects: Option<Vec<Object>>,
+        keys: Vec<KeyEntry>,
+        observers: Box<dyn Observer<Event = ()>>,
     }
 }
