@@ -56,6 +56,13 @@ impl<S: Clone, A> std::clone::Clone for ActorRefWithShutdown<S, A> {
     }
 }
 
+impl<S, A> std::ops::Deref for ActorRefWithShutdown<S, A> {
+    type Target = ActorRef<S, A>;
+    fn deref(&self) -> &Self::Target {
+        &self.actor_ref
+    }
+}
+
 impl<S, A> ActorRefWithShutdown<S, A> {
     pub fn new(actor_ref: ActorRef<S, A>, sender: tokio::sync::oneshot::Sender<Shutdown>) -> Self {
         Self {
@@ -133,26 +140,33 @@ impl<A: Actor> Envelope<A> {
     }
 }
 
-impl<S: SenderActor<H>, H: Handler> ActorRef<S, H> {
-    pub async fn tell(&self, msg: H::Message) {
+impl<S: SenderActor<A>, A: Actor> ActorRef<S, A> {
+    pub async fn tell(&self, msg: A::Message) {
         let _ = self.sender.send(Envelope::tell(msg)).await;
     }
 
-    pub async fn ask(&self, msg: H::Message) -> H::Reply {
+    pub async fn ask(&self, msg: A::Message) -> A::Reply {
         let (msg, rx) = Envelope::ask(msg);
         let _ = self.sender.send(msg).await;
         rx.await.unwrap()
     }
 }
 
-pub trait SenderActor<H: Handler> {
+pub trait SenderActor<A: Actor> {
     type Error: Send + 'static;
-    fn send(&self, msg: Envelope<H>) -> impl Future<Output = Result<(), Self::Error>>;
+    fn send(&self, msg: Envelope<A>) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
-impl<H: Handler> SenderActor<H> for UnboundedSender<Envelope<H>> {
-    type Error = SendError<Envelope<H>>;
-    async fn send(&self, msg: Envelope<H>) -> Result<(), Self::Error> {
+impl<A: Actor> SenderActor<A> for UnboundedSender<Envelope<A>> {
+    type Error = SendError<Envelope<A>>;
+    async fn send(&self, msg: Envelope<A>) -> Result<(), Self::Error> {
         self.send(msg)
+    }
+}
+
+impl<A: Actor> SenderActor<A> for tokio::sync::mpsc::Sender<Envelope<A>> {
+    type Error = SendError<Envelope<A>>;
+    async fn send(&self, msg: Envelope<A>) -> Result<(), Self::Error> {
+        self.send(msg).await
     }
 }

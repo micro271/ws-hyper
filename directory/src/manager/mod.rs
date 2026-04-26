@@ -62,7 +62,7 @@ impl Actor for Manager {
                     Some(Envelope { message, reply_to }) => {
                         let reply = self.handle(message, &mut ctx).await;
                         if let Some(reply_to) = reply_to {
-                            if let Err(er) = reply_to.send(reply) {
+                            if let Err(_er) = reply_to.send(reply) {
                                 tracing::error!("[ ManagerActor ] error reply");
                             }
                         }

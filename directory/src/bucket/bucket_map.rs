@@ -358,15 +358,3 @@ async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
         _ => unreachable!(),
     }
 }
-
-mod bucket_map_new {
-    use crate::{bucket::object::Object, manager::websocket::observer::Observer};
-
-    pub struct BucketMap {}
-
-    pub struct KeyEntry {
-        objects: Option<Vec<Object>>,
-        keys: Vec<KeyEntry>,
-        observers: Box<dyn Observer<Event = ()>>,
-    }
-}
