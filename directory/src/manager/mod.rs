@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct Manager {
-    state: Arc<RwLock<BucketMap<'static>>>,
+    state: Arc<RwLock<BucketMap>>,
     ref_watcher: Option<<EventWatcher as Actor>::ActorRef>,
     watcher: EventWatcher,
     local_storage: Arc<LocalStorage>,
@@ -25,7 +25,7 @@ pub struct Manager {
 
 impl Manager {
     pub async fn new(
-        state: Arc<RwLock<BucketMap<'static>>>,
+        state: Arc<RwLock<BucketMap>>,
         watcher: EventWatcher,
         local_storage: Arc<LocalStorage>,
     ) -> Self {

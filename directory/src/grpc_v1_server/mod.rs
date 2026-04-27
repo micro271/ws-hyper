@@ -13,13 +13,13 @@ use crate::{
     grpc_v1_server,
 };
 
-pub struct BucketGrpcSrv<'a> {
-    map: Arc<RwLock<BucketMap<'a>>>,
+pub struct BucketGrpcSrv {
+    map: Arc<RwLock<BucketMap>>,
     path: PathBuf,
 }
 
-impl<'a> BucketGrpcSrv<'a> {
-    pub fn new(map: Arc<RwLock<BucketMap<'a>>>, root_path: impl Into<PathBuf>) -> Self {
+impl BucketGrpcSrv {
+    pub fn new(map: Arc<RwLock<BucketMap>>, root_path: impl Into<PathBuf>) -> Self {
         Self {
             map,
             path: root_path.into(),
@@ -27,7 +27,7 @@ impl<'a> BucketGrpcSrv<'a> {
     }
 }
 
-impl BucketGrpcSrv<'static> {
+impl BucketGrpcSrv {
     pub fn run(self, grpc_endpoint: SocketAddr) {
         tokio::spawn(async move {
             tracing::info!(
@@ -44,7 +44,7 @@ impl BucketGrpcSrv<'static> {
 }
 
 #[async_trait]
-impl Directory for BucketGrpcSrv<'static> {
+impl Directory for BucketGrpcSrv {
     async fn file_name(
         &self,
         request: tonic::Request<FileNameReq>,

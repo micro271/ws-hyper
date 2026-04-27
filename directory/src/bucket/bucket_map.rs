@@ -33,9 +33,8 @@ pub struct KeyEntry {
 
 impl KeyEntry {
     pub fn build<'a>(
-        bucket_path: &'a Path,
-        bucket: &'a Bucket<'_>,
         path: &'a Path,
+        bucket: &'a Bucket<'_>,
         local_storage: &'a LocalStorage,
     ) -> Pin<Box<dyn Future<Output = Self> + Send + 'a>> {
         async move {
@@ -45,7 +44,7 @@ impl KeyEntry {
 
             while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
                 if entry.is_dir() {
-                    let file_name = match NormalizePathUtf8::default().is_new().run(&entry).await {
+                    let file_name = match NormalizePathUtf8::default().is_new().run(&entry) {
                         Ok(RenameDecision::Not(name)) => name,
                         Ok(RenameDecision::Fail(er)) => {
                             tracing::error!("[ KeyEntry ] Build error: {er:?}");
@@ -73,8 +72,7 @@ impl KeyEntry {
                         }
                     };
 
-                    let key_entry =
-                        KeyEntry::build(bucket_path, bucket, &entry, local_storage).await;
+                    let key_entry = KeyEntry::build(&entry, bucket, local_storage).await;
                     let key = Key::new(file_name);
                     keys.insert(key, key_entry);
                 } else {
@@ -84,7 +82,13 @@ impl KeyEntry {
 
             Self {
                 objects: Some(
-                    sync_objects(objects, bucket.borrow(), Key::root(), local_storage).await,
+                    sync_objects(
+                        objects,
+                        bucket.borrow(),
+                        Key::from_bucket(bucket.borrow(), path).unwrap(),
+                        local_storage,
+                    )
+                    .await,
                 ),
                 keys: (!keys.is_empty()).then_some(keys),
                 observers: Default::default(),
@@ -134,12 +138,11 @@ impl BucketMap {
             panic!("{path:?} isn't directory");
         }
 
-        let buckets = list_buckets_and_normalize(path).await;
+        let buckets = list_buckets_and_normalize(path);
 
         let mut inner = HashMap::new();
-        for bucket in buckets {
-            let bk_path = path.join(bucket.name());
-            let entry = KeyEntry::build(&bk_path, &bucket, path, ls).await;
+        for (bucket, bucket_path) in buckets {
+            let entry = KeyEntry::build(&bucket_path, &bucket, ls).await;
             inner.insert(bucket, entry);
         }
 
@@ -205,9 +208,9 @@ async fn sync_objects(
 
 async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
     let des = if path.is_dir() {
-        NormalizePathUtf8::default().run(path).await
+        NormalizePathUtf8::default().run(path)
     } else {
-        NormalizeFileUtf8::run(path).await
+        NormalizeFileUtf8::run(path)
     }
     .ok()?;
 
