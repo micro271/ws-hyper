@@ -48,7 +48,11 @@ pub enum RenameError {
 pub async fn list_buckets_and_normalize(root: &Path) -> Vec<Bucket<'static>> {
     let mut resp = Vec::new();
     for bucket in root.read_dir().unwrap().flatten() {
-        match NormalizePathUtf8::default().run(bucket.path()).await {
+        match NormalizePathUtf8::default()
+            .is_new()
+            .run(bucket.path())
+            .await
+        {
             Ok(RenameDecision::Not(bk)) => resp.push(Bucket::new_unchecked(bk)),
             Ok(RenameDecision::Yes(Rename {
                 mut parent,
