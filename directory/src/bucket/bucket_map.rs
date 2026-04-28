@@ -5,8 +5,8 @@ use std::{
     pin::Pin,
 };
 
-use futures::FutureExt;
-use mongodb::bson::oid::ObjectId;
+use futures::{FutureExt, TryStreamExt};
+use mongodb::bson::{Document, doc, oid::ObjectId};
 
 use crate::{
     bucket::{
@@ -19,7 +19,7 @@ use crate::{
         },
     },
     manager::{Change, websocket::observer::UserObserver},
-    state::local_storage::LocalStorage,
+    state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
 pub struct AbsoluteKey<'a>(pub Cow<'a, str>);
@@ -110,7 +110,7 @@ impl BucketMap {
         tracing::debug!("[ BucketMap ] Build: {:#?}", inner);
         self.tree = inner;
 
-        // sync_object_with_database(ls, self).await;
+        sync_object_with_database(ls, object_ids).await;
     }
 }
 
@@ -220,4 +220,38 @@ fn build_key_entry<'a>(
         }
     }
     .boxed()
+}
+
+pub async fn sync_object_with_database(ls: &LocalStorage, objects_ids: Vec<ObjectId>) {
+    let pool = ls.pool.default_database().unwrap();
+
+    let objects = pool
+        .collection::<AsObjectDeserialize>(COLLECTION)
+        .find(doc! {"_id":{"$nin": objects_ids}})
+        .await
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("[ fn sync_object_with_database ] Failed to get Objects");
+
+    tracing::warn!(
+        "[ fn sync_object_with_database ] {} Object dont found in filesystem: {:#?}",
+        objects.len(),
+        objects
+    );
+
+    let objects = objects
+        .into_iter()
+        .filter_map(|x| x.object._id)
+        .collect::<Vec<_>>();
+
+    let delete_result = pool
+        .collection::<Document>(COLLECTION)
+        .delete_many(doc! {"_id": {"$in": objects}})
+        .await
+        .expect("[ fn sync_object_with_database ] Failed to delete Objects");
+    tracing::warn!(
+        "[ fn sync_object_with_database ] {} Objects deleted",
+        delete_result.deleted_count
+    );
 }

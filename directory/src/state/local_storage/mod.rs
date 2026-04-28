@@ -24,7 +24,7 @@ macro_rules! diff {
     }};
 }
 
-const COLLECTION: &str = "objects";
+pub const COLLECTION: &str = "objects";
 
 #[derive(Debug, Serialize)]
 struct AsObjectSerialize<'a> {
@@ -45,9 +45,9 @@ impl<'a> AsObjectSerialize<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct AsObjectDeserialize {
-    bucket: Bucket<'static>,
-    key: Key<'static>,
-    object: Object,
+    pub bucket: Bucket<'static>,
+    pub key: Key<'static>,
+    pub object: Object,
 }
 
 #[derive(Debug, Default)]
@@ -61,7 +61,7 @@ pub struct LocalStorageBuild {
 
 #[derive(Debug)]
 pub struct LocalStorage {
-    pool: Client,
+    pub pool: Client,
 }
 
 impl LocalStorage {
