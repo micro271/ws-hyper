@@ -36,12 +36,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     _ = dotenv::dotenv();
 
     let Args {
-        watcher,
+        watcher: _,
         watcher_path,
         listen,
         port,
         log_level,
-        grpc_auth_server,
+        grpc_auth_server: _,
         md_host,
         md_port,
         md_username,
@@ -59,7 +59,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut http = http1::Builder::new();
     http.keep_alive(true);
 
-    let state = Arc::new(RwLock::new(BucketMap::default()));
+    let state = Arc::new(RwLock::new(BucketMap::new(
+        watcher_path.canonicalize().unwrap(),
+    )));
 
     let ls = LocalStorageBuild::default()
         .host(md_host)
@@ -71,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
 
     let ls = Arc::new(ls);
-    state.write().await.build(&watcher_path, ls.as_ref()).await;
+    state.write().await.build(ls.as_ref()).await;
 
     let path = state.read().await.path().to_path_buf();
     grpc_v1_server::BucketGrpcSrv::new(state.clone(), path.clone()).run(grpc_endpoint);

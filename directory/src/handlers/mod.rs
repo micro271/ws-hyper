@@ -1,7 +1,7 @@
 pub mod auth_layer;
 pub mod error;
 use crate::{
-    bucket::{Bucket, bucket_map::AbsoluteKey, fhs_response::FhsResponse},
+    bucket::{Bucket, bucket_map::AbsoluteKey, fhs::Fhs},
     handlers::error::ResponseError,
     state::State,
 };
@@ -49,17 +49,9 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             Ok(res)
         } else {
             let state = state.read().await;
-            let body = match pair.as_ref() {
+            let body: Fhs<'_> = match pair.as_ref() {
                 Some((bucket, key)) => state.get_entry(bucket, key).unwrap().into(),
-                None => {
-                    let bks = state
-                        .get_buckets()
-                        .into_iter()
-                        .map(|x| x.name())
-                        .collect::<Vec<_>>();
-
-                    FhsResponse::new(bks, None)
-                }
+                None => state.get_buckets().into_iter().collect::<Vec<_>>().into(),
             };
 
             Ok(Response::builder()

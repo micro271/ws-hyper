@@ -1,6 +1,6 @@
 pub mod bucket_map;
 pub mod error;
-pub mod fhs_response;
+pub mod fhs;
 pub mod key;
 pub mod object;
 pub mod utils;

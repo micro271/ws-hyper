@@ -96,11 +96,13 @@ impl Handler for Manager {
 
                     let key = Key::from_bucket(bucket.borrow(), &path).unwrap();
 
+                    /*
                     if tree.is_key(&bucket, &key) {
                         ManagerReply::IsDir
                     } else {
                         ManagerReply::IsFile
-                    }
+                    }*/
+                    todo!()
                 }
             }
         }

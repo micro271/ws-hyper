@@ -11,33 +11,50 @@ use mongodb::bson::oid::ObjectId;
 use crate::{
     bucket::{
         Bucket, Cowed,
-        fhs_response::FhsResponse,
         key::Key,
-        object::{Object, OwnerFile},
+        object::Object,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
         },
     },
-    manager::websocket::observer::UserObserver,
+    manager::{Change, websocket::observer::UserObserver},
     state::local_storage::LocalStorage,
 };
 
 pub struct AbsoluteKey<'a>(pub Cow<'a, str>);
 
-#[derive(Default)]
-pub struct BucketMap(HashMap<Bucket<'static>, KeyEntry>);
+#[derive(Debug)]
+pub struct BucketMap {
+    path: PathBuf,
+    tree: HashMap<Bucket<'static>, KeyEntry>,
+}
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct KeyEntry {
-    objects: Option<Vec<Object>>,
-    keys: Option<HashMap<Key<'static>, KeyEntry>>,
-    observers: Option<Vec<UserObserver>>,
+    pub objects: Option<Vec<Object>>,
+    pub keys: Option<HashMap<Key<'static>, KeyEntry>>,
+    pub observers: Option<Vec<UserObserver>>,
 }
 
 impl BucketMap {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new<T: Into<PathBuf>>(path: T) -> Self {
+        let path = path.into();
+
+        if !path.exists() {
+            panic!("{path:?} not found");
+        } else if !path.is_dir() {
+            panic!("{path:?} isn't directory");
+        }
+
+        Self {
+            path,
+            tree: Default::default(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn get_object<'a>(
@@ -54,7 +71,7 @@ impl BucketMap {
     }
 
     pub fn get_buckets<'a>(&'a self) -> impl IntoIterator<Item = &'a Bucket<'a>> {
-        self.0.keys().into_iter()
+        self.tree.keys().into_iter()
     }
 
     pub fn get_entry<'a>(
@@ -63,9 +80,9 @@ impl BucketMap {
         key: &'a AbsoluteKey<'_>,
     ) -> Option<&'a KeyEntry> {
         if key.0 == "." {
-            self.0.get(&bucket)
+            self.tree.get(&bucket)
         } else {
-            let mut entry = self.0.get(&bucket)?;
+            let mut entry = self.tree.get(&bucket)?;
 
             let keys = key.0.split('/').map(|x| Key::new(x)).collect::<Vec<_>>();
 
@@ -77,22 +94,20 @@ impl BucketMap {
         }
     }
 
-    pub async fn build(&mut self, path: &Path, ls: &LocalStorage) {
-        if !path.exists() {
-            panic!("{path:?} not found");
-        } else if !path.is_dir() {
-            panic!("{path:?} isn't directory");
-        }
+    pub async fn change(&mut self, change: Change) {
+        todo!()
+    }
 
-        let buckets = list_buckets_and_normalize(path);
+    pub async fn build(&mut self, ls: &LocalStorage) {
+        let buckets = list_buckets_and_normalize(&self.path);
         let mut object_ids = Vec::new();
         let mut inner = HashMap::new();
         for (bucket, bucket_path) in buckets {
             let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
             inner.insert(bucket, entry);
         }
-
-        self.0 = inner;
+        tracing::debug!("[ BucketMap ] Build: {:#?}", inner);
+        self.tree = inner;
 
         // sync_object_with_database(ls, self).await;
     }
@@ -182,17 +197,6 @@ async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
             None
         }
         _ => unreachable!(),
-    }
-}
-
-impl<'a> From<&'a KeyEntry> for FhsResponse<'a> {
-    fn from(value: &'a KeyEntry) -> Self {
-        let key = value
-            .keys
-            .as_ref()
-            .map(|x| x.keys().map(|x| x.name()).collect::<Vec<_>>());
-
-        Self::new(key.unwrap_or_default(), value.objects.as_ref())
     }
 }
 
