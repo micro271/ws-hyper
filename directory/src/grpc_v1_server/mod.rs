@@ -9,7 +9,10 @@ use tokio::sync::RwLock;
 use tonic::{async_trait, transport::Server};
 
 use crate::{
-    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key},
+    bucket::{
+        Bucket,
+        bucket_map::{AbsoluteKey, BucketMap},
+    },
     grpc_v1_server,
 };
 
@@ -51,19 +54,19 @@ impl Directory for BucketGrpcSrv {
     ) -> Result<tonic::Response<FileNameReply>, tonic::Status> {
         let FileNameReq { bucket, key, name } = request.into_inner();
         let bucket = Bucket::new_unchecked(bucket);
-        let key = Key::new(key);
+        let key = AbsoluteKey(key.into());
 
         match self
             .map
             .read()
             .await
-            .get_object_by_file_name(bucket.clone(), key.borrow(), &name)
+            .get_object(&bucket, &key, &name)
             .map(|x| x.file_name.clone())
         {
             Some(file_name) => Ok(tonic::Response::new(FileNameReply { file_name })),
             None => Err(tonic::Status::not_found(format!(
                 "{}/{}/{} not found",
-                bucket, key, name
+                bucket, key.0, name
             ))),
         }
     }

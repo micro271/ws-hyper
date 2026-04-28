@@ -1,5 +1,5 @@
 pub mod error;
-pub mod utils;
+
 use crate::bucket::{Bucket, Cowed, key::Key, utils::Changed};
 use mongodb::{
     Client, Database, IndexModel,

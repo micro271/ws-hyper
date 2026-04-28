@@ -72,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ls = Arc::new(ls);
     state.write().await.build(&watcher_path, ls.as_ref()).await;
+
     let path = state.read().await.path().to_path_buf();
     grpc_v1_server::BucketGrpcSrv::new(state.clone(), path.clone()).run(grpc_endpoint);
 

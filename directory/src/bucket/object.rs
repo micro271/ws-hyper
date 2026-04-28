@@ -79,17 +79,13 @@ impl_canged!(ObjectModified);
 pub struct BuilderObjNotPath;
 pub struct BuilderObjPath(PathBuf);
 
-pub struct ObjectBuilder<T> {
-    path: T,
-    name: Option<String>,
-    checksum: Option<String>,
-    seen_by: Option<Vec<String>>,
-    taken_by: Option<Vec<String>>,
-}
+pub struct BuildObjectAsync;
+
+pub struct BuildObjectSync;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
-    pub id: Option<ObjectId>,
+    pub _id: Option<ObjectId>,
     pub size: i64,
     pub owner: OwnerFile,
     pub file_name: String,
@@ -141,7 +137,7 @@ impl Object {
 
 impl std::cmp::PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
-        self.id.is_some_and(|x| other.id.is_some_and(|y| x == y))
+        self._id.is_some_and(|x| other._id.is_some_and(|y| x == y))
             || (self.file_name == other.file_name && self.checksum == other.checksum)
     }
 }
@@ -213,75 +209,5 @@ impl<T: AsRef<Path> + Send + 'static> CheckSum<T> {
         tokio::task::spawn_blocking(|| self.check_sum())
             .await
             .unwrap()
-    }
-}
-
-impl std::default::Default for ObjectBuilder<BuilderObjNotPath> {
-    fn default() -> Self {
-        Self {
-            path: BuilderObjNotPath,
-            name: None,
-            checksum: None,
-            seen_by: None,
-            taken_by: None,
-        }
-    }
-}
-
-impl ObjectBuilder<BuilderObjNotPath> {
-    pub fn path(self, path: PathBuf) -> ObjectBuilder<BuilderObjPath> {
-        ObjectBuilder {
-            path: BuilderObjPath(path),
-            name: self.name,
-            checksum: self.checksum,
-            seen_by: self.seen_by,
-            taken_by: self.taken_by,
-        }
-    }
-}
-
-impl<T> ObjectBuilder<T> {
-    pub fn name(mut self, name: String) -> Self {
-        self.name = Some(name);
-        self
-    }
-    pub fn checksum(mut self, checksum: String) -> Self {
-        self.checksum = Some(checksum);
-        self
-    }
-    pub fn seen_by(mut self, seen_by: Vec<String>) -> Self {
-        self.seen_by = Some(seen_by);
-        self
-    }
-    pub fn taken_by(mut self, taken_by: Vec<String>) -> Self {
-        self.taken_by = Some(taken_by);
-        self
-    }
-}
-
-impl ObjectBuilder<BuilderObjPath> {
-    pub async fn build(self) -> Object {
-        let BuilderObjPath(path) = self.path;
-        let meta = path.metadata().ok();
-        let (modified, accessed, created, size) = get_info_metadata(meta);
-
-        let checksum = if let Some(chk) = self.checksum {
-            chk
-        } else {
-            CheckSum::new(path.to_path_buf())
-                .check_sum_async()
-                .await
-                .unwrap()
-        };
-
-        Object {
-            file_name: "".to_string(),
-            checksum,
-            size,
-            modified,
-            accessed,
-            created,
-            ..Default::default()
-        }
     }
 }

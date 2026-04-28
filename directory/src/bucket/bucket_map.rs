@@ -1,10 +1,12 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     path::{Path, PathBuf},
     pin::Pin,
 };
 
 use futures::FutureExt;
+use mongodb::bson::oid::ObjectId;
 
 use crate::{
     bucket::{
@@ -21,6 +23,8 @@ use crate::{
     state::local_storage::LocalStorage,
 };
 
+pub struct AbsoluteKey<'a>(pub Cow<'a, str>);
+
 #[derive(Default)]
 pub struct BucketMap(HashMap<Bucket<'static>, KeyEntry>);
 
@@ -31,97 +35,39 @@ pub struct KeyEntry {
     observers: Option<Vec<UserObserver>>,
 }
 
-impl KeyEntry {
-    pub fn build<'a>(
-        path: &'a Path,
-        bucket: &'a Bucket<'_>,
-        local_storage: &'a LocalStorage,
-    ) -> Pin<Box<dyn Future<Output = Self> + Send + 'a>> {
-        async move {
-            let mut objects = Vec::new();
-            let mut keys = HashMap::new();
-            let mut read_dir = path.read_dir().unwrap().into_iter();
-
-            while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
-                if entry.is_dir() {
-                    let file_name = match NormalizePathUtf8::default().is_new().run(&entry) {
-                        Ok(RenameDecision::Not(name)) => name,
-                        Ok(RenameDecision::Fail(er)) => {
-                            tracing::error!("[ KeyEntry ] Build error: {er:?}");
-                            continue;
-                        }
-                        Ok(RenameDecision::Yes(Rename {
-                            mut parent,
-                            from,
-                            to,
-                        })) => {
-                            let from = parent.join(from);
-                            parent.push(&to);
-                            if let Err(er) = tokio::fs::rename(from, parent).await {
-                                tracing::error!("[ KeyEntry ] Build; Rename error {er} ");
-                                continue;
-                            }
-                            to
-                        }
-                        Err(er) => {
-                            tracing::error!("[ KeyEntry ] Build error: {er:?}");
-                            continue;
-                        }
-                        _ => {
-                            unreachable!()
-                        }
-                    };
-
-                    let key_entry = KeyEntry::build(&entry, bucket, local_storage).await;
-                    let key = Key::new(file_name);
-                    keys.insert(key, key_entry);
-                } else {
-                    objects.push(entry);
-                }
-            }
-
-            Self {
-                objects: Some(
-                    sync_objects(
-                        objects,
-                        bucket.borrow(),
-                        Key::from_bucket(bucket.borrow(), path).unwrap(),
-                        local_storage,
-                    )
-                    .await,
-                ),
-                keys: (!keys.is_empty()).then_some(keys),
-                observers: Default::default(),
-            }
-        }
-        .boxed()
-    }
-}
-
 impl BucketMap {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn get_buckets<'a>(&'a self) -> impl IntoIterator<Item = Bucket<'a>> {
-        self.0.keys().into_iter().map(|x| x.borrow())
+    pub fn get_object<'a>(
+        &'a self,
+        bucket: &'a Bucket<'_>,
+        key: &'a AbsoluteKey<'_>,
+        file_name: &'a str,
+    ) -> Option<&'a Object> {
+        self.get_entry(bucket, key).and_then(|x| {
+            x.objects
+                .as_ref()
+                .and_then(|x| x.iter().find(|x| x.file_name == file_name))
+        })
+    }
+
+    pub fn get_buckets<'a>(&'a self) -> impl IntoIterator<Item = &'a Bucket<'a>> {
+        self.0.keys().into_iter()
     }
 
     pub fn get_entry<'a>(
         &'a self,
         bucket: &'a Bucket<'_>,
-        key: &'a Key<'_>,
+        key: &'a AbsoluteKey<'_>,
     ) -> Option<&'a KeyEntry> {
-        if key == &Key::root() {
+        if key.0 == "." {
             self.0.get(&bucket)
         } else {
             let mut entry = self.0.get(&bucket)?;
 
-            let keys = key
-                .name()
-                .split('/')
-                .map(|x| Key::new(x))
-                .collect::<Vec<_>>();
+            let keys = key.0.split('/').map(|x| Key::new(x)).collect::<Vec<_>>();
 
             for key in keys {
                 entry = entry.keys.as_ref().and_then(|x| x.get(&key))?;
@@ -139,10 +85,10 @@ impl BucketMap {
         }
 
         let buckets = list_buckets_and_normalize(path);
-
+        let mut object_ids = Vec::new();
         let mut inner = HashMap::new();
         for (bucket, bucket_path) in buckets {
-            let entry = KeyEntry::build(&bucket_path, &bucket, ls).await;
+            let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
             inner.insert(bucket, entry);
         }
 
@@ -178,6 +124,7 @@ async fn sync_objects(
     bucket: Bucket<'_>,
     key: Key<'_>,
     local_storage: &LocalStorage,
+    objects_ids: &mut Vec<ObjectId>,
 ) -> Vec<Object> {
     let mut resp = Vec::new();
     for path in vec {
@@ -189,11 +136,11 @@ async fn sync_objects(
             tracing::info!(
                 "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"
             );
+            objects_ids.push(object._id.unwrap());
             resp.push(object);
-
-            continue;
         } else {
-            let obj = Object::new(path, OwnerFile::default()).await;
+            let obj = Object::new(path, Default::default()).await;
+
             if let Err(er) = local_storage
                 .new_object(bucket.borrow(), key.borrow(), &obj)
                 .await
@@ -247,4 +194,71 @@ impl<'a> From<&'a KeyEntry> for FhsResponse<'a> {
 
         Self::new(key.unwrap_or_default(), value.objects.as_ref())
     }
+}
+
+fn build_key_entry<'a>(
+    path: &'a Path,
+    bucket: &'a Bucket<'_>,
+    objects_ids: &'a mut Vec<ObjectId>,
+    local_storage: &'a LocalStorage,
+) -> Pin<Box<dyn Future<Output = KeyEntry> + Send + 'a>> {
+    async move {
+        let mut objects = Vec::new();
+        let mut keys = HashMap::new();
+        let mut read_dir = path.read_dir().unwrap().into_iter();
+
+        while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
+            if entry.is_dir() {
+                let file_name = match NormalizePathUtf8::default().is_new().run(&entry) {
+                    Ok(RenameDecision::Not(name)) => name,
+                    Ok(RenameDecision::Fail(er)) => {
+                        tracing::error!("[ KeyEntry ] Build error: {er:?}");
+                        continue;
+                    }
+                    Ok(RenameDecision::Yes(Rename {
+                        mut parent,
+                        from,
+                        to,
+                    })) => {
+                        let from = parent.join(from);
+                        parent.push(&to);
+                        if let Err(er) = tokio::fs::rename(from, parent).await {
+                            tracing::error!("[ KeyEntry ] Build; Rename error {er} ");
+                            continue;
+                        }
+                        to
+                    }
+                    Err(er) => {
+                        tracing::error!("[ KeyEntry ] Build error: {er:?}");
+                        continue;
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                };
+
+                let key_entry = build_key_entry(&entry, bucket, objects_ids, local_storage).await;
+                let key = Key::new(file_name);
+                keys.insert(key, key_entry);
+            } else {
+                objects.push(entry);
+            }
+        }
+
+        let fut = sync_objects(
+            objects,
+            bucket.borrow(),
+            Key::from_bucket(bucket.borrow(), path).unwrap(),
+            local_storage,
+            objects_ids,
+        )
+        .await;
+
+        KeyEntry {
+            objects: Some(fut),
+            keys: (!keys.is_empty()).then_some(keys),
+            observers: Default::default(),
+        }
+    }
+    .boxed()
 }
