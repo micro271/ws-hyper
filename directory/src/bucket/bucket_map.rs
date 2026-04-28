@@ -102,6 +102,7 @@ impl BucketMap {
         let buckets = list_buckets_and_normalize(&self.path);
         let mut object_ids = Vec::new();
         let mut inner = HashMap::new();
+        tracing::info!("[ BucketMap ] Build");
         for (bucket, bucket_path) in buckets {
             let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
             inner.insert(bucket, entry);
@@ -111,27 +112,6 @@ impl BucketMap {
 
         // sync_object_with_database(ls, self).await;
     }
-}
-
-async fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let mut dirs = Vec::new();
-    let mut objects = Vec::new();
-    tracing::trace!("[ fn dir_objects ] entry {entry:?}");
-    let mut reader = entry.read_dir().unwrap();
-
-    while let Some(Ok(path)) = reader.next() {
-        if let Some(path) = dir_objects_rename(&path.path()).await {
-            if path.is_dir() {
-                dirs.push(path);
-            } else {
-                objects.push(path);
-            }
-        }
-    }
-    tracing::trace!(
-        "[ fn dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
-    );
-    (dirs, objects)
 }
 
 async fn sync_objects(
@@ -168,11 +148,11 @@ async fn sync_objects(
     resp
 }
 
-async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
+async fn file_name_normalize(path: PathBuf) -> Option<(PathBuf, String)> {
     let des = if path.is_dir() {
-        NormalizePathUtf8::default().run(path)
+        NormalizePathUtf8::default().is_new().run(&path)
     } else {
-        NormalizeFileUtf8::run(path)
+        NormalizeFileUtf8::run(&path)
     }
     .ok()?;
 
@@ -183,15 +163,15 @@ async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
             to,
         }) => {
             let from = parent.join(from);
-            parent.push(to);
+            parent.push(&to);
             if let Err(er) = tokio::fs::rename(from, &parent).await {
                 tracing::error!("{er}");
                 None
             } else {
-                Some(parent)
+                Some((parent, to))
             }
         }
-        RenameDecision::Not(_) => Some(path.to_path_buf()),
+        RenameDecision::Not(file_name) => Some((path, file_name)),
         RenameDecision::Fail(error) => {
             tracing::error!("{error:?}");
             None
@@ -212,35 +192,10 @@ fn build_key_entry<'a>(
         let mut read_dir = path.read_dir().unwrap().into_iter();
 
         while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
+            let Some((entry, file_name)) = file_name_normalize(entry).await else {
+                continue;
+            };
             if entry.is_dir() {
-                let file_name = match NormalizePathUtf8::default().is_new().run(&entry) {
-                    Ok(RenameDecision::Not(name)) => name,
-                    Ok(RenameDecision::Fail(er)) => {
-                        tracing::error!("[ KeyEntry ] Build error: {er:?}");
-                        continue;
-                    }
-                    Ok(RenameDecision::Yes(Rename {
-                        mut parent,
-                        from,
-                        to,
-                    })) => {
-                        let from = parent.join(from);
-                        parent.push(&to);
-                        if let Err(er) = tokio::fs::rename(from, parent).await {
-                            tracing::error!("[ KeyEntry ] Build; Rename error {er} ");
-                            continue;
-                        }
-                        to
-                    }
-                    Err(er) => {
-                        tracing::error!("[ KeyEntry ] Build error: {er:?}");
-                        continue;
-                    }
-                    _ => {
-                        unreachable!()
-                    }
-                };
-
                 let key_entry = build_key_entry(&entry, bucket, objects_ids, local_storage).await;
                 let key = Key::new(file_name);
                 keys.insert(key, key_entry);
