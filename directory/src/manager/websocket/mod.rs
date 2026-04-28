@@ -3,7 +3,7 @@ use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite};
 use hyper_util::rt::TokioIo;
 
-use crate::actor::{self, Actor, ActorRef, ActorRefWithShutdown, Context, Envelope};
+use crate::actor::{Actor, ActorRef, ActorRefWithShutdown, Context, Envelope};
 
 pub mod observer;
 pub mod subject;

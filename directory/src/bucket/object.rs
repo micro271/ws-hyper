@@ -5,7 +5,7 @@ use std::{
     fs::Metadata,
     io::Read,
     os::unix::fs::MetadataExt,
-    path::{Path, PathBuf},
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 use time::{OffsetDateTime, UtcOffset, serde::rfc3339::option};
@@ -75,13 +75,6 @@ default_time!(local ObjectModified);
 impl_canged!(ObjectCreated);
 impl_canged!(ObjectAccessed);
 impl_canged!(ObjectModified);
-
-pub struct BuilderObjNotPath;
-pub struct BuilderObjPath(PathBuf);
-
-pub struct BuildObjectAsync;
-
-pub struct BuildObjectSync;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {

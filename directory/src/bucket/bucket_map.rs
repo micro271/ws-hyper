@@ -63,8 +63,8 @@ impl BucketMap {
         key: &'a AbsoluteKey<'_>,
         file_name: &'a str,
     ) -> Option<&'a Object> {
-        self.get_entry(bucket, key).and_then(|x| {
-            x.objects
+        self.get_entry(bucket, key).and_then(|(_, v)| {
+            v.objects
                 .as_ref()
                 .and_then(|x| x.iter().find(|x| x.file_name == file_name))
         })
@@ -78,19 +78,20 @@ impl BucketMap {
         &'a self,
         bucket: &'a Bucket<'_>,
         key: &'a AbsoluteKey<'_>,
-    ) -> Option<&'a KeyEntry> {
+    ) -> Option<(Key<'a>, &'a KeyEntry)> {
         if key.0 == "." {
-            self.tree.get(&bucket)
+            self.tree.get(bucket).map(|x| (Key::new("/"), x))
         } else {
             let mut entry = self.tree.get(&bucket)?;
-
             let keys = key.0.split('/').map(|x| Key::new(x)).collect::<Vec<_>>();
+
+            let last = keys.last().map(|x| x.cloned());
 
             for key in keys {
                 entry = entry.keys.as_ref().and_then(|x| x.get(&key))?;
             }
 
-            Some(entry)
+            Some((last.unwrap(), entry))
         }
     }
 
