@@ -4,6 +4,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::bucket::{Bucket, Cowed};
 
+#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq, Clone)]
+pub struct Segment<'a>(Cow<'a, str>);
+
+impl<'a> Segment<'a> {
+    pub fn new(segment: impl Into<Cow<'a, str>>) -> Self {
+        Self(segment.into())
+    }
+}
+
+pub struct KeyIter<'a> {
+    inner: std::str::Split<'a, char>,
+}
+
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key<'a>(Cow<'a, str>);
 
@@ -16,20 +29,8 @@ impl<'a> Key<'a> {
         self.0 == "."
     }
 
-    pub fn is_parent(&self, child: &Key) -> bool {
-        child.name().strip_prefix(self.name()).is_some()
-    }
-
     pub fn name(&self) -> &str {
         &self.0
-    }
-
-    pub fn name_mut(&mut self) -> &mut String {
-        self.0.to_mut()
-    }
-
-    pub fn set_name(&mut self, name: &str) {
-        *self.name_mut() = name.to_string();
     }
 
     pub fn new<K: Into<Cow<'a, str>>>(inner: K) -> Self {
@@ -95,5 +96,79 @@ impl<'a> Cowed for Key<'a> {
 
     fn cloned(&self) -> Self::Owned {
         Key(Cow::Owned(self.0.to_string()))
+    }
+}
+
+impl<'a> Cowed for Segment<'a> {
+    type Borrow<'b>
+        = Segment<'b>
+    where
+        Self: 'b;
+
+    type Owned = Segment<'static>;
+
+    fn borrow(&self) -> Self::Borrow<'_> {
+        Segment(Cow::Borrowed(&self.0))
+    }
+
+    fn owned(self) -> Self::Owned
+    where
+        Self: Sized,
+    {
+        Segment(Cow::Owned(self.0.into_owned()))
+    }
+
+    fn cloned(&self) -> Self::Owned {
+        Segment(Cow::Owned(self.0.to_string()))
+    }
+}
+
+impl<'a> IntoIterator for &'a Key<'a> {
+    type Item = <KeyIter<'a> as Iterator>::Item;
+
+    type IntoIter = KeyIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        KeyIter {
+            inner: self.0.split('/'),
+        }
+    }
+}
+
+impl<'a> std::iter::Iterator for KeyIter<'a> {
+    type Item = Segment<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|x| Segment(Cow::Borrowed(x)))
+    }
+}
+
+impl<'a> From<&'a Bucket<'a>> for Segment<'a> {
+    fn from(value: &'a Bucket<'a>) -> Self {
+        Self::new(value.name())
+    }
+}
+
+impl<'a> From<&'a Key<'a>> for Segment<'a> {
+    fn from(value: &'a Key<'a>) -> Self {
+        Self::new(value.name())
+    }
+}
+
+impl<'a> std::fmt::Display for Segment<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<'a> AsRef<str> for Segment<'a> {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'a> From<Segment<'a>> for mongodb::bson::Bson {
+    fn from(value: Segment<'a>) -> Self {
+        mongodb::bson::to_bson(value.as_ref()).unwrap()
     }
 }

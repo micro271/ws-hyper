@@ -1,7 +1,7 @@
 pub mod auth_layer;
 pub mod error;
 use crate::{
-    bucket::{Bucket, bucket_map::AbsoluteKey, fhs::Fhs},
+    bucket::{Bucket, fhs::Fhs, key::Key},
     handlers::error::ResponseError,
     state::State,
 };
@@ -40,7 +40,7 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
             None
         } else {
             let (path, key) = path.split_once("/").unwrap_or((path, "."));
-            Some((Bucket::new_unchecked(path), AbsoluteKey(key.into())))
+            Some((Bucket::new_unchecked(path), Key::new(key)))
         };
 
         if hyper_tungstenite::is_upgrade_request(&req) {

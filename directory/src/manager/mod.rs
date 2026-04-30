@@ -11,7 +11,12 @@ use tokio::sync::{
 
 use crate::{
     actor::{Actor, ActorRef, Context, Envelope, Handler},
-    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key, object::Object},
+    bucket::{
+        Bucket, Cowed,
+        bucket_map::BucketMap,
+        key::{Key, Segment},
+        object::Object,
+    },
     manager::{utils::change_local_storage, watcher::event_watcher::EventWatcher},
     state::local_storage::LocalStorage,
 };
@@ -96,13 +101,11 @@ impl Handler for Manager {
 
                     let key = Key::from_bucket(bucket.borrow(), &path).unwrap();
 
-                    /*
-                    if tree.is_key(&bucket, &key) {
+                    if tree.get_entry(&bucket, &key).is_some() {
                         ManagerReply::IsDir
                     } else {
                         ManagerReply::IsFile
-                    }*/
-                    todo!()
+                    }
                 }
             }
         }
@@ -137,7 +140,7 @@ pub enum Change {
     NameKey {
         bucket: Bucket<'static>,
         from: Key<'static>,
-        to: Key<'static>,
+        to: Segment<'static>,
     },
     DeleteObject {
         bucket: Bucket<'static>,

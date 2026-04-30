@@ -8,7 +8,7 @@ use std::{
 use crate::{
     bucket::{
         Bucket, Cowed,
-        key::Key,
+        key::{Key, Segment},
         object::{Object, OwnerFile},
         utils::{
             Rename, RenameDecision,
@@ -160,9 +160,16 @@ pub async fn hd_rename_path<'a>(
                 Ok(Change::NameBucket { from, to })
             } else {
                 let bucket = Bucket::find_bucket(root, &original_to).unwrap();
-                let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
+                let key = Segment::new(name);
 
-                if skipped.key_tracker().skipped(&bucket, &key).await {
+                if skipped
+                    .key_tracker()
+                    .skipped(
+                        &bucket,
+                        &Key::from_bucket(bucket.borrow(), &original_to).unwrap(),
+                    )
+                    .await
+                {
                     tracing::trace!("[ fn hd_rename_part ] skipped {bucket:?} {key:?}");
                     return Err(());
                 }
@@ -198,10 +205,13 @@ pub async fn hd_rename_path<'a>(
             } else {
                 let bucket = Bucket::find_bucket(root, &original_to).unwrap();
                 let original_key = Key::from_bucket(bucket.borrow(), &original_from).unwrap();
-                let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
+                let key = Segment::new(to);
                 skipped
                     .key_tracker()
-                    .to_skip(bucket.cloned(), key.cloned())
+                    .to_skip(
+                        bucket.cloned(),
+                        Key::from_bucket(bucket.borrow(), &original_to).unwrap(),
+                    )
                     .await;
 
                 Ok(Change::NameKey {

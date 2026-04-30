@@ -1,6 +1,10 @@
 pub mod error;
 
-use crate::bucket::{Bucket, Cowed, key::Key, utils::Changed};
+use crate::bucket::{
+    Bucket, Cowed,
+    key::{Key, Segment},
+    utils::Changed,
+};
 use mongodb::{
     Client, Database, IndexModel,
     bson::{self, doc},
@@ -196,7 +200,7 @@ impl LocalStorage {
         &self,
         bucket: Bucket<'_>,
         key: Key<'_>,
-        new_name: Key<'_>,
+        new_name: Segment<'_>,
     ) -> Result<UpdateResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
         Ok(tmp
