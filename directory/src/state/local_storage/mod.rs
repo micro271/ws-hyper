@@ -1,9 +1,13 @@
 pub mod error;
-pub mod utils;
-use crate::bucket::{Bucket, Cowed, key::Key, utils::Changed};
+
+use crate::bucket::{
+    Bucket, Cowed,
+    key::{Key, Segment},
+    utils::Changed,
+};
 use mongodb::{
     Client, Database, IndexModel,
-    bson::{self, doc},
+    bson::{self, doc, oid::ObjectId},
     options::{ClientOptions, Credential, IndexOptions, ServerAddress},
     results::{DeleteResult, InsertOneResult, UpdateResult},
 };
@@ -24,7 +28,7 @@ macro_rules! diff {
     }};
 }
 
-const COLLECTION: &str = "objects";
+pub const COLLECTION: &str = "objects";
 
 #[derive(Debug, Serialize)]
 struct AsObjectSerialize<'a> {
@@ -45,9 +49,10 @@ impl<'a> AsObjectSerialize<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct AsObjectDeserialize {
-    bucket: Bucket<'static>,
-    key: Key<'static>,
-    object: Object,
+    pub _id: Option<ObjectId>,
+    pub bucket: Bucket<'static>,
+    pub key: Key<'static>,
+    pub object: Object,
 }
 
 #[derive(Debug, Default)]
@@ -61,7 +66,7 @@ pub struct LocalStorageBuild {
 
 #[derive(Debug)]
 pub struct LocalStorage {
-    pool: Client,
+    pub pool: Client,
 }
 
 impl LocalStorage {
@@ -99,15 +104,14 @@ impl LocalStorage {
         bucket: Bucket<'_>,
         key: Key<'_>,
         filename: &str,
-    ) -> Result<Option<Object>, LsError> {
+    ) -> Result<Option<AsObjectDeserialize>, LsError> {
         let tmp = self.pool.default_database().unwrap();
         let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
-            .await?
-            .map(|x| x.object))
+            .await?)
     }
 
     pub async fn get_object_name(
@@ -196,7 +200,7 @@ impl LocalStorage {
         &self,
         bucket: Bucket<'_>,
         key: Key<'_>,
-        new_name: Key<'_>,
+        new_name: Segment<'_>,
     ) -> Result<UpdateResult, LsError> {
         let tmp = self.pool.default_database().unwrap();
         Ok(tmp

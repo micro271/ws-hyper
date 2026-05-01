@@ -1,7 +1,7 @@
 pub mod auth_layer;
 pub mod error;
 use crate::{
-    bucket::{Bucket, key::Key},
+    bucket::{Bucket, fhs::Fhs, key::Key},
     handlers::error::ResponseError,
     state::State,
 };
@@ -35,40 +35,29 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
 
         let state = req.extensions().get::<TypeState>().unwrap().clone();
 
-        let (bucket, key) = if path.is_empty() {
+        let pair = if path.is_empty() {
             todo!("I need to check if the user logged is admin");
-            (None, None)
+            None
         } else {
-            let (path, key) = path.split_once("/").unwrap_or((path, ""));
-            (
-                Some(Bucket::new_unchecked(path)),
-                (!key.is_empty()).then_some(Key::new(key.strip_suffix("/").unwrap_or(key))),
-            )
+            let (path, key) = path.split_once("/").unwrap_or((path, "."));
+            Some((Bucket::new_unchecked(path), Key::new(key)))
         };
 
         if hyper_tungstenite::is_upgrade_request(&req) {
             let (res, ws) = hyper_tungstenite::upgrade(&mut req, None).unwrap();
-            state.add_client(bucket, key, ws).await;
+            // state.add_client(bucket, todo!(), ws).await;
             Ok(res)
         } else {
             let state = state.read().await;
-            let body = match (bucket, key) {
-                (bucket @ Some(_), key @ Some(_)) => {
-                    json!(state.get_response(bucket.as_ref(), key.as_ref())).to_string()
-                }
-                (bucket @ Some(_), None) => {
-                    json!(state.get_response(bucket.as_ref(), Some(&Key::root()))).to_string()
-                }
-                (None, None) => json!(state.get_response(None, None)).to_string(),
-                (None, _) => {
-                    unreachable!()
-                }
+            let body: Fhs<'_> = match pair.as_ref() {
+                Some((bucket, key)) => state.get_entry(bucket, key).unwrap().into(),
+                None => state.get_buckets().into_iter().collect::<Vec<_>>().into(),
             };
 
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Full::new(Bytes::from(body)))
+                .body(Full::new(Bytes::from(json!(body).to_string())))
                 .unwrap_or_default())
         }
     } else {

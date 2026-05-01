@@ -20,7 +20,7 @@ impl NormalizePathUtf8 {
         self
     }
 
-    pub async fn run<T: Into<PathBuf>>(self, to: T) -> Result<RenameDecision, RenameError> {
+    pub fn run<T: Into<PathBuf>>(self, to: T) -> Result<RenameDecision, RenameError> {
         let to = to.into();
         let Some(file_name) = to.file_name().map(|x| x.to_string_lossy()) else {
             return Err(RenameError::InvalidPath(to));
@@ -67,7 +67,7 @@ impl NormalizePathUtf8 {
 pub struct NormalizeFileUtf8;
 
 impl NormalizeFileUtf8 {
-    pub async fn run(path: &Path) -> Result<RenameDecision, RenameError> {
+    pub fn run(path: &Path) -> Result<RenameDecision, RenameError> {
         let Some(name) = path.file_name().map(|x| x.to_string_lossy()) else {
             return Err(RenameError::InvalidPath(path.into()));
         };

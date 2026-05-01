@@ -9,17 +9,17 @@ use tokio::sync::RwLock;
 use tonic::{async_trait, transport::Server};
 
 use crate::{
-    bucket::{Bucket, Cowed, bucket_map::BucketMap, key::Key},
+    bucket::{Bucket, bucket_map::BucketMap, key::Key},
     grpc_v1_server,
 };
 
-pub struct BucketGrpcSrv<'a> {
-    map: Arc<RwLock<BucketMap<'a>>>,
+pub struct BucketGrpcSrv {
+    map: Arc<RwLock<BucketMap>>,
     path: PathBuf,
 }
 
-impl<'a> BucketGrpcSrv<'a> {
-    pub fn new(map: Arc<RwLock<BucketMap<'a>>>, root_path: impl Into<PathBuf>) -> Self {
+impl BucketGrpcSrv {
+    pub fn new(map: Arc<RwLock<BucketMap>>, root_path: impl Into<PathBuf>) -> Self {
         Self {
             map,
             path: root_path.into(),
@@ -27,7 +27,7 @@ impl<'a> BucketGrpcSrv<'a> {
     }
 }
 
-impl BucketGrpcSrv<'static> {
+impl BucketGrpcSrv {
     pub fn run(self, grpc_endpoint: SocketAddr) {
         tokio::spawn(async move {
             tracing::info!(
@@ -44,7 +44,7 @@ impl BucketGrpcSrv<'static> {
 }
 
 #[async_trait]
-impl Directory for BucketGrpcSrv<'static> {
+impl Directory for BucketGrpcSrv {
     async fn file_name(
         &self,
         request: tonic::Request<FileNameReq>,
@@ -57,13 +57,15 @@ impl Directory for BucketGrpcSrv<'static> {
             .map
             .read()
             .await
-            .get_object_by_file_name(bucket.clone(), key.borrow(), &name)
+            .get_object(&bucket, &key, &name)
             .map(|x| x.file_name.clone())
         {
             Some(file_name) => Ok(tonic::Response::new(FileNameReply { file_name })),
             None => Err(tonic::Status::not_found(format!(
                 "{}/{}/{} not found",
-                bucket, key, name
+                bucket,
+                key.name(),
+                name
             ))),
         }
     }

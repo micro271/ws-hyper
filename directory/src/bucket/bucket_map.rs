@@ -1,202 +1,108 @@
-use super::{Bucket, error::BucketMapErr, object::Object};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    pin::Pin,
+};
+
+use futures::{FutureExt, TryStreamExt};
+use mongodb::bson::{Document, doc, oid::ObjectId};
+
 use crate::{
     bucket::{
-        Cowed,
-        fhs_response::FhsResponse,
-        key::Key,
-        object::OwnerFile,
+        Bucket, Cowed,
+        fhs::Fhs,
+        key::{Key, Segment},
+        object::Object,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
         },
     },
     manager::Change,
-    state::local_storage::{LocalStorage, utils::sync_object_with_database},
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
-    path::{Path, PathBuf},
+    state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
-pub type ObjectTree<'a, T> = BTreeMap<Key<'a>, Vec<T>>;
-pub type BucketMapType<'a, T> = HashMap<Bucket<'a>, ObjectTree<'a, T>>;
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct BucketMap<'a> {
-    #[serde(flatten)]
-    inner: BucketMapType<'a, Object>,
-
-    #[serde(skip_serializing)]
+#[derive(Debug)]
+pub struct BucketMap {
     path: PathBuf,
+    pub tree: HashMap<Bucket<'static>, KeyEntry>,
 }
 
-impl<'a> BucketMap<'a> {
-    pub fn new(path: PathBuf) -> Result<Self, BucketMapErr> {
-        let path = path.canonicalize()?;
-        tracing::info!("[ BucketMap ] Root path: {path:?}");
+pub struct KeyEntry {
+    pub objects: Option<Vec<Object>>,
+    pub keys: Option<HashMap<Segment<'static>, KeyEntry>>,
+    pub observers: tokio::sync::broadcast::Sender<Change>,
+}
+
+impl BucketMap {
+    pub fn new<T: Into<PathBuf>>(path: T) -> Self {
+        let path = path.into();
+
         if !path.exists() {
-            Err(BucketMapErr::RootPathNotFound(path))
+            panic!("{path:?} not found");
         } else if !path.is_dir() {
-            Err(BucketMapErr::RootPathIsNotDirectory(path))
+            panic!("{path:?} isn't directory");
+        }
+
+        Self {
+            path,
+            tree: Default::default(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn get_object<'a>(
+        &'a self,
+        bucket: &'a Bucket<'_>,
+        key: &'a Key<'_>,
+        file_name: &'a str,
+    ) -> Option<&'a Object> {
+        self.get_entry(bucket, key).and_then(|v| {
+            v.objects
+                .as_ref()
+                .and_then(|x| x.iter().find(|x| x.file_name == file_name))
+        })
+    }
+
+    pub fn get_buckets<'a>(&'a self) -> impl IntoIterator<Item = &'a Bucket<'a>> {
+        self.tree.keys()
+    }
+
+    pub fn get_entry<'a>(
+        &'a self,
+        bucket: &'a Bucket<'_>,
+        key: &'a Key<'_>,
+    ) -> Option<&'a KeyEntry> {
+        if key.is_root() {
+            self.tree.get(bucket)
         } else {
-            Ok(BucketMap {
-                inner: Default::default(),
-                path,
-            })
+            key.into_iter()
+                .try_fold(self.tree.get(&bucket)?, |entry, x| {
+                    entry.keys.as_ref()?.get(&x)
+                })
         }
     }
 
-    pub fn is_key(&self, bucket: &Bucket<'_>, key: &Key<'_>) -> bool {
-        self.inner.get(bucket).is_some_and(|x| x.get(key).is_some())
-    }
+    pub fn get_mut_entry<'a>(
+        &'a mut self,
+        bucket: &'a Bucket<'static>,
+        key: &'a Key<'_>,
+    ) -> Option<&'a mut KeyEntry> {
+        if key.is_root() {
+            self.tree.get_mut(bucket)
+        } else {
+            let mut entry = self.tree.get_mut(&bucket)?;
+            let keys = key.into_iter().map(|x| x.owned()).collect::<Vec<_>>();
 
-    pub fn get_response<'b>(
-        &'b self,
-        bucket: Option<&'b Bucket<'_>>,
-        key: Option<&'b Key<'_>>,
-    ) -> Option<FhsResponse<'b>> {
-        let (Some(bucket), Some(key)) = (bucket, key) else {
-            let buckets = self.get_buckets().map(|x| x.name()).collect::<Vec<_>>();
-            return Some(FhsResponse::new(buckets, None));
-        };
+            for key in keys {
+                entry = entry.keys.as_mut().and_then(|x| x.get_mut(&key))?;
+            }
 
-        let tree = self.inner.get(&bucket)?;
-        let objects = tree.get(&key);
-        let key_ = key.name();
-        let mut keys = key
-            .is_root()
-            .then(|| {
-                tree.keys()
-                    .map(|x| x.name())
-                    .filter(|x| x.ne(&"."))
-                    .filter_map(|x| x.split("/").next())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| {
-                tree.range(key..)
-                    .take_while(|(k, _)| k.name().starts_with(key_))
-                    .filter_map(|(k, _)| {
-                        k.name()
-                            .strip_prefix(key_)
-                            .and_then(|x| x.strip_prefix("/"))
-                            .and_then(|x| x.split("/").next())
-                    })
-                    .collect::<Vec<_>>()
-            });
-        keys.dedup();
-        Some(FhsResponse::new(keys, objects))
-    }
-
-    pub fn get_bucket<'b>(&'b self, bucket: Bucket<'b>) -> Option<&'b ObjectTree<'b, Object>> {
-        self.inner.get(&bucket)
-    }
-
-    pub fn get_buckets(&self) -> impl Iterator<Item = &Bucket<'_>> {
-        self.inner.keys()
-    }
-
-    pub fn get_key<'b>(&'b self, bucket: Bucket<'b>, key: Key<'b>) -> Option<&'b Vec<Object>> {
-        self.inner.get(&bucket).and_then(|x| x.get(&key))
-    }
-
-    pub fn get_keys<'b>(&'b self, bucket: Bucket<'b>) -> Option<Vec<Key<'b>>> {
-        self.inner
-            .get(&bucket)
-            .map(|x| x.keys().map(|x| x.borrow()).collect::<Vec<_>>())
-    }
-
-    pub fn get_object_by_file_name<'b>(
-        &'b self,
-        bucket: Bucket<'b>,
-        key: Key<'b>,
-        name: &str,
-    ) -> Option<&'b Object> {
-        self.inner
-            .get(&bucket)
-            .and_then(|x| x.get(&key))
-            .and_then(|x| x.iter().find(|x| x.file_name == name))
-    }
-
-    pub fn insert_bucket(&mut self, bucket: Bucket<'a>) {
-        self.inner.entry(bucket).or_default();
-    }
-
-    pub fn insert_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
-        self.inner
-            .entry(bucket)
-            .or_default()
-            .entry(key)
-            .or_default();
-    }
-
-    pub fn get_objects<'b>(
-        &'b mut self,
-        bucket: &'b Bucket<'_>,
-        key: &'b Key<'_>,
-    ) -> Option<&'b Vec<Object>> {
-        self.inner.get(&bucket).and_then(|x| x.get(&key))
-    }
-
-    pub fn insert_object(&mut self, bucket: Bucket<'a>, key: Key<'a>, object: Object) {
-        self.inner
-            .entry(bucket)
-            .or_default()
-            .entry(key)
-            .or_default()
-            .push(object);
-    }
-
-    pub fn set_name_object(
-        &mut self,
-        bucket: &Bucket<'a>,
-        key: &Key<'a>,
-        from: &str,
-        to: impl Into<String>,
-    ) {
-        if let Some(val) = self.inner.get_mut(bucket).and_then(|x| {
-            x.get_mut(key)
-                .and_then(|x| x.iter_mut().find(|x| x.file_name == from))
-        }) {
-            val.file_name = to.into();
+            Some(entry)
         }
-    }
-
-    pub fn set_key(&mut self, bucket: Bucket<'a>, from: Key<'a>, to: Key<'a>) {
-        let bk = self.inner.get_mut(&bucket).unwrap();
-        let keys = bk
-            .range(&from..)
-            .map(|(k, _)| k.cloned())
-            .collect::<Vec<_>>();
-
-        for key in &keys {
-            let objs = bk.remove(key).unwrap();
-            let new_key = key.name().replace(from.name(), to.name()).into();
-            bk.insert(new_key, objs);
-        }
-    }
-
-    pub fn set_name_bucket(&mut self, from: Bucket<'a>, to: Bucket<'a>) {
-        let tmp = self.inner.remove(&from).unwrap();
-        self.inner.insert(to, tmp);
-    }
-
-    pub fn remove_object(
-        &mut self,
-        bucket: Bucket<'a>,
-        key: Key<'a>,
-        file_name: &str,
-    ) -> Option<Object> {
-        self.inner
-            .get_mut(&bucket)
-            .unwrap()
-            .get_mut(&key)
-            .unwrap()
-            .pop_if(|x| x.file_name == file_name)
-    }
-
-    pub fn remove_key(&mut self, bucket: Bucket<'a>, key: Key<'a>) {
-        self.inner.get_mut(&bucket).unwrap().remove(&key);
     }
 
     pub async fn change(&mut self, change: Change) {
@@ -206,13 +112,44 @@ impl<'a> BucketMap<'a> {
                 key,
                 object,
             } => {
-                self.insert_object(bucket, key, object);
+                let Some(entry) = self.get_mut_entry(&bucket, &key) else {
+                    return;
+                };
+
+                entry.objects.get_or_insert_default().push(object);
             }
             Change::NewKey { bucket, key } => {
-                self.insert_key(bucket, key);
+                let key = key.inner();
+                if let Some((key, new_key)) = key
+                    .rsplit_once("/")
+                    .map(|(k, nk)| (Key::new(k), Segment::new(nk)))
+                {
+                    if let Some(entry) = self.get_mut_entry(&bucket, &key) {
+                        entry
+                            .keys
+                            .as_mut()
+                            .unwrap()
+                            .entry(new_key.owned())
+                            .or_default();
+                    } else {
+                        tracing::debug!(
+                            "[ BucketMap ] New key, parent key {} not found in bucket {}",
+                            key,
+                            bucket
+                        );
+                    }
+                } else {
+                    self.tree.get_mut(&bucket).map(|x| {
+                        x.keys
+                            .as_mut()
+                            .unwrap()
+                            .entry(Segment::new(key))
+                            .or_default()
+                    });
+                }
             }
             Change::NewBucket { bucket } => {
-                self.insert_bucket(bucket);
+                self.tree.entry(bucket).or_default();
             }
             Change::NameObject {
                 bucket,
@@ -220,56 +157,159 @@ impl<'a> BucketMap<'a> {
                 from,
                 to,
             } => {
-                self.set_name_object(&bucket, &key, &from, to);
+                if let Some(entry) = self.get_mut_entry(&bucket, &key) {
+                    if let Some(object) = entry
+                        .objects
+                        .as_mut()
+                        .and_then(|x| x.iter_mut().find(|x| x.file_name == from))
+                    {
+                        tracing::debug!(
+                            "[ BucketMap ] Rename object, from {} to {}, in {}/{}",
+                            from,
+                            to,
+                            bucket,
+                            key
+                        );
+                        object.file_name = to;
+                    } else {
+                        tracing::debug!(
+                            "[ BucketMap ] Rename object, object {} not found, in {}/{}",
+                            from,
+                            bucket,
+                            key
+                        );
+                    }
+                }
             }
-            Change::NameBucket { from, to } => self.set_name_bucket(from, to),
-            Change::NameKey { bucket, from, to } => self.set_key(bucket, from, to),
+            Change::NameBucket { from, to } => {
+                if self.tree.get(&to).is_some() {
+                    tracing::error!("[ BucketMap ] RenameBucket; bucket {} already exists", to);
+                }
+
+                if let Some(entry) = self.tree.remove(&from) {
+                    self.tree.insert(to, entry);
+                } else {
+                    tracing::error!("[ BucketMap ] RenameBucket; bucket {} not found", from);
+                }
+            }
+            Change::NameKey { bucket, from, to } => {
+                if let Some((parent, from_seg)) = from
+                    .name()
+                    .rsplit_once('/')
+                    .map(|(key, seg)| (Key::new(key).owned(), Segment::new(seg).owned()))
+                {
+                    let Some(entry) = self.get_mut_entry(&bucket, &parent) else {
+                        tracing::error!("[ Bucket Map ] Key {from} not found");
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+
+                    if keys.get(&to).is_some() {
+                        tracing::error!(
+                            "[ BucketMap ] Key {parent}/{to} already exists, i cannot rename the key {from}"
+                        );
+                        return;
+                    }
+
+                    let old = keys.remove(&from_seg);
+                    keys.insert(to, old.unwrap_or_default());
+                } else {
+                    let Some(entry) = self.tree.get_mut(&bucket) else {
+                        tracing::error!("[ BucketMap ] Bucket not found {bucket}");
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+                    let from = from.into();
+                    if keys.get(&to).is_some() {
+                        tracing::error!("[ BucketMap ] {to} already exists");
+                        return;
+                    };
+
+                    let old = keys.remove(&from);
+
+                    keys.insert(to, old.unwrap_or_default());
+                }
+            }
             Change::DeleteObject {
                 bucket,
                 key,
                 file_name,
             } => {
-                self.remove_object(bucket, key, &file_name);
+                if let Some(entry) = self.get_mut_entry(&bucket, &key) {
+                    let Some(objs) = entry.objects.as_mut() else {
+                        tracing::error!("[ BucketMap ] Delete Object: I haven't objects in {key}");
+                        return;
+                    };
+
+                    if let Some(idx) = objs.iter().position(|x| x.file_name == file_name) {
+                        objs.swap_remove(idx);
+                        tracing::debug!("[ BucketMap ] object {file_name} deleted from key {key}");
+                    } else {
+                        tracing::error!("[ BucketMap ] object {file_name} not found in key {key}");
+                    }
+                } else {
+                    tracing::error!("[ BucketMap ] The bucket {bucket} with key {key} not found");
+                }
             }
             Change::DeleteKey { bucket, key } => {
-                self.remove_key(bucket, key);
+                if let Some((parent, to_delete)) = key
+                    .name()
+                    .rsplit_once('/')
+                    .map(|(p, s)| (Key::new(p.to_string()), Segment::new(s.to_string())))
+                {
+                    let Some(entry) = self.get_mut_entry(&bucket, &parent) else {
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+                    if let Some(entry) = keys.remove(&to_delete) {
+                        tracing::info!(
+                            "[ BucketMap ] from bucket {bucket} delete: {:#?}",
+                            Fhs::create_branch(Some((&bucket).into()), &entry)
+                        );
+                    } else {
+                        tracing::error!("[ BucketMap ] Key {key} not found in bucket {bucket}");
+                    }
+                } else {
+                    let Some(entry) = self.tree.get_mut(&bucket) else {
+                        return;
+                    };
+                    let seg = key.into();
+                    if entry.keys.as_mut().unwrap().remove(&seg).is_some() {
+                        tracing::info!("[ BucketMap ] {seg} deleted from {bucket}");
+                    } else {
+                        tracing::error!("[ BucketMap ] {seg} not found in bucket {bucket}");
+                    }
+                }
             }
-            Change::DeleteBucket { .. } => todo!(),
+            Change::DeleteBucket { bucket } => {
+                if let Some(bk) = self.tree.remove(&bucket) {
+                    tracing::info!(
+                        "[ BucketMap ] deleted: {:#?}",
+                        Fhs::create_branch(Some(bucket.into()), &bk)
+                    );
+                } else {
+                    tracing::error!("[ BucketMap ] bucket {bucket} not found");
+                }
+            }
         }
     }
 
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
-    }
-
-    pub async fn build(&mut self, local_storage: &LocalStorage) -> Result<(), BucketMapErr> {
-        let mut buckets = list_buckets_and_normalize(&self.path)
-            .await
-            .into_iter()
-            .map(|x| (x, BTreeMap::new()))
-            .collect::<HashMap<Bucket, _>>();
-
-        tracing::trace!("[ BucketMap ] {{ build }} bucket found: {buckets:?}");
-        for (bks, map) in &mut buckets {
-            tracing::trace!("[ BucketMap ] {{ build }} create branch for bucket: {bks}");
-
-            let mut list_dirs = VecDeque::from([self.path.join(bks.name())]);
-
-            tracing::trace!("[ BucketMap ] {{ Directories }} {list_dirs:?}");
-            while let Some(dir) = list_dirs.pop_front() {
-                let (dirs, objs) = dir_objects(&dir).await;
-                list_dirs.extend(dirs);
-                let key = Key::from_bucket(bks.borrow(), &dir).unwrap();
-                let objects = sync_objects(objs, bks.borrow(), key.borrow(), local_storage).await;
-                tracing::trace!(
-                    "[ BucketMap build ] bucket {bks} - key {key:?} - {objects:?} - path: {dir:?}"
-                );
-                map.insert(key, objects);
-            }
+    pub async fn build(&mut self, ls: &LocalStorage) {
+        let buckets = list_buckets_and_normalize(&self.path);
+        let mut object_ids = Vec::new();
+        let mut inner = HashMap::new();
+        tracing::info!("[ BucketMap ] Build");
+        for (bucket, bucket_path) in buckets {
+            let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
+            inner.insert(bucket, entry);
         }
-        self.inner = buckets;
-        sync_object_with_database(local_storage, self).await;
-        Ok(())
+        tracing::debug!("[ BucketMap ] Build: {:#?}", inner);
+        self.tree = inner;
+
+        sync_object_with_database(ls, object_ids).await;
     }
 }
 
@@ -278,6 +318,7 @@ async fn sync_objects(
     bucket: Bucket<'_>,
     key: Key<'_>,
     local_storage: &LocalStorage,
+    objects_ids: &mut Vec<ObjectId>,
 ) -> Vec<Object> {
     let mut resp = Vec::new();
     for path in vec {
@@ -289,11 +330,11 @@ async fn sync_objects(
             tracing::info!(
                 "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"
             );
-            resp.push(object);
-
-            continue;
+            objects_ids.push(object._id.unwrap());
+            resp.push(object.object);
         } else {
-            let obj = Object::new(path, OwnerFile::default()).await;
+            let obj = Object::new(path, Default::default()).await;
+
             if let Err(er) = local_storage
                 .new_object(bucket.borrow(), key.borrow(), &obj)
                 .await
@@ -306,32 +347,11 @@ async fn sync_objects(
     resp
 }
 
-async fn dir_objects(entry: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let mut dirs = Vec::new();
-    let mut objects = Vec::new();
-    tracing::trace!("[ fn dir_objects ] entry {entry:?}");
-    let mut reader = entry.read_dir().unwrap();
-
-    while let Some(Ok(path)) = reader.next() {
-        if let Some(path) = dir_objects_rename(&path.path()).await {
-            if path.is_dir() {
-                dirs.push(path);
-            } else {
-                objects.push(path);
-            }
-        }
-    }
-    tracing::trace!(
-        "[ fn dir_objects ] {{ directories and objects found }} {dirs:?} - {objects:?}"
-    );
-    (dirs, objects)
-}
-
-async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
+async fn file_name_normalize(path: PathBuf) -> Option<(PathBuf, String)> {
     let des = if path.is_dir() {
-        NormalizePathUtf8::default().run(path).await
+        NormalizePathUtf8::default().is_new().run(&path)
     } else {
-        NormalizeFileUtf8::run(path).await
+        NormalizeFileUtf8::run(&path)
     }
     .ok()?;
 
@@ -342,19 +362,116 @@ async fn dir_objects_rename(path: &Path) -> Option<PathBuf> {
             to,
         }) => {
             let from = parent.join(from);
-            parent.push(to);
+            parent.push(&to);
             if let Err(er) = tokio::fs::rename(from, &parent).await {
                 tracing::error!("{er}");
                 None
             } else {
-                Some(parent)
+                Some((parent, to))
             }
         }
-        RenameDecision::Not(_) => Some(path.to_path_buf()),
+        RenameDecision::Not(file_name) => Some((path, file_name)),
         RenameDecision::Fail(error) => {
             tracing::error!("{error:?}");
             None
         }
         _ => unreachable!(),
+    }
+}
+
+fn build_key_entry<'a>(
+    path: &'a Path,
+    bucket: &'a Bucket<'_>,
+    objects_ids: &'a mut Vec<ObjectId>,
+    local_storage: &'a LocalStorage,
+) -> Pin<Box<dyn Future<Output = KeyEntry> + Send + 'a>> {
+    async move {
+        let mut objects = Vec::new();
+        let mut keys = HashMap::new();
+        let mut read_dir = path.read_dir().unwrap().into_iter();
+
+        while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
+            let Some((entry, file_name)) = file_name_normalize(entry).await else {
+                continue;
+            };
+            if entry.is_dir() {
+                let key_entry = build_key_entry(&entry, bucket, objects_ids, local_storage).await;
+                let key = Segment::new(file_name);
+                keys.insert(key, key_entry);
+            } else {
+                objects.push(entry);
+            }
+        }
+
+        let fut = sync_objects(
+            objects,
+            bucket.borrow(),
+            Key::from_bucket(bucket.borrow(), path).unwrap(),
+            local_storage,
+            objects_ids,
+        )
+        .await;
+
+        KeyEntry {
+            objects: Some(fut),
+            keys: (!keys.is_empty()).then_some(keys),
+            ..Default::default()
+        }
+    }
+    .boxed()
+}
+
+pub async fn sync_object_with_database(ls: &LocalStorage, objects_ids: Vec<ObjectId>) {
+    let pool = ls.pool.default_database().unwrap();
+
+    let objects = pool
+        .collection::<AsObjectDeserialize>(COLLECTION)
+        .find(doc! {"_id":{"$nin": objects_ids}})
+        .await
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("[ fn sync_object_with_database ] Failed to get Objects");
+
+    tracing::warn!(
+        "[ fn sync_object_with_database ] {} Object dont found in filesystem: {:#?}",
+        objects.len(),
+        objects
+    );
+
+    let objects = objects
+        .into_iter()
+        .filter_map(|x| x._id)
+        .collect::<Vec<_>>();
+
+    let delete_result = pool
+        .collection::<Document>(COLLECTION)
+        .delete_many(doc! {"_id": {"$in": objects}})
+        .await
+        .expect("[ fn sync_object_with_database ] Failed to delete Objects");
+    tracing::warn!(
+        "[ fn sync_object_with_database ] {} Objects deleted",
+        delete_result.deleted_count
+    );
+}
+
+impl std::fmt::Debug for KeyEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyEntry")
+            .field("objects", &self.objects)
+            .field("keys", &self.keys)
+            .field("observers", &"...")
+            .finish()
+    }
+}
+
+impl std::default::Default for KeyEntry {
+    fn default() -> Self {
+        let (tx, _) = tokio::sync::broadcast::channel(32);
+        Self {
+            objects: None,
+            keys: None,
+            observers: tx,
+        }
     }
 }

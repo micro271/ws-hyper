@@ -8,7 +8,7 @@ use std::{
 use crate::{
     bucket::{
         Bucket, Cowed,
-        key::Key,
+        key::{Key, Segment},
         object::{Object, OwnerFile},
         utils::{
             Rename, RenameDecision,
@@ -24,7 +24,7 @@ pub async fn hd_new_bucket_or_key_watcher(
     root: &Path,
     skip: Skipper,
 ) -> Result<Change, ()> {
-    match NormalizePathUtf8::default().is_new().run(&path).await {
+    match NormalizePathUtf8::default().is_new().run(&path) {
         Ok(RenameDecision::Not(str)) => {
             tracing::debug!("[ fn hd_new_bucket_or_key_watcher ] File mane ok {str}");
             let Some(parent) = path.parent() else {
@@ -94,7 +94,7 @@ pub async fn hd_new_object_watcher(
         return Err(());
     };
 
-    match NormalizeFileUtf8::run(&path).await {
+    match NormalizeFileUtf8::run(&path) {
         Ok(RenameDecision::Yes(Rename { parent, from, to })) => {
             let from = parent.join(from);
             let to_ = parent.join(&to);
@@ -143,7 +143,7 @@ pub async fn hd_rename_path<'a>(
     original_to: PathBuf,
     skipped: Skipper,
 ) -> Result<Change, ()> {
-    match NormalizePathUtf8::default().run(&original_to).await {
+    match NormalizePathUtf8::default().run(&original_to) {
         Ok(RenameDecision::Not(name)) => {
             if original_to.parent().is_some_and(|x| x == root) {
                 let to = Bucket::new_unchecked(name);
@@ -160,9 +160,16 @@ pub async fn hd_rename_path<'a>(
                 Ok(Change::NameBucket { from, to })
             } else {
                 let bucket = Bucket::find_bucket(root, &original_to).unwrap();
-                let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
+                let key = Segment::new(name);
 
-                if skipped.key_tracker().skipped(&bucket, &key).await {
+                if skipped
+                    .key_tracker()
+                    .skipped(
+                        &bucket,
+                        &Key::from_bucket(bucket.borrow(), &original_to).unwrap(),
+                    )
+                    .await
+                {
                     tracing::trace!("[ fn hd_rename_part ] skipped {bucket:?} {key:?}");
                     return Err(());
                 }
@@ -198,10 +205,13 @@ pub async fn hd_rename_path<'a>(
             } else {
                 let bucket = Bucket::find_bucket(root, &original_to).unwrap();
                 let original_key = Key::from_bucket(bucket.borrow(), &original_from).unwrap();
-                let key = Key::from_bucket(bucket.borrow(), &original_to).unwrap();
+                let key = Segment::new(to);
                 skipped
                     .key_tracker()
-                    .to_skip(bucket.cloned(), key.cloned())
+                    .to_skip(
+                        bucket.cloned(),
+                        Key::from_bucket(bucket.borrow(), &original_to).unwrap(),
+                    )
                     .await;
 
                 Ok(Change::NameKey {
@@ -234,7 +244,7 @@ pub async fn hd_rename_object<'a>(
     let bucket = Bucket::find_bucket(root, &original_to).unwrap();
     let key = Key::from_bucket(bucket.borrow(), original_to.parent().unwrap()).unwrap();
 
-    match NormalizeFileUtf8::run(&original_to).await {
+    match NormalizeFileUtf8::run(&original_to) {
         Ok(RenameDecision::Not(name)) => {
             if to_skip.object_tracker().skipped(&bucket, &key, &name).await {
                 tracing::trace!(

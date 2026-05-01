@@ -45,24 +45,25 @@ pub enum RenameError {
     InvalidParent(PathBuf),
 }
 
-pub async fn list_buckets_and_normalize(root: &Path) -> Vec<Bucket<'static>> {
+pub fn list_buckets_and_normalize(root: &Path) -> Vec<(Bucket<'static>, PathBuf)> {
     let mut resp = Vec::new();
     for bucket in root.read_dir().unwrap().flatten() {
-        match NormalizePathUtf8::default().run(bucket.path()).await {
-            Ok(RenameDecision::Not(bk)) => resp.push(Bucket::new_unchecked(bk)),
+        let path = bucket.path();
+        match NormalizePathUtf8::default().is_new().run(&path) {
+            Ok(RenameDecision::Not(bk)) => resp.push((Bucket::new_unchecked(bk), path)),
             Ok(RenameDecision::Yes(Rename {
                 mut parent,
                 from,
                 to,
             })) => {
-                resp.push(Bucket::new_unchecked(to.to_string()));
                 let from = parent.join(from);
-                parent.push(to);
-                if let Err(er) = tokio::fs::rename(from, parent).await {
+                parent.push(&to);
+                if let Err(er) = std::fs::rename(from, parent) {
                     tracing::error!(
                         "[ BucketMap build ] fn list_buckets_and_normalize error: {er:?}"
                     )
                 }
+                resp.push((Bucket::new_unchecked(to), path));
             }
             Err(er) => {
                 tracing::error!("[ BucketMap build ] fn list_buckets_and_normalize error: {er:?}");

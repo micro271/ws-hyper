@@ -12,6 +12,12 @@ pub trait Observer {
 
 pub struct UserObserver(<WebSocketHandler as Actor>::ActorRef);
 
+impl std::fmt::Debug for UserObserver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserObserver {{ .. }}")
+    }
+}
+
 impl Observer for UserObserver {
     type Event = tungstenite::Message;
 
