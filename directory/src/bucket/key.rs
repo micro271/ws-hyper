@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bucket::{Bucket, Cowed};
 
-#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct Segment<'a>(Cow<'a, str>);
 
 impl<'a> Segment<'a> {

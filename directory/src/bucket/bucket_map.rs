@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -25,12 +25,12 @@ use crate::{
 #[derive(Debug)]
 pub struct BucketMap {
     path: PathBuf,
-    pub tree: HashMap<Bucket<'static>, KeyEntry>,
+    pub tree: BTreeMap<Bucket<'static>, KeyEntry>,
 }
 
 pub struct KeyEntry {
     pub objects: Option<Vec<Object>>,
-    pub keys: Option<HashMap<Segment<'static>, KeyEntry>>,
+    pub keys: Option<BTreeMap<Segment<'static>, KeyEntry>>,
     pub observers: tokio::sync::broadcast::Sender<Change>,
 }
 
@@ -300,7 +300,7 @@ impl BucketMap {
     pub async fn build(&mut self, ls: &LocalStorage) {
         let buckets = list_buckets_and_normalize(&self.path);
         let mut object_ids = Vec::new();
-        let mut inner = HashMap::new();
+        let mut inner = BTreeMap::new();
         tracing::info!("[ BucketMap ] Build");
         for (bucket, bucket_path) in buckets {
             let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
@@ -387,7 +387,7 @@ fn build_key_entry<'a>(
 ) -> Pin<Box<dyn Future<Output = KeyEntry> + Send + 'a>> {
     async move {
         let mut objects = Vec::new();
-        let mut keys = HashMap::new();
+        let mut keys = BTreeMap::new();
         let mut read_dir = path.read_dir().unwrap().into_iter();
 
         while let Some(entry) = read_dir.next().and_then(|x| x.ok().map(|x| x.path())) {
@@ -403,7 +403,7 @@ fn build_key_entry<'a>(
             }
         }
 
-        let fut = sync_objects(
+        let objs = sync_objects(
             objects,
             bucket.borrow(),
             Key::from_bucket(bucket.borrow(), path).unwrap(),
@@ -413,7 +413,7 @@ fn build_key_entry<'a>(
         .await;
 
         KeyEntry {
-            objects: Some(fut),
+            objects: (!objs.is_empty()).then_some(objs),
             keys: (!keys.is_empty()).then_some(keys),
             ..Default::default()
         }
