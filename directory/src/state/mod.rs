@@ -43,18 +43,6 @@ impl State {
         key: Option<Key<'_>>,
         sender: HyperWebsocket,
     ) {
-        /*if let Err(er) = self
-            .mgr
-            .ws
-            .send(MsgWs::NewUser {
-                bucket: bucket.unwrap().owned(),
-                key: key.unwrap().owned(),
-                sender,
-            })
-            .await
-        {
-            tracing::error!("{er}");
-        }*/
         todo!()
     }
 }

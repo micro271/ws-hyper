@@ -6,6 +6,7 @@ use crate::{
     state::State,
 };
 
+use futures::StreamExt;
 use http::{StatusCode, header};
 use http_body_util::Full;
 use hyper::{
@@ -45,7 +46,6 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
 
         if hyper_tungstenite::is_upgrade_request(&req) {
             let (res, ws) = hyper_tungstenite::upgrade(&mut req, None).unwrap();
-            // state.add_client(bucket, todo!(), ws).await;
             Ok(res)
         } else {
             let state = state.read().await;

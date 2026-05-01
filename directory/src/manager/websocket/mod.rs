@@ -1,55 +1,42 @@
+pub mod broker;
+pub mod observer;
+
 use futures::{SinkExt, stream::SplitSink};
 use hyper::upgrade::Upgraded;
 use hyper_tungstenite::{WebSocketStream, tungstenite};
 use hyper_util::rt::TokioIo;
 
-use crate::actor::{Actor, ActorRef, ActorRefWithShutdown, Context, Envelope};
-
-pub mod observer;
-pub mod subject;
+use crate::{
+    actor::{Actor, ActorRef, ActorRefWithShutdown, Context, Envelope},
+    manager::websocket::{
+        broker::{WSBroker, WSBrokerMessage},
+        observer::UserObserver,
+    },
+};
 
 pub struct WebSocketHandler {
-    user: SplitSink<WebSocketStream<TokioIo<Upgraded>>, tungstenite::Message>,
-    receiver_broadcast: tokio::sync::broadcast::Receiver<<Self as Actor>::Message>,
+    pub user: SplitSink<WebSocketStream<TokioIo<Upgraded>>, tungstenite::Message>,
+    pub broker: <WSBroker as Actor>::ActorRef,
 }
 
 impl Actor for WebSocketHandler {
     type Message = tungstenite::Message;
-
     type Reply = ();
-
     type ActorRef = ActorRefWithShutdown<tokio::sync::mpsc::Sender<Envelope<Self>>, Self>;
-
     type Context = Context<Self>;
 
     fn start(mut self) -> Self::ActorRef {
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let (tx_shut, mut rx_shut) = tokio::sync::oneshot::channel();
-        let actor_ref = ActorRef::new(tx.clone());
-        let actor_ref = ActorRefWithShutdown::new(actor_ref, tx_shut);
+        let actor_ref = ActorRefWithShutdown::new(ActorRef::new(tx.clone()), tx_shut);
         let actor_ref_clone = actor_ref.clone();
+        let user_obs = UserObserver::new(actor_ref.clone());
+
         tokio::spawn(async move {
             let _context = Context::<Self>::new(actor_ref_clone);
-
+            let id = self.broker.ask(WSBrokerMessage::Subscriber(user_obs)).await;
             loop {
                 tokio::select! {
-                    br_message = self.receiver_broadcast.recv() => {
-                        tracing::debug!("[ WebSocketHandler ] New message from broadcast: {br_message:?}");
-                        match br_message {
-                            Ok(msg) => {
-                                if let Err(er) = self.user.send(msg).await {
-                                    tracing::error!("[ WebSocketHandler ] error: {er:?}");
-                                    break;
-                                }
-                            },
-                            Err(er) => {
-                                tracing::error!("[ WebSocketHandler ] Receiver's broadcast error: {er:?}");
-                                if let tokio::sync::broadcast::error::RecvError::Closed = er {
-                                    break;
-                                }
-                            }
-                        }
-                    },
                     message = rx.recv() => {
                         tracing::debug!("[ WebSocketHandler ] New message from Actor receiver: {message:?}");
                         match message {
@@ -66,6 +53,7 @@ impl Actor for WebSocketHandler {
                     }
                 }
             }
+            self.broker.tell(WSBrokerMessage::Ubsubscriber(id)).await;
         });
 
         actor_ref

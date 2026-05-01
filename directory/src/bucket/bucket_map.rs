@@ -4,10 +4,12 @@ use std::{
     pin::Pin,
 };
 
-use futures::{FutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
+use hyper_tungstenite::HyperWebsocket;
 use mongodb::bson::{Document, doc, oid::ObjectId};
 
 use crate::{
+    actor::Actor,
     bucket::{
         Bucket, Cowed,
         fhs::Fhs,
@@ -18,7 +20,10 @@ use crate::{
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
         },
     },
-    manager::Change,
+    manager::{
+        Change,
+        websocket::{WebSocketHandler, broker::WSBroker},
+    },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
@@ -31,7 +36,7 @@ pub struct BucketMap {
 pub struct KeyEntry {
     pub objects: Option<Vec<Object>>,
     pub keys: Option<BTreeMap<Segment<'static>, KeyEntry>>,
-    pub observers: tokio::sync::broadcast::Sender<Change>,
+    pub broker: <WSBroker as Actor>::ActorRef,
 }
 
 impl BucketMap {
@@ -102,6 +107,30 @@ impl BucketMap {
             }
 
             Some(entry)
+        }
+    }
+
+    pub async fn subscriber<'a>(
+        &'a mut self,
+        bucket: &'a Bucket<'static>,
+        key: &'a Key<'static>,
+        ws: HyperWebsocket,
+    ) {
+        if let Some(entry) = self.get_mut_entry(bucket, key) {
+            match ws.await.map(|x| x.split()) {
+                Ok((tx, rx)) => {
+                    WebSocketHandler {
+                        user: tx,
+                        broker: entry.broker.clone(),
+                    }
+                    .start();
+                }
+                Err(er) => {
+                    tracing::error!("[ BucketMap ] subscriber error: {er}");
+                }
+            }
+        } else {
+            tracing::error!("[ BucketMap ] User subscriber ")
         }
     }
 
@@ -344,6 +373,7 @@ async fn sync_objects(
             resp.push(obj);
         }
     }
+
     resp
 }
 
@@ -467,11 +497,11 @@ impl std::fmt::Debug for KeyEntry {
 
 impl std::default::Default for KeyEntry {
     fn default() -> Self {
-        let (tx, _) = tokio::sync::broadcast::channel(32);
+        let broker = WSBroker::default().start();
         Self {
             objects: None,
             keys: None,
-            observers: tx,
+            broker,
         }
     }
 }

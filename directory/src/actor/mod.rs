@@ -141,6 +141,10 @@ impl<A: Actor> Envelope<A> {
 }
 
 impl<S: SenderActor<A>, A: Actor> ActorRef<S, A> {
+    pub fn try_tell(&self, msg: A::Message) {
+        let _ = self.sender.try_send(Envelope::tell(msg));
+    }
+
     pub async fn tell(&self, msg: A::Message) {
         let _ = self.sender.send(Envelope::tell(msg)).await;
     }
@@ -155,6 +159,7 @@ impl<S: SenderActor<A>, A: Actor> ActorRef<S, A> {
 pub trait SenderActor<A: Actor> {
     type Error: Send + 'static;
     fn send(&self, msg: Envelope<A>) -> impl Future<Output = Result<(), Self::Error>>;
+    fn try_send(&self, msg: Envelope<A>);
 }
 
 impl<A: Actor> SenderActor<A> for UnboundedSender<Envelope<A>> {
@@ -162,11 +167,19 @@ impl<A: Actor> SenderActor<A> for UnboundedSender<Envelope<A>> {
     async fn send(&self, msg: Envelope<A>) -> Result<(), Self::Error> {
         self.send(msg)
     }
+
+    fn try_send(&self, msg: Envelope<A>) {
+        _ = self.send(msg);
+    }
 }
 
 impl<A: Actor> SenderActor<A> for tokio::sync::mpsc::Sender<Envelope<A>> {
     type Error = SendError<Envelope<A>>;
     async fn send(&self, msg: Envelope<A>) -> Result<(), Self::Error> {
         self.send(msg).await
+    }
+
+    fn try_send(&self, msg: Envelope<A>) {
+        _ = self.try_send(msg);
     }
 }
