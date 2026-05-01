@@ -1,4 +1,3 @@
-use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -78,7 +77,6 @@ impl_canged!(ObjectModified);
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Object {
-    pub _id: Option<ObjectId>,
     pub size: i64,
     pub owner: OwnerFile,
     pub file_name: String,
@@ -130,8 +128,7 @@ impl Object {
 
 impl std::cmp::PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
-        self._id.is_some_and(|x| other._id.is_some_and(|y| x == y))
-            || (self.file_name == other.file_name && self.checksum == other.checksum)
+        self.file_name == other.file_name && self.checksum == other.checksum
     }
 }
 

@@ -10,7 +10,8 @@ use mongodb::bson::{Document, doc, oid::ObjectId};
 use crate::{
     bucket::{
         Bucket, Cowed,
-        key::{self, Key, Segment},
+        fhs::Fhs,
+        key::{Key, Segment},
         object::Object,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
@@ -192,16 +193,107 @@ impl BucketMap {
                 }
             }
             Change::NameKey { bucket, from, to } => {
-                let from_key = from.inner();
-                todo!()
+                if let Some((parent, from_seg)) = from
+                    .name()
+                    .rsplit_once('/')
+                    .map(|(key, seg)| (Key::new(key).owned(), Segment::new(seg).owned()))
+                {
+                    let Some(entry) = self.get_mut_entry(&bucket, &parent) else {
+                        tracing::error!("[ Bucket Map ] Key {from} not found");
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+
+                    if keys.get(&to).is_some() {
+                        tracing::error!(
+                            "[ BucketMap ] Key {parent}/{to} already exists, i cannot rename the key {from}"
+                        );
+                        return;
+                    }
+
+                    let old = keys.remove(&from_seg);
+                    keys.insert(to, old.unwrap_or_default());
+                } else {
+                    let Some(entry) = self.tree.get_mut(&bucket) else {
+                        tracing::error!("[ BucketMap ] Bucket not found {bucket}");
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+                    let from = from.into();
+                    if keys.get(&to).is_some() {
+                        tracing::error!("[ BucketMap ] {to} already exists");
+                        return;
+                    };
+
+                    let old = keys.remove(&from);
+
+                    keys.insert(to, old.unwrap_or_default());
+                }
             }
             Change::DeleteObject {
                 bucket,
                 key,
                 file_name,
-            } => todo!(),
-            Change::DeleteKey { bucket, key } => todo!(),
-            Change::DeleteBucket { bucket } => todo!(),
+            } => {
+                if let Some(entry) = self.get_mut_entry(&bucket, &key) {
+                    let Some(objs) = entry.objects.as_mut() else {
+                        tracing::error!("[ BucketMap ] Delete Object: I haven't objects in {key}");
+                        return;
+                    };
+
+                    if let Some(idx) = objs.iter().position(|x| x.file_name == file_name) {
+                        objs.swap_remove(idx);
+                        tracing::debug!("[ BucketMap ] object {file_name} deleted from key {key}");
+                    } else {
+                        tracing::error!("[ BucketMap ] object {file_name} not found in key {key}");
+                    }
+                } else {
+                    tracing::error!("[ BucketMap ] The bucket {bucket} with key {key} not found");
+                }
+            }
+            Change::DeleteKey { bucket, key } => {
+                if let Some((parent, to_delete)) = key
+                    .name()
+                    .rsplit_once('/')
+                    .map(|(p, s)| (Key::new(p.to_string()), Segment::new(s.to_string())))
+                {
+                    let Some(entry) = self.get_mut_entry(&bucket, &parent) else {
+                        return;
+                    };
+
+                    let keys = entry.keys.as_mut().unwrap();
+                    if let Some(entry) = keys.remove(&to_delete) {
+                        tracing::info!(
+                            "[ BucketMap ] from bucket {bucket} delete: {:#?}",
+                            Fhs::create_branch(Some((&bucket).into()), &entry)
+                        );
+                    } else {
+                        tracing::error!("[ BucketMap ] Key {key} not found in bucket {bucket}");
+                    }
+                } else {
+                    let Some(entry) = self.tree.get_mut(&bucket) else {
+                        return;
+                    };
+                    let seg = key.into();
+                    if entry.keys.as_mut().unwrap().remove(&seg).is_some() {
+                        tracing::info!("[ BucketMap ] {seg} deleted from {bucket}");
+                    } else {
+                        tracing::error!("[ BucketMap ] {seg} not found in bucket {bucket}");
+                    }
+                }
+            }
+            Change::DeleteBucket { bucket } => {
+                if let Some(bk) = self.tree.remove(&bucket) {
+                    tracing::info!(
+                        "[ BucketMap ] deleted: {:#?}",
+                        Fhs::create_branch(Some(bucket.into()), &bk)
+                    );
+                } else {
+                    tracing::error!("[ BucketMap ] bucket {bucket} not found");
+                }
+            }
         }
     }
 
@@ -239,7 +331,7 @@ async fn sync_objects(
                 "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"
             );
             objects_ids.push(object._id.unwrap());
-            resp.push(object);
+            resp.push(object.object);
         } else {
             let obj = Object::new(path, Default::default()).await;
 
@@ -349,7 +441,7 @@ pub async fn sync_object_with_database(ls: &LocalStorage, objects_ids: Vec<Objec
 
     let objects = objects
         .into_iter()
-        .filter_map(|x| x.object._id)
+        .filter_map(|x| x._id)
         .collect::<Vec<_>>();
 
     let delete_result = pool

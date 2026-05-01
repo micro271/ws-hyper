@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::Serialize;
 
 use crate::bucket::{
@@ -7,7 +9,7 @@ use crate::bucket::{
     object::Object,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(untagged)]
 pub enum Fhs<'a> {
     Branch {

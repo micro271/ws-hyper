@@ -149,9 +149,21 @@ impl<'a> From<&'a Bucket<'a>> for Segment<'a> {
     }
 }
 
+impl<'a> From<Bucket<'a>> for Segment<'a> {
+    fn from(value: Bucket<'a>) -> Self {
+        Self::new(value.0)
+    }
+}
+
 impl<'a> From<&'a Key<'a>> for Segment<'a> {
     fn from(value: &'a Key<'a>) -> Self {
         Self::new(value.name())
+    }
+}
+
+impl<'a> From<Key<'a>> for Segment<'a> {
+    fn from(value: Key<'a>) -> Self {
+        Self::new(value.0)
     }
 }
 

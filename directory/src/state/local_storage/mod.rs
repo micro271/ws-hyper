@@ -7,7 +7,7 @@ use crate::bucket::{
 };
 use mongodb::{
     Client, Database, IndexModel,
-    bson::{self, doc},
+    bson::{self, doc, oid::ObjectId},
     options::{ClientOptions, Credential, IndexOptions, ServerAddress},
     results::{DeleteResult, InsertOneResult, UpdateResult},
 };
@@ -49,6 +49,7 @@ impl<'a> AsObjectSerialize<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct AsObjectDeserialize {
+    pub _id: Option<ObjectId>,
     pub bucket: Bucket<'static>,
     pub key: Key<'static>,
     pub object: Object,
@@ -103,15 +104,14 @@ impl LocalStorage {
         bucket: Bucket<'_>,
         key: Key<'_>,
         filename: &str,
-    ) -> Result<Option<Object>, LsError> {
+    ) -> Result<Option<AsObjectDeserialize>, LsError> {
         let tmp = self.pool.default_database().unwrap();
         let filter = doc! { "bucket": bucket, "key": key, "object.file_name": filename };
 
         Ok(tmp
             .collection::<AsObjectDeserialize>(COLLECTION)
             .find_one(filter)
-            .await?
-            .map(|x| x.object))
+            .await?)
     }
 
     pub async fn get_object_name(
