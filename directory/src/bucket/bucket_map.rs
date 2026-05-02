@@ -11,7 +11,7 @@ use mongodb::bson::{Document, doc, oid::ObjectId};
 use crate::{
     actor::Actor,
     bucket::{
-        Bucket, Cowed,
+        self, Bucket, Cowed,
         fhs::Fhs,
         key::{Key, Segment},
         object::Object,
@@ -27,10 +27,10 @@ use crate::{
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
 
-#[derive(Debug)]
 pub struct BucketMap {
     path: PathBuf,
     pub tree: BTreeMap<Bucket<'static>, KeyEntry>,
+    broker: <WSBroker as Actor>::ActorRef,
 }
 
 pub struct KeyEntry {
@@ -52,6 +52,7 @@ impl BucketMap {
         Self {
             path,
             tree: Default::default(),
+            broker: WSBroker::default().start(),
         }
     }
 
@@ -110,27 +111,55 @@ impl BucketMap {
         }
     }
 
-    pub async fn subscriber<'a>(
-        &'a mut self,
-        bucket: &'a Bucket<'static>,
-        key: &'a Key<'static>,
+    pub async fn subscriber(
+        &mut self,
+        bucket: Option<Bucket<'_>>,
+        key: Option<Key<'_>>,
         ws: HyperWebsocket,
     ) {
-        if let Some(entry) = self.get_mut_entry(bucket, key) {
-            match ws.await.map(|x| x.split()) {
-                Ok((tx, rx)) => {
-                    WebSocketHandler {
-                        user: tx,
-                        broker: entry.broker.clone(),
+        match ws.await.map(|x| x.split()) {
+            Ok((tx, mut rx)) => {
+                let broker = if let Some(bucket) = bucket {
+                    let key = key.unwrap_or(Key::root());
+                    match self.get_entry(&bucket, &key) {
+                        Some(entry) => entry.broker.clone(),
+                        None => {
+                            tracing::error!(
+                                "[ BucketMap ] Subscriber error, entry not found: bucket: {bucket} - key: {key}"
+                            );
+                            return;
+                        }
                     }
-                    .start();
-                }
-                Err(er) => {
-                    tracing::error!("[ BucketMap ] subscriber error: {er}");
-                }
+                } else {
+                    self.broker.clone()
+                };
+
+                let actor_ref = WebSocketHandler { user: tx, broker }.start();
+
+                tokio::spawn(async move {
+                    loop {
+                        match rx.next().await {
+                            Some(Ok(msg)) => {
+                                tracing::info!(
+                                    "[ WebSocketPeer from Subscriber BucketMap ]: {msg}"
+                                );
+                            }
+                            Some(Err(er)) => {
+                                tracing::error!(
+                                    "[ WebSocketPeer from Subscriber BucketMap ] error {er}"
+                                );
+                            }
+                            None => {
+                                actor_ref.shutdown().await;
+                                break;
+                            }
+                        }
+                    }
+                });
             }
-        } else {
-            tracing::error!("[ BucketMap ] User subscriber ")
+            Err(er) => {
+                tracing::error!("[ BucketMap ] subscriber error: {er}");
+            }
         }
     }
 
@@ -503,5 +532,15 @@ impl std::default::Default for KeyEntry {
             keys: None,
             broker,
         }
+    }
+}
+
+impl std::fmt::Debug for BucketMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BucketMap")
+            .field("broker", &"..")
+            .field("path", &self.path)
+            .field("tree", &self.tree)
+            .finish()
     }
 }

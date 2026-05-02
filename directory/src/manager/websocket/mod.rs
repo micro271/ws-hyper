@@ -35,6 +35,7 @@ impl Actor for WebSocketHandler {
         tokio::spawn(async move {
             let _context = Context::<Self>::new(actor_ref_clone);
             let id = self.broker.ask(WSBrokerMessage::Subscriber(user_obs)).await;
+            tracing::debug!("[ WebSocketHandler ] New Observer {id}");
             loop {
                 tokio::select! {
                     message = rx.recv() => {
@@ -54,6 +55,7 @@ impl Actor for WebSocketHandler {
                 }
             }
             self.broker.tell(WSBrokerMessage::Ubsubscriber(id)).await;
+            tracing::debug!("[ WebSocketHandler ] Unsubscriber {id}");
         });
 
         actor_ref

@@ -41,15 +41,26 @@ impl Actor for WSBroker {
                         reply_to,
                     }) => {
                         let uuid = Uuid::new_v4();
-                        self.observers.insert(uuid, new_user);
-                        if let Err(er) = reply_to.unwrap().send(uuid) {
-                            tracing::error!("[ Broker ] Reply error uuid: {er}");
+                        match reply_to {
+                            Some(repl) => {
+                                if repl.send(uuid).is_err() {
+                                    tracing::error!("[ Broker ] reply error");
+                                }
+                                self.observers.insert(uuid, new_user);
+                            }
+                            None => {
+                                tracing::debug!("[ Broker ] Nothing reply");
+                            }
                         }
                     }
                     Some(Envelope {
                         message: WSBrokerMessage::Message(msg),
                         ..
                     }) => {
+                        tracing::debug!(
+                            "[ WSBroker ] Send message {{ {msg:?} }} to {} observers",
+                            self.observers.len()
+                        );
                         for (_, i) in &mut self.observers {
                             i.update(msg.clone()).await;
                         }

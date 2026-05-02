@@ -8,12 +8,19 @@ use crate::{
 };
 use hyper_tungstenite::HyperWebsocket;
 use std::sync::Arc;
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 pub struct State {
     tree: Arc<RwLock<BucketMap>>,
     ref_manager: <Manager as Actor>::ActorRef,
+}
+
+impl std::ops::Deref for State {
+    type Target = Arc<RwLock<BucketMap>>;
+    fn deref(&self) -> &Self::Target {
+        &self.tree
+    }
 }
 
 impl State {
@@ -22,10 +29,6 @@ impl State {
         ref_manager: <Manager as Actor>::ActorRef,
     ) -> Self {
         Self { tree, ref_manager }
-    }
-
-    pub async fn read(&self) -> RwLockReadGuard<'_, BucketMap> {
-        self.tree.read().await
     }
 
     pub async fn bucket(
