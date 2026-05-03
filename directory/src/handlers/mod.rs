@@ -1,8 +1,9 @@
 pub mod auth_layer;
 pub mod error;
 use crate::{
-    bucket::{Bucket, fhs::Fhs, key::Key},
+    bucket::{Bucket, Cowed, fhs::Fhs, key::Key},
     handlers::error::ResponseError,
+    manager::websocket::WebSocket,
     state::State,
 };
 
@@ -46,7 +47,12 @@ pub async fn entry(mut req: Request<Incoming>) -> Result<Response<Full<Bytes>>, 
         if hyper_tungstenite::is_upgrade_request(&req) {
             let (res, ws) = hyper_tungstenite::upgrade(&mut req, None).unwrap();
             let (bucket, key) = pair.unzip();
-            state.write().await.subscriber(bucket, key, ws).await;
+            WebSocket::build(
+                ws,
+                bucket.map(|x| x.owned()),
+                key.map(|x| x.owned()),
+                (&**state).clone(),
+            );
             Ok(res)
         } else {
             let state = state.read().await;

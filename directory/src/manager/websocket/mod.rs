@@ -1,69 +1,65 @@
 pub mod broker;
 pub mod observer;
+pub mod web_socket_actor;
 
-use futures::{SinkExt, stream::SplitSink};
-use hyper::upgrade::Upgraded;
-use hyper_tungstenite::{WebSocketStream, tungstenite};
-use hyper_util::rt::TokioIo;
+use std::sync::Arc;
+
+use futures::StreamExt;
+use hyper_tungstenite::HyperWebsocket;
+use tokio::sync::RwLock;
+pub use web_socket_actor::*;
 
 use crate::{
-    actor::{Actor, ActorRef, ActorRefWithShutdown, Context, Envelope},
-    manager::websocket::{
-        broker::{WSBroker, WSBrokerMessage},
-        observer::UserObserver,
-    },
+    actor::Actor,
+    bucket::{Bucket, bucket_map::BucketMap, key::Key},
 };
 
-pub struct WebSocketHandler {
-    pub user: SplitSink<WebSocketStream<TokioIo<Upgraded>>, tungstenite::Message>,
-    pub broker: <WSBroker as Actor>::ActorRef,
-}
+pub struct WebSocket;
 
-impl Actor for WebSocketHandler {
-    type Message = tungstenite::Message;
-    type Reply = ();
-    type ActorRef = ActorRefWithShutdown<tokio::sync::mpsc::Sender<Envelope<Self>>, Self>;
-    type Context = Context<Self>;
-
-    fn start(mut self) -> Self::ActorRef {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        let (tx_shut, mut rx_shut) = tokio::sync::oneshot::channel();
-        let actor_ref = ActorRefWithShutdown::new(ActorRef::new(tx.clone()), tx_shut);
-        let actor_ref_clone = actor_ref.clone();
-        let user_obs = UserObserver::new(actor_ref.clone());
-
+impl WebSocket {
+    pub fn build(
+        ws: HyperWebsocket,
+        bucket: Option<Bucket<'static>>,
+        key: Option<Key<'static>>,
+        state: Arc<RwLock<BucketMap>>,
+    ) {
         tokio::spawn(async move {
-            let _context = Context::<Self>::new(actor_ref_clone);
-            let id = self.broker.ask(WSBrokerMessage::Subscriber(user_obs)).await;
-            tracing::debug!("[ WebSocketHandler ] New Observer {id}");
-            loop {
-                tokio::select! {
-                    message = rx.recv() => {
-                        tracing::debug!("[ WebSocketHandler ] New message from Actor receiver: {message:?}");
-                        match message {
-                            Some(Envelope { message, .. }) => if let Err(er) = self.user.send(message).await {
-                                tracing::error!("[ WebSocketHandler ] error: {er:?}");
-                                break;
-                            },
-                            None => { break; },
+            let (tx, mut rx) = match ws.await {
+                Ok(ws) => ws.split(),
+                Err(er) => {
+                    tracing::error!("[ WebSocket ] Handshake error: {er} ");
+                    return;
+                }
+            };
+
+            let Some(broker) = state.read().await.subscriber(bucket, key).await else {
+                return;
+            };
+
+            let actor_ref = WebSocketHandler {
+                user: tx,
+                broker: broker,
+            }
+            .start();
+
+            tokio::spawn(async move {
+                loop {
+                    match rx.next().await {
+                        Some(Ok(msg)) => {
+                            tracing::info!("[ WebSocketPeer from Subscriber BucketMap ]: {msg}");
                         }
-                    },
-                    _ = &mut rx_shut => {
-                        _ = self.user.close().await;
-                        break;
+                        Some(Err(er)) => {
+                            tracing::error!(
+                                "[ WebSocketPeer from Subscriber BucketMap ] error {er}"
+                            );
+                        }
+                        None => {
+                            actor_ref.shutdown().await;
+                            break;
+                        }
                     }
                 }
-            }
-            self.broker.tell(WSBrokerMessage::Ubsubscriber(id)).await;
-            tracing::debug!("[ WebSocketHandler ] Unsubscriber {id}");
+            });
         });
-
-        actor_ref
-    }
-}
-
-impl std::fmt::Debug for WebSocketHandler {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WebSocketHandler {{ .. }}")
     }
 }

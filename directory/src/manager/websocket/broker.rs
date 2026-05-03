@@ -8,6 +8,8 @@ use crate::{
     manager::websocket::observer::{Observer, UserObserver},
 };
 
+pub type Broker = <WSBroker as Actor>::ActorRef;
+
 #[derive(Default)]
 pub struct WSBroker {
     observers: HashMap<uuid::Uuid, UserObserver>,

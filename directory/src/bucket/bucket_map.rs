@@ -11,7 +11,7 @@ use mongodb::bson::{Document, doc, oid::ObjectId};
 use crate::{
     actor::Actor,
     bucket::{
-        self, Bucket, Cowed,
+        Bucket, Cowed,
         fhs::Fhs,
         key::{Key, Segment},
         object::Object,
@@ -22,7 +22,10 @@ use crate::{
     },
     manager::{
         Change,
-        websocket::{WebSocketHandler, broker::WSBroker},
+        websocket::{
+            WebSocketHandler,
+            broker::{Broker, WSBroker},
+        },
     },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
@@ -112,54 +115,23 @@ impl BucketMap {
     }
 
     pub async fn subscriber(
-        &mut self,
+        &self,
         bucket: Option<Bucket<'_>>,
         key: Option<Key<'_>>,
-        ws: HyperWebsocket,
-    ) {
-        match ws.await.map(|x| x.split()) {
-            Ok((tx, mut rx)) => {
-                let broker = if let Some(bucket) = bucket {
-                    let key = key.unwrap_or(Key::root());
-                    match self.get_entry(&bucket, &key) {
-                        Some(entry) => entry.broker.clone(),
-                        None => {
-                            tracing::error!(
-                                "[ BucketMap ] Subscriber error, entry not found: bucket: {bucket} - key: {key}"
-                            );
-                            return;
-                        }
-                    }
-                } else {
-                    self.broker.clone()
-                };
-
-                let actor_ref = WebSocketHandler { user: tx, broker }.start();
-
-                tokio::spawn(async move {
-                    loop {
-                        match rx.next().await {
-                            Some(Ok(msg)) => {
-                                tracing::info!(
-                                    "[ WebSocketPeer from Subscriber BucketMap ]: {msg}"
-                                );
-                            }
-                            Some(Err(er)) => {
-                                tracing::error!(
-                                    "[ WebSocketPeer from Subscriber BucketMap ] error {er}"
-                                );
-                            }
-                            None => {
-                                actor_ref.shutdown().await;
-                                break;
-                            }
-                        }
-                    }
-                });
+    ) -> Option<Broker> {
+        if let Some(bucket) = bucket {
+            let key = key.unwrap_or(Key::root());
+            match self.get_entry(&bucket, &key) {
+                Some(entry) => Some(entry.broker.clone()),
+                None => {
+                    tracing::error!(
+                        "[ BucketMap ] Subscriber error, entry not found: bucket: {bucket} - key: {key}"
+                    );
+                    None
+                }
             }
-            Err(er) => {
-                tracing::error!("[ BucketMap ] subscriber error: {er}");
-            }
+        } else {
+            Some(self.broker.clone())
         }
     }
 
