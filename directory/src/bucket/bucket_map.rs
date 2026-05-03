@@ -13,7 +13,7 @@ use crate::{
         Bucket, Cowed,
         fhs::Fhs,
         key::{Key, Segment},
-        object::Object,
+        object::{self, Object},
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -328,8 +328,8 @@ impl BucketMap {
         let mut object_ids = Vec::new();
         let mut inner = BTreeMap::new();
         tracing::info!("[ BucketMap ] Build");
-        for (bucket, bucket_path) in buckets {
-            let entry = build_key_entry(&bucket_path, &bucket, &mut object_ids, ls).await;
+        for (bucket, path) in buckets {
+            let entry = build_key_entry(&path, &path, &bucket, &mut object_ids, ls).await;
             inner.insert(bucket, entry);
         }
         tracing::debug!("[ BucketMap ] Build: {:#?}", inner);
@@ -407,6 +407,7 @@ async fn file_name_normalize(path: PathBuf) -> Option<(PathBuf, String)> {
 
 fn build_key_entry<'a>(
     path: &'a Path,
+    bucket_path: &'a Path,
     bucket: &'a Bucket<'_>,
     objects_ids: &'a mut Vec<ObjectId>,
     local_storage: &'a LocalStorage,
@@ -421,25 +422,32 @@ fn build_key_entry<'a>(
                 continue;
             };
             if entry.is_dir() {
-                let key_entry = build_key_entry(&entry, bucket, objects_ids, local_storage).await;
+                let key_entry =
+                    build_key_entry(&entry, bucket_path, bucket, objects_ids, local_storage).await;
                 let key = Segment::new(file_name);
                 keys.insert(key, key_entry);
-            } else {
+            } else if path != bucket_path {
                 objects.push((file_name, entry));
             }
         }
 
-        let objs = sync_objects(
-            objects,
-            bucket.borrow(),
-            Key::from_bucket(bucket.borrow(), path.parent().unwrap()).unwrap(),
-            local_storage,
-            objects_ids,
-        )
-        .await;
+        let objects = match objects.is_empty() {
+            false => None,
+            true => {
+                let objs = sync_objects(
+                    objects,
+                    bucket.borrow(),
+                    Key::from_bucket(bucket.borrow(), path).unwrap(),
+                    local_storage,
+                    objects_ids,
+                )
+                .await;
+                (!objs.is_empty()).then_some(objs)
+            }
+        };
 
         KeyEntry {
-            objects: (!objs.is_empty()).then_some(objs),
+            objects,
             keys: (!keys.is_empty()).then_some(keys),
             ..Default::default()
         }
