@@ -329,7 +329,7 @@ impl BucketMap {
         let mut inner = BTreeMap::new();
         tracing::info!("[ BucketMap ] Build");
         for (bucket, path) in buckets {
-            let entry = build_key_entry(&path, &path, &bucket, &mut object_ids, ls).await;
+            let entry = build_key_entry(&path, &bucket, &mut object_ids, ls).await;
             inner.insert(bucket, entry);
         }
         tracing::debug!("[ BucketMap ] Build: {:#?}", inner);
@@ -345,9 +345,16 @@ async fn sync_objects(
     key: Key<'_>,
     local_storage: &LocalStorage,
     objects_ids: &mut Vec<ObjectId>,
-) -> Vec<Object> {
+) -> Option<Vec<Object>> {
+    if vec.is_empty() {
+        return None;
+    };
+
     let mut resp = Vec::new();
+    tracing::trace!("[ fn_sync_objects ] vector entry: {vec:?}");
+
     for (file_name, path) in vec {
+        tracing::debug!("[ fn_sync_objects ] processing {path:?} {file_name:?}");
         if let Ok(Some(object)) = local_storage
             .get_object_filename(bucket.borrow(), key.borrow(), &file_name)
             .await
@@ -359,7 +366,7 @@ async fn sync_objects(
             resp.push(object.object);
         } else {
             let obj = Object::new(path, Default::default()).await;
-
+            tracing::warn!("[ fn_sync_objects ] Object {file_name} not found in db, inserting it");
             if let Err(er) = local_storage
                 .new_object(bucket.borrow(), key.borrow(), &obj)
                 .await
@@ -370,7 +377,7 @@ async fn sync_objects(
         }
     }
 
-    resp
+    Some(resp)
 }
 
 async fn file_name_normalize(path: PathBuf) -> Option<(PathBuf, String)> {
@@ -407,7 +414,6 @@ async fn file_name_normalize(path: PathBuf) -> Option<(PathBuf, String)> {
 
 fn build_key_entry<'a>(
     path: &'a Path,
-    bucket_path: &'a Path,
     bucket: &'a Bucket<'_>,
     objects_ids: &'a mut Vec<ObjectId>,
     local_storage: &'a LocalStorage,
@@ -422,29 +428,26 @@ fn build_key_entry<'a>(
                 continue;
             };
             if entry.is_dir() {
-                let key_entry =
-                    build_key_entry(&entry, bucket_path, bucket, objects_ids, local_storage).await;
+                tracing::debug!("[ fn_build_key_entry ] Key found {entry:?}");
+                let key_entry = build_key_entry(&entry, bucket, objects_ids, local_storage).await;
                 let key = Segment::new(file_name);
                 keys.insert(key, key_entry);
-            } else if path != bucket_path {
+            } else {
+                tracing::debug!(
+                    "[ fn_build_key_entry ] Object found {entry:?} file_name: {file_name:?}"
+                );
                 objects.push((file_name, entry));
             }
         }
 
-        let objects = match objects.is_empty() {
-            false => None,
-            true => {
-                let objs = sync_objects(
-                    objects,
-                    bucket.borrow(),
-                    Key::from_bucket(bucket.borrow(), path).unwrap(),
-                    local_storage,
-                    objects_ids,
-                )
-                .await;
-                (!objs.is_empty()).then_some(objs)
-            }
-        };
+        let objects = sync_objects(
+            objects,
+            bucket.borrow(),
+            Key::from_bucket(bucket.borrow(), path).unwrap(),
+            local_storage,
+            objects_ids,
+        )
+        .await;
 
         KeyEntry {
             objects,
