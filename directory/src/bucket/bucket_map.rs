@@ -13,7 +13,7 @@ use crate::{
         Bucket, Cowed,
         fhs::Fhs,
         key::{Key, Segment},
-        object::{self, Object},
+        object::Object,
         utils::{
             Rename, RenameDecision, list_buckets_and_normalize,
             normalizeds::{NormalizeFileUtf8, NormalizePathUtf8},
@@ -367,11 +367,16 @@ async fn sync_objects(
         } else {
             let obj = Object::new(path, Default::default()).await;
             tracing::warn!("[ fn_sync_objects ] Object {file_name} not found in db, inserting it");
-            if let Err(er) = local_storage
+
+            match local_storage
                 .new_object(bucket.borrow(), key.borrow(), &obj)
                 .await
             {
-                tracing::error!("{er}");
+                Ok(res) => {
+                    tracing::trace!("[ fn_sync_object ] object {file_name} inserted");
+                    objects_ids.push(res.inserted_id.as_object_id().unwrap());
+                }
+                Err(er) => tracing::error!("{er}"),
             }
             resp.push(obj);
         }
