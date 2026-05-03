@@ -4,9 +4,8 @@ use std::{
     pin::Pin,
 };
 
-use futures::{FutureExt, StreamExt, TryStreamExt};
-use hyper_tungstenite::HyperWebsocket;
-use mongodb::bson::{Document, doc, oid::ObjectId};
+use futures::{FutureExt, TryStreamExt};
+use mongodb::bson::{doc, oid::ObjectId};
 
 use crate::{
     actor::Actor,
@@ -22,10 +21,7 @@ use crate::{
     },
     manager::{
         Change,
-        websocket::{
-            WebSocketHandler,
-            broker::{Broker, WSBroker},
-        },
+        websocket::broker::{Broker, WSBroker},
     },
     state::local_storage::{AsObjectDeserialize, COLLECTION, LocalStorage},
 };
@@ -344,18 +340,17 @@ impl BucketMap {
 }
 
 async fn sync_objects(
-    vec: Vec<PathBuf>,
+    vec: Vec<(String, PathBuf)>,
     bucket: Bucket<'_>,
     key: Key<'_>,
     local_storage: &LocalStorage,
     objects_ids: &mut Vec<ObjectId>,
 ) -> Vec<Object> {
     let mut resp = Vec::new();
-    for path in vec {
-        if let Some(name) = path.file_name().and_then(|x| x.to_str())
-            && let Ok(Some(object)) = local_storage
-                .get_object_filename(bucket.borrow(), key.borrow(), name)
-                .await
+    for (file_name, path) in vec {
+        if let Ok(Some(object)) = local_storage
+            .get_object_filename(bucket.borrow(), key.borrow(), &file_name)
+            .await
         {
             tracing::info!(
                 "[ fn_sync_object ] {{ Object found on db (Method::name) }} object: {object:?}"
@@ -430,14 +425,14 @@ fn build_key_entry<'a>(
                 let key = Segment::new(file_name);
                 keys.insert(key, key_entry);
             } else {
-                objects.push(entry);
+                objects.push((file_name, entry));
             }
         }
 
         let objs = sync_objects(
             objects,
             bucket.borrow(),
-            Key::from_bucket(bucket.borrow(), path).unwrap(),
+            Key::from_bucket(bucket.borrow(), path.parent().unwrap()).unwrap(),
             local_storage,
             objects_ids,
         )
@@ -476,10 +471,11 @@ pub async fn sync_object_with_database(ls: &LocalStorage, objects_ids: Vec<Objec
         .collect::<Vec<_>>();
 
     let delete_result = pool
-        .collection::<Document>(COLLECTION)
+        .collection::<AsObjectDeserialize>(COLLECTION)
         .delete_many(doc! {"_id": {"$in": objects}})
         .await
         .expect("[ fn sync_object_with_database ] Failed to delete Objects");
+
     tracing::warn!(
         "[ fn sync_object_with_database ] {} Objects deleted",
         delete_result.deleted_count
