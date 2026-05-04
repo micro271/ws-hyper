@@ -4,11 +4,16 @@ mod models;
 mod redirect;
 mod stream_upload;
 
-use std::{net::SocketAddr, sync::Arc};
+use bytes::Bytes;
+use http::{Method, Request, Response, header};
+use http_body_util::Full;
+use hyper::{body::Incoming, server::conn::http1, service::service_fn};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
 use tokio::net::TcpListener;
-use utils::{Io, Peer, service_with_state};
-
-use crate::grpc_v1::GrpcClient;
+use utils::{
+    Io, Peer,
+    middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,23 +27,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket = SocketAddr::new(ip_app.parse().unwrap(), 4000);
     let listen = TcpListener::bind(socket).await?;
 
-    let sender = Arc::new(GrpcClient::new(endpoint_grpc_client_check).await);
+    let cors = CorsBuilder::default()
+        .allow_origin("http://localhost:8080")
+        .allow_method(Method::PUT)
+        .allow_method(Method::GET)
+        .allow_method(Method::OPTIONS)
+        .allow_method(Method::PATCH)
+        .allow_header(header::CONTENT_TYPE)
+        .allow_header(header::COOKIE)
+        .allow_header(header::AUTHORIZATION)
+        .allow_credentials(true)
+        .build();
+
+    let trace = LogLayerBuilder::default()
+        .on_request(async |x| {
+            let hd = [
+                (header::CONTENT_TYPE, x.headers().get(header::CONTENT_TYPE)),
+                (header::COOKIE, x.headers().get(header::COOKIE)),
+                (
+                    header::AUTHORIZATION,
+                    x.headers().get(header::AUTHORIZATION),
+                ),
+                (header::USER_AGENT, x.headers().get(header::USER_AGENT)),
+                (header::ORIGIN, x.headers().get(header::ORIGIN)),
+            ]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|v| (name, v)))
+            .collect::<HashMap<_, _>>();
+
+            tracing::info!(
+                "{{ on_request }} path={} method={} peer={:?} headers {:?}",
+                x.uri().path(),
+                x.method(),
+                x.extensions().get::<Peer>(),
+                hd,
+            )
+        })
+        .on_response(async |x, i| {
+            tracing::info!(
+                "{{ on_response }} status = {} duration = {}ms headers = {:?}",
+                x.status(),
+                i.elapsed().as_millis(),
+                x.headers()
+            )
+        })
+        .build();
 
     tracing::info!("Listening: {:?}", &socket);
+
+    let stack = MiddlwareStack::default()
+        .entry_fn(async |req: Request<Incoming>| {
+            Result::<Response<Full<Bytes>>, Infallible>::Ok(Response::new(Full::new(
+                Bytes::default(),
+            )))
+        })
+        .layer(cors)
+        .layer(trace);
+
     loop {
         let (stream, _) = listen.accept().await?;
-        let peer = Peer::new(stream.peer_addr().ok());
         let io = Io::new(stream);
-        let sender = sender.clone();
+        let _stack = stack.clone();
         tokio::task::spawn(async move {
-            if let Err(e) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(
-                    io,
-                    service_with_state(sender, async |mut req| {
-                        req.extensions_mut().insert(peer);
-                        handlers::entry(req).await
-                    }),
-                )
+            if let Err(e) = http1::Builder::new()
+                .serve_connection(io, service_fn(|req| _stack.call(req)))
                 .await
             {
                 tracing::error!("{e:?}");
