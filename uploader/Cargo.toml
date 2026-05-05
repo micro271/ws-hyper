@@ -1,0 +1,9 @@
+[package]
+name = "uploader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hyper = { version = "1.9.0", features = ["http1"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.52.2", features = ["full"] }

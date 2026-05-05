@@ -1,7 +1,7 @@
 use http::{Request, Response};
 use hyper::body::Body;
 
-use crate::middleware::Layer;
+use crate::middleware::{Layer, SimpleFuture};
 
 #[derive(Clone)]
 pub struct EntryFn<E>(E);
@@ -31,7 +31,8 @@ where
         &self,
         req: http::Request<ReqBody>,
     ) -> impl Future<Output = Result<http::Response<ResBody>, Self::Error>> {
-        let tmp = self.0.clone();
-        async move { tmp(req).await }
+        SimpleFuture {
+            f: self.0.clone()(req),
+        }
     }
 }

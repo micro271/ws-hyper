@@ -44,7 +44,7 @@ impl<'a> Key<'a> {
     pub fn from_bucket(bucket: Bucket<'_>, path: &Path) -> Option<Self> {
         let path = path.to_str()?;
         let name = bucket.name();
-        tracing::trace!("[ Key::fn_from_bucket ] path: {path} - name: {name}");
+        tracing::trace!("[ Key::fn_from_bucket ] key: {path} - bucket: {name}");
         path.split_once(name)
             .map(|(_, x)| x.strip_prefix("/").unwrap_or(x).to_string())
             .map(|x| Self::new(if x.is_empty() { ".".to_string() } else { x }))

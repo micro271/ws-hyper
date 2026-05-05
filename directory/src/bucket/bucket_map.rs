@@ -373,8 +373,7 @@ async fn sync_objects(
                 .await
             {
                 Ok(res) => {
-                    tracing::trace!("[ fn_sync_object ] object {file_name} inserted");
-                    objects_ids.push(res.inserted_id.as_object_id().unwrap());
+                    objects_ids.push(res.inserted_id.as_object_id().unwrap()/* The inserted_id should always be an ObjectId */);
                 }
                 Err(er) => tracing::error!("{er}"),
             }
@@ -493,7 +492,7 @@ pub async fn sync_object_with_database(ls: &LocalStorage, objects_ids: Vec<Objec
         .expect("[ fn sync_object_with_database ] Failed to delete Objects");
 
     tracing::warn!(
-        "[ fn sync_object_with_database ] {} Objects deleted",
+        "[ fn sync_object_with_database ] {} Objects deleted in db",
         delete_result.deleted_count
     );
 }

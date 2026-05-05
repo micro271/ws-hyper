@@ -27,7 +27,9 @@ use tracing::Level;
 use tracing_subscriber::fmt;
 use utils::{
     Io, Peer,
-    middleware::{Layer, MiddlwareStack, cors::CorsBuilder, log_layer::builder::LogLayerBuilder},
+    middleware::{
+        Layer, MiddlewareBuilder, cors::CorsBuilder, log_layer::builder::LogLayerBuilder,
+    },
 };
 
 #[tokio::main]
@@ -131,8 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let stack_layer = Arc::new(
-        MiddlwareStack::default()
-            .entry_fn(entry)
+        MiddlewareBuilder::entry_fn(entry)
             .layer(Auth)
             .state(state)
             .layer(cors)
