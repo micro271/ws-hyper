@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::middleware::{IntoLayer, Layer, SimpleFuture};
+use crate::middleware::{IntoLayer, Layer};
 use http::{Request, Response};
 use hyper::body::Body;
 
